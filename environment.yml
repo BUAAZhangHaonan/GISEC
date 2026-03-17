@@ -1,13 +1,16 @@
 name: affinigraph
 channels:
-  - pytorch
-  - conda-forge
+  - defaults
 dependencies:
-  - python=3.10
-  - numpy
-  - opencv
-  - pytorch
-  - pytest
+  - python=3.13
   - pip
   - pip:
+      - numpy
+      - pytest
+      - opencv-python
       - pycocotools
+      - --index-url https://download.pytorch.org/whl/cu130
+      - --extra-index-url https://pypi.org/simple
+      - torch==2.10.0
+      - torchvision==0.25.0
+      - torchaudio==2.10.0

@@ -19,7 +19,6 @@ This repository is intentionally independent from the `magformer` training stack
 - reference bank contract with `compat` and `strict` validation modes
 - `train`, `eval`, and `infer` CLI entrypoints
 - experiment runners with configurable Python / conda execution
-- compatibility wrappers for the legacy `gnn_reference_prior` import paths
 
 ## External Inputs
 
@@ -44,6 +43,14 @@ Create the independent environment:
 conda env create -f environment.yml
 conda run -n affinigraph pytest -q
 ```
+
+The environment file is intentionally biased toward the newest supported stack:
+
+- `Python 3.13`
+- `torch 2.10.0`
+- `torchvision 0.25.0`
+- `torchaudio 2.10.0`
+- CUDA wheel index: `cu130`
 
 The project still works in `compat` mode with the current `reference_data_v1`, which is missing `shape_stats.json` and preview artifacts required by the stricter contract.
 

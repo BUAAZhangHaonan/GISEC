@@ -7,7 +7,7 @@ name = "affinigraph"
 version = "0.1.0"
 description = "AffiniGraph: reference-conditioned RGB-D fragment graph reasoning for ECC instance segmentation"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.13"
 dependencies = [
   "numpy",
   "opencv-python",
@@ -22,4 +22,4 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["affinigraph*", "gnn_reference_prior*"]
+include = ["affinigraph*"]
