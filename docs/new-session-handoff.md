@@ -3,7 +3,7 @@
 ## Repository
 
 - root:
-  - `/home/k100/zhn/electronic-components-grasp-and-segment/gnn-reference-prior`
+  - `/home/k100/zhn/electronic-components-grasp-and-segment/affinigraph`
 - project name:
   - `AffiniGraph`
 - python package:
