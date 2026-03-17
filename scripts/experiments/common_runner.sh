@@ -47,3 +47,19 @@ runner_exec() {
     exit "${rc}"
   fi
 }
+
+runner_python_cmd() {
+  if [[ -n "${AFFINIGRAPH_CONDA_ENV:-}" ]]; then
+    printf 'conda run -n %s python' "${AFFINIGRAPH_CONDA_ENV}"
+    return 0
+  fi
+  if [[ -n "${AFFINIGRAPH_PYTHON:-}" ]]; then
+    printf '%s' "${AFFINIGRAPH_PYTHON}"
+    return 0
+  fi
+  if [[ -n "${PYTHON:-}" ]]; then
+    printf '%s' "${PYTHON}"
+    return 0
+  fi
+  printf 'python'
+}

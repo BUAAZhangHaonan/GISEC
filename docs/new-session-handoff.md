@@ -4,6 +4,10 @@
 
 - root:
   - `/home/k100/zhn/electronic-components-grasp-and-segment/gnn-reference-prior`
+- project name:
+  - `AffiniGraph`
+- python package:
+  - `affinigraph`
 
 ## External Inputs
 
@@ -52,22 +56,24 @@
 ## First Commands
 
 ```bash
-conda run -n magformer pytest -q
+conda run -n affinigraph pytest -q
 ```
 
 ```bash
-bash scripts/experiments/run_0831_1k_20ep_1024_reference_unet_gnn.sh \
+bash scripts/experiments/run_0831_1k_20ep_1024_affinigraph.sh \
   --dataset-root /home/k100/zhn/electronic-components-grasp-and-segment/magformer_datasets/0831_1K \
   --reference-root /home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/reference_data_v1/150044M155220 \
-  --output-root output/experiments/reference_unet_gnn_0831 \
+  --output-root output/experiments/affinigraph_0831 \
+  --contract-mode compat \
   --variant G5 \
   --run
 ```
 
 ```bash
-bash scripts/experiments/run_0831_1k_20ep_1024_reference_unet_gnn_all.sh \
+bash scripts/experiments/run_0831_1k_20ep_1024_affinigraph_all.sh \
   --dataset-root /home/k100/zhn/electronic-components-grasp-and-segment/magformer_datasets/0831_1K \
   --reference-root /home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/reference_data_v1/150044M155220 \
-  --output-root output/experiments/reference_unet_gnn_0831_matrix \
+  --output-root output/experiments/affinigraph_0831_matrix \
+  --contract-mode compat \
   --run
 ```

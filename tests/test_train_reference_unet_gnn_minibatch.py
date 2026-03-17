@@ -62,7 +62,7 @@ def test_train_reference_unet_gnn_minibatch(tmp_path: Path) -> None:
         [
             sys.executable,
             "-m",
-            "gnn_reference_prior.train.train_reference_unet_gnn",
+            "affinigraph.cli.train",
             "--dataset-root",
             str(dataset_root),
             "--reference-root",
@@ -87,6 +87,8 @@ def test_train_reference_unet_gnn_minibatch(tmp_path: Path) -> None:
             "1",
             "--min-area",
             "4",
+            "--contract-mode",
+            "compat",
         ],
         cwd=str(repo_root),
         check=True,

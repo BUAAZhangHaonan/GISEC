@@ -1,0 +1,51 @@
+from __future__ import annotations
+
+import torch
+
+from affinigraph.config.variants import VariantSpec, get_variant_spec
+from affinigraph.datasets.reference_bank import ReferenceBank
+from affinigraph.models.graph_utils import GraphBatch, heuristic_edge_scores, merge_instances_from_edge_scores
+from affinigraph.models.reference_cache import ReferenceCache
+from affinigraph.models.reference_unet_gnn import ReferenceUNetGNN
+
+
+class GraphRefiner:
+    def __init__(self, model: ReferenceUNetGNN):
+        self.model = model
+
+    @torch.no_grad()
+    def build_reference_cache(self, bank: ReferenceBank, device: torch.device) -> ReferenceCache:
+        return self.model.build_reference_cache(bank, device)
+
+    def build_graph_batch(
+        self,
+        *,
+        outputs: dict[str, torch.Tensor],
+        depth_map: torch.Tensor,
+        instance_map: torch.Tensor | None,
+        reference_cache: ReferenceCache | None,
+        variant: str | VariantSpec,
+    ) -> GraphBatch:
+        return self.model.build_graph_batch(
+            outputs=outputs,
+            depth_map=depth_map,
+            instance_map=instance_map,
+            reference_cache=reference_cache,
+            variant=get_variant_spec(variant),
+        )
+
+    def score_edges(self, graph_batch: GraphBatch, variant: str | VariantSpec) -> torch.Tensor:
+        variant_spec = get_variant_spec(variant)
+        if variant_spec.use_learned_edge_scorer:
+            return self.model.forward_graph(graph_batch)
+        heuristic_scores = heuristic_edge_scores(graph_batch.edge_features).clamp(1e-4, 1.0 - 1e-4)
+        return torch.logit(heuristic_scores)
+
+    def merge(self, *, graph_batch: GraphBatch, edge_logits: torch.Tensor, threshold: float) -> torch.Tensor:
+        merged = merge_instances_from_edge_scores(
+            fragments=graph_batch.fragments,
+            edge_index=graph_batch.edge_index,
+            edge_scores=torch.sigmoid(edge_logits),
+            threshold=threshold,
+        )
+        return torch.from_numpy(merged)

@@ -6,8 +6,8 @@ import cv2
 import numpy as np
 import torch
 
-from gnn_reference_prior.datasets.reference_bank import load_reference_bank
-from gnn_reference_prior.models.reference_unet_gnn import ReferenceUNetGNN
+from affinigraph.datasets.reference_bank import load_reference_bank
+from affinigraph.models.reference_unet_gnn import ReferenceUNetGNN
 
 
 def _make_reference_root(root: Path) -> Path:
