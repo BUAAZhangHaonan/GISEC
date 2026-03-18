@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from affinigraph.train.train_reference_unet_gnn import _evaluate_json
+from gisec.train.train_gisec import _evaluate_json
 
 
 def test_evaluate_json_requires_pycocotools(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

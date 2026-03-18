@@ -2,14 +2,14 @@
 
 ## Goal
 
-Build a `reference-conditioned RGB-D UNet` with a learned graph edge scorer that replaces the current heuristic fragment merge.
+Build a `prototype-guided RGB-D UNet` with a learned graph edge scorer that replaces the current heuristic fragment merge.
 
 ## Inputs
 
 - query:
   - RGB image
   - depth map
-- reference:
+- prototype bank:
   - RGB views
   - depth views
   - mask views
@@ -17,9 +17,9 @@ Build a `reference-conditioned RGB-D UNet` with a learned graph edge scorer that
 
 ## Model Components
 
-- reference bank loader
+- prototype bank loader
 - ECC query dataset loader
-- reference-conditioned RGB-D UNet backbone
+- prototype-guided RGB-D UNet backbone
 - graph builder
 - graph edge scorer
 - graph-based merge
@@ -29,9 +29,9 @@ Build a `reference-conditioned RGB-D UNet` with a learned graph edge scorer that
 - `B0`: heuristic merge baseline
 - `G1`: graph edge scorer with `boundary + affinity`
 - `G2`: `G1 + shape_stats`
-- `G3`: `G1 + RGB reference similarity`
-- `G4`: `G1 + RGB-D reference similarity`
-- `G5`: `G1 + RGB-D reference similarity + shape_stats`
+- `G3`: `G1 + RGB prototype similarity`
+- `G4`: `G1 + RGB-D prototype similarity`
+- `G5`: `G1 + RGB-D prototype similarity + shape_stats`
 
 ## Acceptance
 

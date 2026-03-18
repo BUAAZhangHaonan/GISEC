@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from affinigraph.models.graph_utils import GraphBatch, heuristic_edge_scores, merge_instances_from_edge_scores
+from gisec.models.graph_utils import GraphBatch, heuristic_edge_scores, merge_instances_from_edge_scores
 
 
 def test_merge_instances_from_edge_scores_merges_connected_fragments() -> None:

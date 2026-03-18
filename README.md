@@ -1,12 +1,12 @@
-# AffiniGraph
+# GISEC: Graph-based Instance Segmentation for Electronic Components
 
-`AffiniGraph` is the Stage 1 research repository for `reference-conditioned RGB-D fragment graph reasoning` on ECC-style electronic component scenes.
+`GISEC` is the Stage 1 research repository for `prototype-guided RGB-D fragment graph reasoning` on ECC-style electronic component scenes.
 
 ## Why This Repo Exists
 
-The lightweight RGB-D line in `magformer` has already established a stable baseline, but the more elaborate attention variants did not beat the best low-cost fusion design. `AffiniGraph` shifts the research focus to a new hypothesis:
+The lightweight RGB-D line in `magformer` has already established a stable baseline, but the more elaborate attention variants did not beat the best low-cost fusion design. `GISEC` shifts the research focus to a new hypothesis:
 
-- a structured `reference bank` can provide part-specific appearance and geometry priors
+- a structured `prototype bank` can provide part-specific appearance and geometry priors
 - a lightweight `U-Net-first` backbone can predict fragment-level cues cheaply
 - a dedicated `GraphRefiner` can merge fragments more reliably than heuristic grouping under occlusion-heavy clutter
 
@@ -14,9 +14,9 @@ This repository is intentionally independent from the `magformer` training stack
 
 ## Current Scope
 
-- independent Python package: `affinigraph`
+- independent Python package: `gisec`
 - explicit variant interface: `B0/G1/G2/G3/G4/G5`
-- reference bank contract with `compat` and `strict` validation modes
+- prototype bank contract with `compat` and `strict` validation modes
 - `train`, `eval`, and `infer` CLI entrypoints
 - experiment runners with configurable Python / conda execution
 
@@ -24,8 +24,8 @@ This repository is intentionally independent from the `magformer` training stack
 
 - Query dataset root:
   - `/home/k100/zhn/electronic-components-grasp-and-segment/magformer_datasets/0831_1K`
-- Reference bank root:
-  - `/home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/reference_data_v1`
+- Prototype bank root:
+  - `/path/to/prototype-bank/<component-id>`
 
 ## Key Docs
 
@@ -33,7 +33,7 @@ This repository is intentionally independent from the `magformer` training stack
 - [docs/reading-pack.md](docs/reading-pack.md)
 - [docs/research-context.md](docs/research-context.md)
 - [docs/stage1-research-plan.md](docs/stage1-research-plan.md)
-- [docs/plans/2026-03-17-01-affinigraph-foundation.md](docs/plans/2026-03-17-01-affinigraph-foundation.md)
+- [docs/plans/2026-03-17-01-gisec-foundation.md](docs/plans/2026-03-17-01-gisec-foundation.md)
 
 ## Quick Start
 
@@ -41,7 +41,7 @@ Create the independent environment:
 
 ```bash
 conda env create -f environment.yml
-conda run -n affinigraph pytest -q
+conda run -n gisec pytest -q
 ```
 
 The environment file is intentionally biased toward the newest supported stack:
@@ -52,15 +52,15 @@ The environment file is intentionally biased toward the newest supported stack:
 - `torchaudio 2.10.0`
 - CUDA wheel index: `cu130`
 
-The project still works in `compat` mode with the current `reference_data_v1`, which is missing `shape_stats.json` and preview artifacts required by the stricter contract.
+The project still works in `compat` mode with prototype-bank exports that are missing `shape_stats.json` and preview artifacts required by the stricter contract.
 
 ### Train
 
 ```bash
-python -m affinigraph.cli.train \
+python -m gisec.cli.train \
   --dataset-root /home/k100/zhn/electronic-components-grasp-and-segment/magformer_datasets/0831_1K \
-  --reference-root /home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/reference_data_v1/150044M155220 \
-  --output-dir output/experiments/affinigraph_0831/G5 \
+  --prototype-root /path/to/prototype-bank/150044M155220 \
+  --output-dir output/experiments/gisec_0831/G5 \
   --variant G5 \
   --contract-mode compat
 ```
@@ -68,36 +68,36 @@ python -m affinigraph.cli.train \
 ### Eval
 
 ```bash
-python -m affinigraph.cli.eval \
+python -m gisec.cli.eval \
   --dataset-root /home/k100/zhn/electronic-components-grasp-and-segment/magformer_datasets/0831_1K \
-  --reference-root /home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/reference_data_v1/150044M155220 \
-  --output-dir output/experiments/affinigraph_0831/G5 \
+  --prototype-root /path/to/prototype-bank/150044M155220 \
+  --output-dir output/experiments/gisec_0831/G5 \
   --variant G5 \
-  --checkpoint output/experiments/affinigraph_0831/G5/model_best.pth \
+  --checkpoint output/experiments/gisec_0831/G5/model_best.pth \
   --contract-mode compat
 ```
 
 ### Runner
 
 ```bash
-bash scripts/experiments/run_0831_1k_20ep_1024_affinigraph.sh \
+bash scripts/experiments/run_0831_1k_20ep_1024_gisec.sh \
   --dataset-root /home/k100/zhn/electronic-components-grasp-and-segment/magformer_datasets/0831_1K \
-  --reference-root /home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/reference_data_v1/150044M155220 \
-  --output-root output/experiments/affinigraph_0831 \
+  --prototype-root /path/to/prototype-bank/150044M155220 \
+  --output-root output/experiments/gisec_0831 \
   --contract-mode compat \
   --run
 ```
 
-Use `AFFINIGRAPH_CONDA_ENV=affinigraph` or `AFFINIGRAPH_PYTHON=/path/to/python` to control how the shell runners invoke Python.
+Use `GISEC_CONDA_ENV=gisec` or `GISEC_PYTHON=/path/to/python` to control how the shell runners invoke Python.
 
 ## Variant Semantics
 
-- `B0`: heuristic merge baseline without reference shape prior
+- `B0`: heuristic merge baseline without prototype priors
 - `G1`: learned graph edge scorer with boundary + affinity
 - `G2`: `G1 + shape_stats`
-- `G3`: `G1 + RGB reference similarity`
-- `G4`: `G1 + RGB-D reference similarity`
-- `G5`: `G1 + RGB-D reference similarity + shape_stats`
+- `G3`: `G1 + RGB prototype similarity`
+- `G4`: `G1 + RGB-D prototype similarity`
+- `G5`: `G1 + RGB-D prototype similarity + shape_stats`
 
 ## Outputs
 
@@ -114,7 +114,7 @@ Every train / eval run standardizes the main artifacts:
 
 The main Stage 1 story is fixed:
 
-- `structured reference bank + RGB-D fragment graph reasoning`
+- `structured prototype bank + RGB-D fragment graph reasoning`
 - `U-Net-first` implementation priority
 - `GraphRefiner` first as a standalone module, then later as a `magformer` post-processing bridge
 - no new investment in generic transformer attention branches unless the bridge stage proves it is necessary

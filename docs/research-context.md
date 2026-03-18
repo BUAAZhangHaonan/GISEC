@@ -11,15 +11,15 @@ The lightweight RGB-D line in `magformer` is now converged enough to establish a
   - `magformer_lightdepth_convnextlite_priorguidedcrossattn_edge_validhole_variance`
   - `best segm AP = 71.3505`
 
-The key conclusion is that increasingly elaborate attention injection did not overtake the best low-cost spatial gating design. That makes `reference-conditioned graph reasoning` the next high-value direction.
+The key conclusion is that increasingly elaborate attention injection did not overtake the best low-cost spatial gating design. That makes `prototype-guided graph reasoning` the next high-value direction.
 
 ## Working Hypothesis
 
-A per-part reference bank can help query-time instance grouping in ways that plain RGB-D fusion cannot:
+A per-part prototype bank can help query-time instance grouping in ways that plain RGB-D fusion cannot:
 
-- appearance similarity between query fragments and known reference prototypes
-- shape compatibility between adjacent query fragments and reference shape statistics
-- depth-aware continuity cues regularized by reference geometry
+- appearance similarity between query fragments and known prototype templates
+- shape compatibility between adjacent query fragments and prototype shape statistics
+- depth-aware continuity cues regularized by prototype geometry
 
 The first prototype should prove this at the graph-merge level before attempting a MagFormer integration.
 
@@ -27,15 +27,15 @@ The first prototype should prove this at the graph-merge level before attempting
 
 - Query protocol:
   - `0831_1K / 1024 / 20 epochs`
-- Reference bank root:
-  - `/home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/reference_data_v1`
-- Current reference baseline source:
+- Prototype bank root:
+  - `/home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/prototype_bank_v1`
+- Current prototype baseline source:
   - `magformer/baselines/run_unet_instance_ecc.py`
   - `magformer/baselines/unet_instance_models.py`
 
 ## Stage Breakdown
 
 - Stage 1 in this repository:
-  - `Reference-UNet + RGB-D + graph edge scorer + graph merge`
+  - `prototype-guided U-Net + RGB-D + graph edge scorer + graph merge`
 - Stage 2 later:
-  - migrate the validated graph/reference design into MagFormer as post-mask grouping / merge refinement
+  - migrate the validated graph/prototype design into MagFormer as post-mask grouping / merge refinement

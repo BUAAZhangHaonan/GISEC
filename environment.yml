@@ -1,4 +1,4 @@
-name: affinigraph
+name: gisec
 channels:
   - defaults
 dependencies:
