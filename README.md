@@ -34,6 +34,10 @@ This repository is intentionally independent from the `magformer` training stack
 - [docs/research-context.md](docs/research-context.md)
 - [docs/stage1-research-plan.md](docs/stage1-research-plan.md)
 - [docs/plans/2026-03-17-01-gisec-foundation.md](docs/plans/2026-03-17-01-gisec-foundation.md)
+- [docs/experiments/README.md](docs/experiments/README.md)
+- [docs/results/README.md](docs/results/README.md)
+- [docs/method/README.md](docs/method/README.md)
+- [docs/release-checklist.md](docs/release-checklist.md)
 
 ## Quick Start
 
@@ -109,6 +113,23 @@ Every train / eval run standardizes the main artifacts:
 - `run_summary.json`
 - `params_trainable.txt`
 - `wall_time_sec.txt`
+
+## Analysis
+
+Generate suite-level summaries after running a matrix:
+
+```bash
+python scripts/analysis/summarize_suite.py \
+  --suite-root output/experiments/gisec_0831_matrix \
+  --output-json docs/experiments/gisec_0831_matrix_summary.json \
+  --output-md docs/experiments/gisec_0831_matrix_summary.md
+```
+
+```bash
+python scripts/analysis/write_extended_metrics_table.py \
+  --suite-root output/experiments/gisec_0831_matrix \
+  --output docs/experiments/gisec_0831_matrix_extended_metrics.md
+```
 
 ## Research Direction
 
