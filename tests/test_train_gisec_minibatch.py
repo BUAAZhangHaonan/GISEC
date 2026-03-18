@@ -99,3 +99,13 @@ def test_train_gisec_minibatch(tmp_path: Path) -> None:
     assert (output_root / "metrics.cocoeval.json").exists()
     assert (output_root / "params_trainable.txt").exists()
     assert (output_root / "wall_time_sec.txt").exists()
+    run_summary = json.loads((output_root / "run_summary.json").read_text(encoding="utf-8"))
+    assert run_summary["variant"] == "G5"
+    assert run_summary["dataset_root"] == str(dataset_root.resolve())
+    assert run_summary["prototype_root"] == str(prototype_root.resolve())
+    assert run_summary["split"] == "val"
+    assert run_summary["image_size"] == 64
+    assert run_summary["batch"] == 1
+    assert run_summary["num_workers"] == 0
+    assert run_summary["min_area"] == 4
+    assert run_summary["edge_threshold"] == 0.5

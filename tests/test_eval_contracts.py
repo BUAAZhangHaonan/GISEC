@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from gisec.train.train_gisec import _evaluate_json
+from gisec.engine.runtime import evaluate_json
 
 
 def test_evaluate_json_requires_pycocotools(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -25,6 +25,6 @@ def test_evaluate_json_requires_pycocotools(monkeypatch: pytest.MonkeyPatch, tmp
     monkeypatch.setattr(builtins, "__import__", fake_import)
 
     with pytest.raises(RuntimeError) as exc_info:
-        _evaluate_json(ann_file, results_json)
+        evaluate_json(ann_file, results_json)
 
     assert "pycocotools" in str(exc_info.value)

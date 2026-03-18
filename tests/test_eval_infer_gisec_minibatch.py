@@ -171,3 +171,16 @@ def test_eval_and_infer_gisec_minibatch(tmp_path: Path) -> None:
     assert (eval_output / "run_summary.json").exists()
     assert (infer_output / "coco_instances_results.json").exists()
     assert (infer_output / "run_summary.json").exists()
+
+    eval_summary = json.loads((eval_output / "run_summary.json").read_text(encoding="utf-8"))
+    infer_summary = json.loads((infer_output / "run_summary.json").read_text(encoding="utf-8"))
+    assert eval_summary["dataset_root"] == str(dataset_root.resolve())
+    assert eval_summary["prototype_root"] == str(prototype_root.resolve())
+    assert eval_summary["split"] == "val"
+    assert eval_summary["image_size"] == 64
+    assert eval_summary["checkpoint"] == str(checkpoint.resolve())
+    assert infer_summary["dataset_root"] == str(dataset_root.resolve())
+    assert infer_summary["prototype_root"] == str(prototype_root.resolve())
+    assert infer_summary["split"] == "val"
+    assert infer_summary["image_size"] == 64
+    assert infer_summary["checkpoint"] == str(checkpoint.resolve())

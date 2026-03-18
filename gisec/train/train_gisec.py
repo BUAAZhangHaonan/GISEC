@@ -3,281 +3,26 @@ from __future__ import annotations
 import argparse
 import json
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Dict, List
 
-import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
 
 from gisec.config.variants import VariantSpec, get_variant_spec, variant_names
-from gisec.datasets.prototype_bank import load_prototype_bank
+from gisec.engine.runtime import (
+    RunContext,
+    RunSummary,
+    build_device,
+    build_loader,
+    build_model,
+    evaluate_and_export,
+    prepare_prototype_cache,
+    read_git_revision,
+    resolve_checkpoint,
+    write_json,
+)
 from gisec.graph_refiner import GraphRefiner
-from gisec.models.prototype_cache import cache_to_device
-from gisec.models.gisec_model import GISECModel
-
-
-@dataclass
-class RunSummary:
-    variant: str
-    contract_mode: str
-    checkpoint: str | None
-    results_json: str
-    metrics: Dict[str, Any]
-    inference_speed: Dict[str, Any]
-    params_trainable: int | None = None
-    wall_time_sec: int | None = None
-
-
-def _sync_cuda(device: torch.device) -> None:
-    if device.type == "cuda" and torch.cuda.is_available():
-        torch.cuda.synchronize(device)
-
-
-def _encode_binary_mask(mask: np.ndarray) -> Dict[str, Any]:
-    try:
-        from pycocotools import mask as mask_utils
-
-        rle = mask_utils.encode(np.asfortranarray(mask.astype(np.uint8)))
-        counts = rle["counts"]
-        if isinstance(counts, bytes):
-            counts = counts.decode("utf-8")
-        return {"size": list(rle["size"]), "counts": counts}
-    except ImportError:  # pragma: no cover - exercised implicitly in base env
-        contours, _ = __import__("cv2").findContours(mask.astype(np.uint8), __import__("cv2").RETR_EXTERNAL, __import__("cv2").CHAIN_APPROX_SIMPLE)
-        polygons = []
-        for contour in contours:
-            if contour.shape[0] < 3:
-                continue
-            polygons.append(contour.reshape(-1, 2).astype(float).flatten().tolist())
-        return polygons or [[0.0, 0.0, 1.0, 0.0, 1.0, 1.0]]
-
-
-def _masks_to_results(image_id: int, masks: List[np.ndarray]) -> List[Dict[str, Any]]:
-    results: List[Dict[str, Any]] = []
-    for mask in masks:
-        if int(mask.sum()) <= 0:
-            continue
-        ys, xs = np.nonzero(mask > 0)
-        x0, x1 = int(xs.min()), int(xs.max())
-        y0, y1 = int(ys.min()), int(ys.max())
-        results.append(
-            {
-                "image_id": int(image_id),
-                "category_id": 1,
-                "score": 1.0,
-                "bbox": [x0, y0, x1 - x0 + 1, y1 - y0 + 1],
-                "segmentation": _encode_binary_mask(mask.astype(np.uint8)),
-            }
-        )
-    return results
-
-
-def _fragment_masks_from_merged(merged: np.ndarray, min_area: int) -> List[np.ndarray]:
-    masks = []
-    for label in [int(x) for x in np.unique(merged).tolist() if int(x) > 0]:
-        mask = (merged == label).astype(np.uint8)
-        if int(mask.sum()) >= int(min_area):
-            masks.append(mask)
-    return masks
-
-
-def _evaluate_json(ann_file: Path, results_json: Path) -> Dict[str, Any]:
-    try:
-        from pycocotools.coco import COCO
-        from pycocotools.cocoeval import COCOeval
-    except ImportError as exc:  # pragma: no cover - exercised implicitly in dedicated test
-        raise RuntimeError(
-            "COCO evaluation requires pycocotools; install it in the active gisec environment."
-        ) from exc
-    coco_gt = COCO(str(ann_file))
-    raw_results = json.loads(results_json.read_text(encoding="utf-8"))
-    if not raw_results:
-        payload: Dict[str, Any] = {"iteration": -1}
-        for prefix in ["bbox", "segm"]:
-            payload[f"{prefix}/AP"] = 0.0
-            payload[f"{prefix}/AP50"] = 0.0
-            payload[f"{prefix}/AP75"] = 0.0
-            payload[f"{prefix}/APs"] = 0.0
-            payload[f"{prefix}/APm"] = 0.0
-            payload[f"{prefix}/APl"] = 0.0
-        return payload
-    coco_dt = coco_gt.loadRes(str(results_json))
-    payload: Dict[str, Any] = {"iteration": -1}
-    for iou_type, prefix in [("bbox", "bbox"), ("segm", "segm")]:
-        evaluator = COCOeval(coco_gt, coco_dt, iouType=iou_type)
-        evaluator.evaluate()
-        evaluator.accumulate()
-        evaluator.summarize()
-        stats = evaluator.stats.tolist()
-        payload[f"{prefix}/AP"] = float(stats[0])
-        payload[f"{prefix}/AP50"] = float(stats[1])
-        payload[f"{prefix}/AP75"] = float(stats[2])
-        payload[f"{prefix}/APs"] = float(stats[3])
-        payload[f"{prefix}/APm"] = float(stats[4])
-        payload[f"{prefix}/APl"] = float(stats[5])
-    return payload
-
-
-def _build_benchmark_payload(latencies_ms: list[float], device: torch.device) -> Dict[str, Any]:
-    if not latencies_ms:
-        return {
-            "status": "empty",
-            "timed_images": 0,
-            "latency_ms_mean": None,
-            "latency_ms_p50": None,
-            "latency_ms_p90": None,
-            "throughput_fps": None,
-            "inference_peak_memory_mb": None,
-        }
-    lat = np.asarray(latencies_ms, dtype=np.float64)
-    total_sec = float(lat.sum() / 1000.0)
-    peak_memory_mb = None
-    if device.type == "cuda" and torch.cuda.is_available():
-        peak_memory_mb = float(torch.cuda.max_memory_allocated(device) / (1024.0 * 1024.0))
-    return {
-        "status": "ok",
-        "timed_images": int(lat.size),
-        "latency_ms_mean": float(lat.mean()),
-        "latency_ms_p50": float(np.percentile(lat, 50)),
-        "latency_ms_p90": float(np.percentile(lat, 90)),
-        "throughput_fps": float(lat.size / total_sec) if total_sec > 0 else None,
-        "inference_peak_memory_mb": peak_memory_mb,
-    }
-
-
-def build_device(device_name: str) -> torch.device:
-    if device_name == "cpu":
-        return torch.device("cpu")
-    if torch.cuda.is_available():
-        return torch.device(device_name)
-    return torch.device("cpu")
-
-
-def build_loader(
-    *,
-    dataset_root: str,
-    split: str,
-    image_size: int,
-    train: bool,
-    batch_size: int,
-    num_workers: int,
-    use_cuda: bool,
-) -> DataLoader:
-    from gisec.datasets.ecc_query_dataset import ECCGraphDataset, collate_graph_batch
-
-    dataset = ECCGraphDataset(dataset_root, split, image_size, train)
-    return DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=train,
-        num_workers=num_workers,
-        pin_memory=use_cuda,
-        collate_fn=collate_graph_batch,
-    )
-
-
-def build_model(device: torch.device, checkpoint: str | Path | None = None) -> GISECModel:
-    model = GISECModel(base_channels=16).to(device)
-    if checkpoint is not None:
-        state_dict = torch.load(str(checkpoint), map_location=device)
-        model.load_state_dict(state_dict)
-    return model
-
-
-def write_json(path: Path, payload: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n", encoding="utf-8")
-
-
-def generate_results(
-    *,
-    model: GISECModel,
-    loader: DataLoader,
-    device: torch.device,
-    prototype_cache,
-    variant: str | VariantSpec,
-    min_area: int,
-    edge_threshold: float,
-    max_images: int | None = None,
-) -> tuple[list[Dict[str, Any]], Dict[str, Any]]:
-    variant_spec = get_variant_spec(variant)
-    refiner = GraphRefiner(model)
-    results: list[Dict[str, Any]] = []
-    latencies_ms: list[float] = []
-    model.eval()
-    if device.type == "cuda" and torch.cuda.is_available():
-        torch.cuda.reset_peak_memory_stats(device)
-    with torch.no_grad():
-        for batch_index, batch in enumerate(loader):
-            if max_images is not None and batch_index >= int(max_images):
-                break
-            images = batch["images"].to(device)
-            depths = batch["depths"].to(device)
-            _sync_cuda(device)
-            start = time.perf_counter()
-            outputs = model(images, query_depth=depths, prototype_cache=prototype_cache)
-            graph_batch = refiner.build_graph_batch(
-                outputs=outputs,
-                depth_map=depths,
-                instance_map=None,
-                prototype_cache=prototype_cache,
-                variant=variant_spec,
-            )
-            edge_logits = refiner.score_edges(graph_batch, variant_spec)
-            merged = refiner.merge(
-                graph_batch=graph_batch,
-                edge_logits=edge_logits,
-                threshold=edge_threshold,
-            ).cpu().numpy()
-            _sync_cuda(device)
-            latencies_ms.append((time.perf_counter() - start) * 1000.0)
-            masks = _fragment_masks_from_merged(merged, min_area=min_area)
-            results.extend(_masks_to_results(int(batch["image_ids"][0]), masks))
-    return results, _build_benchmark_payload(latencies_ms, device)
-
-
-def evaluate_and_export(
-    *,
-    model: GISECModel,
-    loader: DataLoader,
-    device: torch.device,
-    prototype_cache,
-    variant: str | VariantSpec,
-    ann_file: Path | None,
-    results_json: Path,
-    min_area: int,
-    edge_threshold: float,
-    max_images: int | None = None,
-) -> tuple[Dict[str, Any], Dict[str, Any]]:
-    results, inference_speed = generate_results(
-        model=model,
-        loader=loader,
-        device=device,
-        prototype_cache=prototype_cache,
-        variant=variant,
-        min_area=min_area,
-        edge_threshold=edge_threshold,
-        max_images=max_images,
-    )
-    results_json.write_text(json.dumps(results, ensure_ascii=False) + "\n", encoding="utf-8")
-    if ann_file is None or not ann_file.exists():
-        return {"iteration": -1}, inference_speed
-    return _evaluate_json(ann_file, results_json), inference_speed
-
-
-def prepare_prototype_cache(
-    *,
-    model: GISECModel,
-    device: torch.device,
-    prototype_root: str,
-    image_size: int,
-    contract_mode: str,
-):
-    bank = load_prototype_bank(prototype_root, image_size=image_size, contract_mode=contract_mode)
-    return cache_to_device(model.build_prototype_cache(bank, device), device), bank
 
 
 def _common_parser() -> argparse.ArgumentParser:
@@ -329,6 +74,19 @@ def train_main(args: argparse.Namespace) -> None:
     device = build_device(args.device)
     use_cuda = device.type == "cuda"
     variant_spec = get_variant_spec(args.variant)
+    run_context = RunContext(
+        dataset_root=str(Path(args.dataset_root).resolve()),
+        prototype_root=str(Path(args.prototype_root).resolve()),
+        split="val",
+        image_size=int(args.image_size),
+        batch=int(args.batch),
+        num_workers=int(args.num_workers),
+        min_area=int(args.min_area),
+        edge_threshold=float(args.edge_threshold),
+        contract_mode=args.contract_mode,
+        device=str(device),
+        code_revision=read_git_revision(Path(__file__).resolve().parents[2]),
+    )
 
     train_loader = build_loader(
         dataset_root=args.dataset_root,
@@ -466,6 +224,16 @@ def train_main(args: argparse.Namespace) -> None:
                 results_json=str(final_results),
                 metrics=final_metrics,
                 inference_speed=inference_speed,
+                dataset_root=run_context.dataset_root,
+                prototype_root=run_context.prototype_root,
+                split=run_context.split,
+                image_size=run_context.image_size,
+                batch=run_context.batch,
+                num_workers=run_context.num_workers,
+                min_area=run_context.min_area,
+                edge_threshold=run_context.edge_threshold,
+                device=run_context.device,
+                code_revision=run_context.code_revision,
                 params_trainable=params_trainable,
                 wall_time_sec=wall_time_sec,
             )
@@ -477,21 +245,25 @@ def train_main(args: argparse.Namespace) -> None:
     print(f"[gisec] final_best_ap={best_ap:.4f}", flush=True)
 
 
-def _resolve_checkpoint(output_dir: Path, checkpoint: str) -> Path:
-    if checkpoint:
-        return Path(checkpoint).resolve()
-    for candidate in [output_dir / "model_best.pth", output_dir / "model_final.pth"]:
-        if candidate.exists():
-            return candidate
-    raise FileNotFoundError(f"No checkpoint found under {output_dir}")
-
-
 def _run_eval_like(args: argparse.Namespace, *, compute_metrics: bool) -> None:
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     device = build_device(args.device)
     use_cuda = device.type == "cuda"
     variant_spec = get_variant_spec(args.variant)
+    run_context = RunContext(
+        dataset_root=str(Path(args.dataset_root).resolve()),
+        prototype_root=str(Path(args.prototype_root).resolve()),
+        split=args.split,
+        image_size=int(args.image_size),
+        batch=1,
+        num_workers=int(args.num_workers),
+        min_area=int(args.min_area),
+        edge_threshold=float(args.edge_threshold),
+        contract_mode=args.contract_mode,
+        device=str(device),
+        code_revision=read_git_revision(Path(__file__).resolve().parents[2]),
+    )
     loader = build_loader(
         dataset_root=args.dataset_root,
         split=args.split,
@@ -501,7 +273,7 @@ def _run_eval_like(args: argparse.Namespace, *, compute_metrics: bool) -> None:
         num_workers=args.num_workers,
         use_cuda=use_cuda,
     )
-    checkpoint_path = _resolve_checkpoint(output_dir, args.checkpoint)
+    checkpoint_path = resolve_checkpoint(output_dir, args.checkpoint)
     model = build_model(device, checkpoint_path)
     prototype_cache, bank = prepare_prototype_cache(
         model=model,
@@ -540,6 +312,16 @@ def _run_eval_like(args: argparse.Namespace, *, compute_metrics: bool) -> None:
                 results_json=str(results_json),
                 metrics=metrics,
                 inference_speed=inference_speed,
+                dataset_root=run_context.dataset_root,
+                prototype_root=run_context.prototype_root,
+                split=run_context.split,
+                image_size=run_context.image_size,
+                batch=run_context.batch,
+                num_workers=run_context.num_workers,
+                min_area=run_context.min_area,
+                edge_threshold=run_context.edge_threshold,
+                device=run_context.device,
+                code_revision=run_context.code_revision,
             )
         ),
     )
