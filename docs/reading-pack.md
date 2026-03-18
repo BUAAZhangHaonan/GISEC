@@ -16,8 +16,8 @@
 
 7. [`run_unet_instance_ecc.py`](../../magformer/baselines/run_unet_instance_ecc.py)
 8. [`unet_instance_models.py`](../../magformer/baselines/unet_instance_models.py)
-9. [`test_prototype_bank_loading.py`](../../magformer/tests/test_prototype_bank_loading.py)
-10. [`test_prototype_unet_affinity_merge.py`](../../magformer/tests/test_prototype_unet_affinity_merge.py)
+9. [`test_reference_bank_loading.py`](../../magformer/tests/test_reference_bank_loading.py)
+10. [`test_reference_unet_affinity_merge.py`](../../magformer/tests/test_reference_unet_affinity_merge.py)
 11. [`benchmark_inference.py`](../../magformer/scripts/analysis/benchmark_inference.py)
 
 ## Minimum New-Session Reading Order

@@ -3,7 +3,7 @@
 ## Repository
 
 - root:
-  - `current checkout root`
+  - `/home/k100/zhn/electronic-components-grasp-and-segment/gisec`
 - project name:
   - `GISEC`
 - python package:
@@ -14,7 +14,7 @@
 - query dataset:
   - `/home/k100/zhn/electronic-components-grasp-and-segment/magformer_datasets/0831_1K`
 - prototype bank root:
-  - `/path/to/prototype-bank/<component-id>`
+  - `/home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/reference_data_v1`
 
 ## Why This Exists
 
@@ -32,7 +32,7 @@
 - graph batch construction
 - graph edge scorer
 - graph-based fragment merge
-- train/eval entrypoint
+- train/eval/infer entrypoints
 - 0831 单模型 runner
 - B0-G5 all-runner
 - unit tests
@@ -62,7 +62,7 @@ conda run -n gisec pytest -q
 ```bash
 bash scripts/experiments/run_0831_1k_20ep_1024_gisec.sh \
   --dataset-root /home/k100/zhn/electronic-components-grasp-and-segment/magformer_datasets/0831_1K \
-  --prototype-root /path/to/prototype-bank/150044M155220 \
+  --prototype-root /home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/reference_data_v1/150044M155220 \
   --output-root output/experiments/gisec_0831 \
   --contract-mode compat \
   --variant G5 \
@@ -72,7 +72,7 @@ bash scripts/experiments/run_0831_1k_20ep_1024_gisec.sh \
 ```bash
 bash scripts/experiments/run_0831_1k_20ep_1024_gisec_all.sh \
   --dataset-root /home/k100/zhn/electronic-components-grasp-and-segment/magformer_datasets/0831_1K \
-  --prototype-root /path/to/prototype-bank/150044M155220 \
+  --prototype-root /home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/reference_data_v1/150044M155220 \
   --output-root output/experiments/gisec_0831_matrix \
   --contract-mode compat \
   --run

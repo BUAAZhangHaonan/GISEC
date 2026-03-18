@@ -1,5 +1,7 @@
 # GISEC Rebrand And Repository Cleanup Design
 
+> Status: completed on 2026-03-18. Keep for design history; do not treat as an active implementation target.
+
 ## Goal
 
 Normalize the repository's public and internal project identity around `GISEC` / `gisec`, remove stale legacy terminology from the project surface, and leave the repository in a cleaner production-grade academic layout.

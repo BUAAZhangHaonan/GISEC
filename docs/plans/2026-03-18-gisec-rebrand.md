@@ -1,5 +1,7 @@
 # GISEC Rebrand Implementation Plan
 
+> Status: completed on 2026-03-18. Keep for history; do not treat as an active execution plan.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Normalize the repository surface around `GISEC`, clean up stale legacy terminology, and keep the codebase fully runnable under the `gisec` package.

@@ -25,7 +25,7 @@ This repository is intentionally independent from the `magformer` training stack
 - Query dataset root:
   - `/home/k100/zhn/electronic-components-grasp-and-segment/magformer_datasets/0831_1K`
 - Prototype bank root:
-  - `/path/to/prototype-bank/<component-id>`
+  - `/home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/reference_data_v1`
 
 ## Key Docs
 
@@ -59,7 +59,7 @@ The project still works in `compat` mode with prototype-bank exports that are mi
 ```bash
 python -m gisec.cli.train \
   --dataset-root /home/k100/zhn/electronic-components-grasp-and-segment/magformer_datasets/0831_1K \
-  --prototype-root /path/to/prototype-bank/150044M155220 \
+  --prototype-root /home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/reference_data_v1/150044M155220 \
   --output-dir output/experiments/gisec_0831/G5 \
   --variant G5 \
   --contract-mode compat
@@ -70,7 +70,7 @@ python -m gisec.cli.train \
 ```bash
 python -m gisec.cli.eval \
   --dataset-root /home/k100/zhn/electronic-components-grasp-and-segment/magformer_datasets/0831_1K \
-  --prototype-root /path/to/prototype-bank/150044M155220 \
+  --prototype-root /home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/reference_data_v1/150044M155220 \
   --output-dir output/experiments/gisec_0831/G5 \
   --variant G5 \
   --checkpoint output/experiments/gisec_0831/G5/model_best.pth \
@@ -82,7 +82,7 @@ python -m gisec.cli.eval \
 ```bash
 bash scripts/experiments/run_0831_1k_20ep_1024_gisec.sh \
   --dataset-root /home/k100/zhn/electronic-components-grasp-and-segment/magformer_datasets/0831_1K \
-  --prototype-root /path/to/prototype-bank/150044M155220 \
+  --prototype-root /home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/reference_data_v1/150044M155220 \
   --output-root output/experiments/gisec_0831 \
   --contract-mode compat \
   --run

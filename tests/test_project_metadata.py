@@ -20,6 +20,8 @@ def test_project_metadata_uses_gisec_identity() -> None:
     assert "--prototype-root" in readme_text
     assert "prototype_bank_v1" not in readme_text
     assert "prototype_bank_v1" not in handoff_text
-    assert "current checkout root" in handoff_text
+    assert "/home/k100/zhn/electronic-components-grasp-and-segment/gisec" in handoff_text
+    assert "/home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/reference_data_v1" in readme_text
+    assert "/home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/reference_data_v1" in handoff_text
     assert "../../magformer/docs/plans/" in reading_pack_text
     assert "../magformer/docs/plans/" in handoff_text
