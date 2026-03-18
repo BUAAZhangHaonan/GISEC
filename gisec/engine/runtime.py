@@ -52,6 +52,7 @@ class RunSummary:
     device: str
     code_revision: str | None = None
     params_trainable: int | None = None
+    training_peak_memory_mb: float | None = None
     wall_time_sec: int | None = None
 
 

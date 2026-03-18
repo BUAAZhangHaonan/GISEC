@@ -97,7 +97,11 @@ def test_train_gisec_minibatch(tmp_path: Path) -> None:
     )
 
     assert (output_root / "metrics.cocoeval.json").exists()
+    assert (output_root / "metrics_log.jsonl").exists()
+    assert (output_root / "metrics_log.csv").exists()
     assert (output_root / "params_trainable.txt").exists()
+    assert (output_root / "peak_memory_mb.txt").exists()
+    assert (output_root / "run.log").exists()
     assert (output_root / "wall_time_sec.txt").exists()
     run_summary = json.loads((output_root / "run_summary.json").read_text(encoding="utf-8"))
     assert run_summary["variant"] == "G5"

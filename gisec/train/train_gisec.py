@@ -23,6 +23,7 @@ from gisec.engine.runtime import (
     write_json,
 )
 from gisec.graph_refiner import GraphRefiner
+from gisec.utils.logging import JsonlMetricLogger, setup_logger, write_metrics_csv
 
 
 def _common_parser() -> argparse.ArgumentParser:
@@ -87,6 +88,8 @@ def train_main(args: argparse.Namespace) -> None:
         device=str(device),
         code_revision=read_git_revision(Path(__file__).resolve().parents[2]),
     )
+    logger = setup_logger("gisec", output_dir / "run.log")
+    metric_logger = JsonlMetricLogger(output_dir / "metrics_log.jsonl")
 
     train_loader = build_loader(
         dataset_root=args.dataset_root,
@@ -129,6 +132,8 @@ def train_main(args: argparse.Namespace) -> None:
     best_ap = -1.0
     best_ckpt = output_dir / "model_best.pth"
     start = time.time()
+    if device.type == "cuda" and torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats(device)
     for epoch in range(1, int(args.epochs) + 1):
         model.train()
         for step, batch in enumerate(train_loader, start=1):
@@ -168,8 +173,27 @@ def train_main(args: argparse.Namespace) -> None:
             scaler.step(optimizer)
             scaler.update()
 
+            metric_row = {
+                "mode": "train",
+                "epoch": epoch,
+                "step": step,
+                "loss": float(loss.detach().cpu()),
+                "loss_fg": float(loss_fg.detach().cpu()),
+                "loss_boundary": float(loss_boundary.detach().cpu()),
+                "loss_affinity": float(loss_affinity.detach().cpu()),
+            }
+            metric_logger.append(metric_row)
+
             if step % 20 == 0:
-                print(f"[gisec] epoch={epoch} step={step} loss={float(loss.detach().cpu()):.4f}", flush=True)
+                logger.info(
+                    "epoch=%s step=%s loss=%.4f loss_fg=%.4f loss_boundary=%.4f loss_affinity=%.4f",
+                    epoch,
+                    step,
+                    float(loss.detach().cpu()),
+                    float(loss_fg.detach().cpu()),
+                    float(loss_boundary.detach().cpu()),
+                    float(loss_affinity.detach().cpu()),
+                )
             if int(args.max_train_steps) > 0 and step >= int(args.max_train_steps):
                 break
 
@@ -189,11 +213,12 @@ def train_main(args: argparse.Namespace) -> None:
         metrics["iteration"] = epoch
         with open(metrics_path, "a", encoding="utf-8") as handle:
             handle.write(json.dumps(metrics, ensure_ascii=False) + "\n")
+        metric_logger.append({"mode": "eval", **metrics})
         segm_ap = float(metrics.get("segm/AP", 0.0))
         if segm_ap >= best_ap:
             best_ap = segm_ap
             torch.save(model.state_dict(), best_ckpt)
-        print(f"[gisec] epoch={epoch} best_ap={best_ap:.4f}", flush=True)
+        logger.info("epoch=%s best_ap=%.4f", epoch, best_ap)
 
     final_ckpt = output_dir / "model_final.pth"
     torch.save(model.state_dict(), final_ckpt)
@@ -214,6 +239,11 @@ def train_main(args: argparse.Namespace) -> None:
     wall_time_sec = int(time.time() - start)
     write_json(output_dir / "metrics.cocoeval.json", final_metrics)
     write_json(output_dir / "inference_speed.json", inference_speed)
+    write_metrics_csv(output_dir / "metrics_log.csv", metric_logger.rows)
+    peak_memory_mb = 0.0
+    if device.type == "cuda" and torch.cuda.is_available():
+        peak_memory_mb = float(torch.cuda.max_memory_allocated(device) / (1024.0 * 1024.0))
+    (output_dir / "peak_memory_mb.txt").write_text(f"{peak_memory_mb:.4f}\n", encoding="utf-8")
     write_json(
         output_dir / "run_summary.json",
         asdict(
@@ -235,6 +265,7 @@ def train_main(args: argparse.Namespace) -> None:
                 device=run_context.device,
                 code_revision=run_context.code_revision,
                 params_trainable=params_trainable,
+                training_peak_memory_mb=peak_memory_mb,
                 wall_time_sec=wall_time_sec,
             )
         ),
@@ -242,7 +273,7 @@ def train_main(args: argparse.Namespace) -> None:
     write_json(output_dir / "prototype_bank_manifest.json", asdict(bank.manifest))
     (output_dir / "last_checkpoint").write_text(final_ckpt.name + "\n", encoding="utf-8")
     (output_dir / "wall_time_sec.txt").write_text(str(wall_time_sec) + "\n", encoding="utf-8")
-    print(f"[gisec] final_best_ap={best_ap:.4f}", flush=True)
+    logger.info("final_best_ap=%.4f training_peak_memory_mb=%.4f", best_ap, peak_memory_mb)
 
 
 def _run_eval_like(args: argparse.Namespace, *, compute_metrics: bool) -> None:
