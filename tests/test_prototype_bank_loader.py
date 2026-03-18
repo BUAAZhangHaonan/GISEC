@@ -100,3 +100,26 @@ def test_load_prototype_bank_strict_mode_rejects_failed_qa_and_manifest_mismatch
     error_text = str(exc_info.value)
     assert "qa_passed=false" in error_text
     assert "views=99 expected=1" in error_text
+
+
+def test_load_prototype_bank_strict_mode_rejects_modality_stem_mismatch(tmp_path: Path) -> None:
+    root = tmp_path / "refs"
+    for name in ["rgb", "depth", "mask", "meta", "camera"]:
+        (root / name).mkdir(parents=True)
+    rgb = np.zeros((32, 32, 3), dtype=np.uint8)
+    cv2.imwrite(str(root / "rgb" / "view0.png"), cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
+    cv2.imwrite(str(root / "rgb" / "view1.png"), cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
+    np.save(root / "depth" / "view0.npy", np.full((32, 32), 0.95, dtype=np.float32))
+    cv2.imwrite(str(root / "mask" / "view0.png"), np.ones((32, 32), dtype=np.uint8) * 255)
+    cv2.imwrite(str(root / "mask" / "view1.png"), np.ones((32, 32), dtype=np.uint8) * 255)
+    (root / "camera" / "view0.json").write_text('{"view_id":"view0"}', encoding="utf-8")
+    (root / "camera" / "view1.json").write_text('{"view_id":"view1"}', encoding="utf-8")
+    (root / "meta" / "manifest.json").write_text('{"part_name":"demo","views":2,"qa_passed":true}', encoding="utf-8")
+    (root / "meta" / "qa_report.json").write_text('{"qa_passed":true,"errors":[]}', encoding="utf-8")
+    (root / "meta" / "shape_stats.json").write_text('{"mean_area_ratio":0.5,"mean_bbox_aspect_ratio":1.0}', encoding="utf-8")
+    (root / "meta" / "preview_contact_sheet.png").write_bytes(b"fake")
+
+    with pytest.raises(PrototypeBankContractError) as exc_info:
+        load_prototype_bank(root, image_size=64, contract_mode="strict")
+
+    assert "rgb/depth/mask stem mismatch" in str(exc_info.value)
