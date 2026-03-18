@@ -24,3 +24,12 @@ def test_new_cli_modules_expose_train_eval_infer_help() -> None:
             text=True,
         )
         assert result.returncode == 0
+
+
+def test_gisec_eval_and_infer_runner_scripts_exist() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    for script_name in [
+        "run_0831_1k_20ep_1024_gisec_eval.sh",
+        "run_0831_1k_20ep_1024_gisec_infer.sh",
+    ]:
+        assert (repo_root / "scripts" / "experiments" / script_name).exists()
