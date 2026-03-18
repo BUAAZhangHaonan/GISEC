@@ -28,7 +28,7 @@ The first prototype should prove this at the graph-merge level before attempting
 - Query protocol:
   - `0831_1K / 1024 / 20 epochs`
 - Prototype bank root:
-  - `/home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/reference_data_v1`
+  - `/home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/20260318_1K_13440_reference`
 - Current prototype baseline source:
   - `magformer/baselines/run_unet_instance_ecc.py`
   - `magformer/baselines/unet_instance_models.py`
