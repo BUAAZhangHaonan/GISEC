@@ -7,6 +7,7 @@ import torch.nn as nn
 
 from gisec.config.variants import VariantSpec
 from gisec.datasets.prototype_bank import PrototypeBank
+from gisec.models.fragment_bundle import FragmentProposalBundle
 from gisec.models.graph_head import GraphEdgeScorer
 from gisec.models.graph_utils import GraphBatch, build_graph_batch
 from gisec.models.prototype_cache import PrototypeCache
@@ -17,7 +18,8 @@ class GISECModel(nn.Module):
     def __init__(self, base_channels: int = 16, graph_hidden_dim: int = 64):
         super().__init__()
         self.backbone = PrototypeConditionedUNetBackbone(in_channels=3, base_channels=base_channels)
-        node_dim = base_channels + 6
+        self.output_channels = self.backbone.output_channels
+        node_dim = self.output_channels + 6
         edge_dim = 6
         self.graph_head = GraphEdgeScorer(node_dim=node_dim, edge_dim=edge_dim, hidden_dim=graph_hidden_dim)
 
@@ -35,6 +37,20 @@ class GISECModel(nn.Module):
 
     def forward_graph(self, graph_batch: GraphBatch) -> torch.Tensor:
         return self.graph_head(graph_batch.node_features, graph_batch.edge_index, graph_batch.edge_features)
+
+    def build_fragment_bundle(
+        self,
+        *,
+        outputs: Dict[str, torch.Tensor],
+        depth_map: torch.Tensor,
+    ) -> FragmentProposalBundle:
+        return FragmentProposalBundle(
+            feature_map=outputs["feature_map"],
+            fg_logits=outputs["fg_logits"],
+            boundary_logits=outputs["boundary_logits"],
+            affinity_logits=outputs["affinity_logits"],
+            depth_map=depth_map,
+        )
 
     def build_graph_batch(
         self,

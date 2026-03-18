@@ -42,6 +42,7 @@ class UpBlock(nn.Module):
 class PrototypeConditionedUNetBackbone(nn.Module):
     def __init__(self, in_channels: int = 3, base_channels: int = 32):
         super().__init__()
+        self.output_channels = base_channels
         c1, c2, c3, c4 = base_channels, base_channels * 2, base_channels * 4, base_channels * 8
         self.enc1 = ConvBlock(in_channels, c1)
         self.enc2 = ConvBlock(c1, c2)

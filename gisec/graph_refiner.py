@@ -4,6 +4,7 @@ import torch
 
 from gisec.config.variants import VariantSpec, get_variant_spec
 from gisec.datasets.prototype_bank import PrototypeBank
+from gisec.models.fragment_bundle import FragmentProposalBundle
 from gisec.models.graph_utils import GraphBatch, heuristic_edge_scores, merge_instances_from_edge_scores
 from gisec.models.prototype_cache import PrototypeCache
 from gisec.models.gisec_model import GISECModel
@@ -29,6 +30,27 @@ class GraphRefiner:
         return self.model.build_graph_batch(
             outputs=outputs,
             depth_map=depth_map,
+            instance_map=instance_map,
+            prototype_cache=prototype_cache,
+            variant=get_variant_spec(variant),
+        )
+
+    def build_graph_batch_from_bundle(
+        self,
+        *,
+        bundle: FragmentProposalBundle,
+        instance_map: torch.Tensor | None,
+        prototype_cache: PrototypeCache | None,
+        variant: str | VariantSpec,
+    ) -> GraphBatch:
+        return self.model.build_graph_batch(
+            outputs={
+                "feature_map": bundle.feature_map,
+                "fg_logits": bundle.fg_logits,
+                "boundary_logits": bundle.boundary_logits,
+                "affinity_logits": bundle.affinity_logits,
+            },
+            depth_map=bundle.depth_map,
             instance_map=instance_map,
             prototype_cache=prototype_cache,
             variant=get_variant_spec(variant),
