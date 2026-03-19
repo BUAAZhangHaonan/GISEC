@@ -10,6 +10,7 @@ from typing import Any, Dict, List
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 
 from gisec.config.variants import VariantSpec, get_variant_spec
 from gisec.datasets.prototype_bank import load_prototype_bank
@@ -304,10 +305,12 @@ def build_benchmark_payload(latencies_ms: list[float], device: torch.device) -> 
     }
 
 
-def build_device(device_name: str) -> torch.device:
+def build_device(device_name: str, local_rank: int | None = None) -> torch.device:
     if device_name == "cpu":
         return torch.device("cpu")
     if torch.cuda.is_available():
+        if local_rank is not None:
+            return torch.device(f"cuda:{int(local_rank)}")
         return torch.device(device_name)
     return torch.device("cpu")
 
@@ -321,14 +324,29 @@ def build_loader(
     batch_size: int,
     num_workers: int,
     use_cuda: bool,
+    distributed: bool = False,
+    rank: int = 0,
+    world_size: int = 1,
 ) -> DataLoader:
     from gisec.datasets.ecc_query_dataset import ECCGraphDataset, collate_graph_batch
 
     dataset = ECCGraphDataset(dataset_root, split, image_size, train)
+    sampler = None
+    shuffle = train
+    if distributed:
+        sampler = DistributedSampler(
+            dataset,
+            num_replicas=int(world_size),
+            rank=int(rank),
+            shuffle=bool(train),
+            drop_last=False,
+        )
+        shuffle = False
     return DataLoader(
         dataset,
         batch_size=batch_size,
-        shuffle=train,
+        shuffle=shuffle,
+        sampler=sampler,
         num_workers=num_workers,
         pin_memory=use_cuda,
         collate_fn=collate_graph_batch,
