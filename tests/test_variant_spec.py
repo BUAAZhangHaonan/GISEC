@@ -14,9 +14,9 @@ def _make_inputs() -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tens
     fg_logits = torch.full((1, 1, 16, 16), 4.0, dtype=torch.float32)
     boundary_logits = torch.full((1, 1, 16, 16), -4.0, dtype=torch.float32)
     boundary_logits[:, :, :, 7:9] = 4.0
-    affinity_logits = torch.full((1, 2, 16, 16), 4.0, dtype=torch.float32)
+    ownership_offsets = torch.full((1, 2, 16, 16), 4.0, dtype=torch.float32)
     depth_map = torch.ones((1, 1, 16, 16), dtype=torch.float32)
-    return feature_map, fg_logits, boundary_logits, affinity_logits, depth_map
+    return feature_map, fg_logits, boundary_logits, ownership_offsets, depth_map
 
 
 def _make_prototype_cache() -> PrototypeCache:
@@ -50,7 +50,7 @@ def test_variant_spec_defines_b0_and_prototype_feature_semantics() -> None:
 
 
 def test_build_graph_batch_only_enables_shape_feature_for_variants_that_request_it(monkeypatch: pytest.MonkeyPatch) -> None:
-    feature_map, fg_logits, boundary_logits, affinity_logits, depth_map = _make_inputs()
+    feature_map, fg_logits, boundary_logits, ownership_offsets, depth_map = _make_inputs()
     prototype_cache = _make_prototype_cache()
     fragments = torch.zeros((16, 16), dtype=torch.int32).numpy()
     fragments[4:12, 4:8] = 1
@@ -61,7 +61,8 @@ def test_build_graph_batch_only_enables_shape_feature_for_variants_that_request_
         feature_map=feature_map,
         fg_logits=fg_logits,
         boundary_logits=boundary_logits,
-        affinity_logits=affinity_logits,
+        affinity_logits=ownership_offsets,
+        ownership_offsets=ownership_offsets,
         depth_map=depth_map,
         instance_map=None,
         prototype_cache=prototype_cache,
@@ -72,7 +73,8 @@ def test_build_graph_batch_only_enables_shape_feature_for_variants_that_request_
         feature_map=feature_map,
         fg_logits=fg_logits,
         boundary_logits=boundary_logits,
-        affinity_logits=affinity_logits,
+        affinity_logits=ownership_offsets,
+        ownership_offsets=ownership_offsets,
         depth_map=depth_map,
         instance_map=None,
         prototype_cache=prototype_cache,
@@ -88,7 +90,7 @@ def test_build_graph_batch_only_enables_shape_feature_for_variants_that_request_
 def test_build_graph_batch_connects_fragments_across_boundary_gap_and_tracks_diagnostics(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    feature_map, fg_logits, boundary_logits, affinity_logits, depth_map = _make_inputs()
+    feature_map, fg_logits, boundary_logits, ownership_offsets, depth_map = _make_inputs()
     prototype_cache = _make_prototype_cache()
     fragments = torch.zeros((16, 16), dtype=torch.int32).numpy()
     fragments[4:12, 3:7] = 1
@@ -104,7 +106,8 @@ def test_build_graph_batch_connects_fragments_across_boundary_gap_and_tracks_dia
         feature_map=feature_map,
         fg_logits=fg_logits,
         boundary_logits=boundary_logits,
-        affinity_logits=affinity_logits,
+        affinity_logits=ownership_offsets,
+        ownership_offsets=ownership_offsets,
         depth_map=depth_map,
         instance_map=instance_map,
         prototype_cache=prototype_cache,
@@ -115,28 +118,100 @@ def test_build_graph_batch_connects_fragments_across_boundary_gap_and_tracks_dia
     assert graph_batch.edge_index.shape[1] == 1
     assert graph_batch.edge_targets is not None
     assert torch.equal(graph_batch.edge_targets, torch.tensor([1.0], dtype=torch.float32))
+    assert graph_batch.edge_type.tolist() == [0]
+    assert graph_batch.edge_ignore_mask.tolist() == [False]
     assert graph_batch.diagnostics["num_fragments"] == 2
     assert graph_batch.diagnostics["num_edges"] == 1
     assert "num_merged" in graph_batch.diagnostics
 
 
-def test_build_graph_batch_does_not_connect_gap_without_boundary_or_affinity_support(
+def test_build_graph_batch_adds_bridge_edge_for_short_low_depth_gap(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    feature_map, fg_logits, boundary_logits, affinity_logits, depth_map = _make_inputs()
+    feature_map, fg_logits, boundary_logits, ownership_offsets, depth_map = _make_inputs()
+    prototype_cache = _make_prototype_cache()
+    fragments = torch.zeros((16, 16), dtype=torch.int32).numpy()
+    fragments[4:12, 2:6] = 1
+    fragments[4:12, 8:12] = 2
+    boundary_logits[:, :, 4:12, 6:8] = -4.0
+    ownership_offsets[:, :, 4:12, 2:12] = 4.0
+    monkeypatch.setattr(graph_utils, "fragments_from_logits", lambda *args, **kwargs: fragments.copy())
+
+    instance_map = torch.zeros((16, 16), dtype=torch.long)
+    instance_map[4:12, 2:6] = 1
+    instance_map[4:12, 8:12] = 1
+
+    graph_batch = build_graph_batch(
+        feature_map=feature_map,
+        fg_logits=fg_logits,
+        boundary_logits=boundary_logits,
+        affinity_logits=ownership_offsets,
+        ownership_offsets=ownership_offsets,
+        depth_map=depth_map,
+        instance_map=instance_map,
+        prototype_cache=prototype_cache,
+        variant=get_variant_spec("G4"),
+        min_area=2,
+    )
+
+    assert graph_batch.edge_index.shape[1] == 1
+    assert graph_batch.edge_type.tolist() == [1]
+    assert graph_batch.edge_targets is not None
+    assert torch.equal(graph_batch.edge_targets, torch.tensor([1.0], dtype=torch.float32))
+
+
+def test_build_graph_batch_marks_mixed_fragment_edge_as_ignored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    feature_map, fg_logits, boundary_logits, ownership_offsets, depth_map = _make_inputs()
     prototype_cache = _make_prototype_cache()
     fragments = torch.zeros((16, 16), dtype=torch.int32).numpy()
     fragments[4:12, 3:7] = 1
     fragments[4:12, 8:12] = 2
-    boundary_logits[:, :, 4:12, 7] = -4.0
-    affinity_logits[:, :, 4:12, 7] = -4.0
+    monkeypatch.setattr(graph_utils, "fragments_from_logits", lambda *args, **kwargs: fragments.copy())
+
+    instance_map = torch.zeros((16, 16), dtype=torch.long)
+    instance_map[4:12, 3:5] = 1
+    instance_map[4:12, 5:7] = 2
+    instance_map[4:12, 8:12] = 1
+
+    graph_batch = build_graph_batch(
+        feature_map=feature_map,
+        fg_logits=fg_logits,
+        boundary_logits=boundary_logits,
+        affinity_logits=ownership_offsets,
+        ownership_offsets=ownership_offsets,
+        depth_map=depth_map,
+        instance_map=instance_map,
+        prototype_cache=prototype_cache,
+        variant=get_variant_spec("G4"),
+        min_area=2,
+    )
+
+    assert graph_batch.edge_index.shape[1] == 1
+    assert graph_batch.edge_ignore_mask.tolist() == [True]
+    assert graph_batch.edge_targets is not None
+    assert torch.equal(graph_batch.edge_targets, torch.tensor([0.0], dtype=torch.float32))
+
+
+def test_build_graph_batch_does_not_connect_gap_without_boundary_or_ownership_support(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    feature_map, fg_logits, boundary_logits, ownership_offsets, depth_map = _make_inputs()
+    prototype_cache = _make_prototype_cache()
+    fragments = torch.zeros((16, 16), dtype=torch.int32).numpy()
+    fragments[4:12, 3:7] = 1
+    fragments[4:12, 8:12] = 2
+    boundary_logits.fill_(-4.0)
+    ownership_offsets.fill_(-4.0)
     monkeypatch.setattr(graph_utils, "fragments_from_logits", lambda *args, **kwargs: fragments.copy())
 
     graph_batch = build_graph_batch(
         feature_map=feature_map,
         fg_logits=fg_logits,
         boundary_logits=boundary_logits,
-        affinity_logits=affinity_logits,
+        affinity_logits=ownership_offsets,
+        ownership_offsets=ownership_offsets,
         depth_map=depth_map,
         instance_map=None,
         prototype_cache=prototype_cache,

@@ -68,6 +68,7 @@ class GISECModel(nn.Module):
             fg_logits=outputs["fg_logits"],
             boundary_logits=outputs["boundary_logits"],
             affinity_logits=outputs.get("affinity_logits", outputs["ownership_offsets"]),
+            ownership_offsets=outputs.get("ownership_offsets"),
             depth_map=depth_map,
             instance_map=instance_map,
             prototype_cache=prototype_cache,

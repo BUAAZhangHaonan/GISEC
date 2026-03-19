@@ -190,14 +190,26 @@ def train_main(args: argparse.Namespace) -> None:
                         graph_has_edges = graph_has_edges or bool(
                             graph_batch.edge_index.shape[1] > 0)
                         if graph_batch.edge_targets is not None:
+                            valid_mask = (
+                                torch.ones_like(graph_batch.edge_targets, dtype=torch.bool)
+                                if graph_batch.edge_ignore_mask is None
+                                else ~graph_batch.edge_ignore_mask
+                            )
                             graph_positive_edge_targets += float(
-                                graph_batch.edge_targets.sum().item())
+                                graph_batch.edge_targets[valid_mask].sum().item())
                         if graph_batch.edge_targets is None or graph_batch.edge_targets.numel() == 0:
+                            continue
+                        valid_mask = (
+                            torch.ones_like(graph_batch.edge_targets, dtype=torch.bool)
+                            if graph_batch.edge_ignore_mask is None
+                            else ~graph_batch.edge_ignore_mask
+                        )
+                        if not bool(valid_mask.any()):
                             continue
                         edge_logits = refiner.score_edges(
                             graph_batch, variant_spec)
                         graph_losses.append(F.binary_cross_entropy_with_logits(
-                            edge_logits, graph_batch.edge_targets))
+                            edge_logits[valid_mask], graph_batch.edge_targets[valid_mask]))
                     if graph_losses:
                         graph_loss = torch.stack(graph_losses).mean()
                         graph_loss_value = float(graph_loss.detach().cpu())

@@ -71,5 +71,9 @@ class GraphRefiner:
             edge_index=graph_batch.edge_index,
             edge_scores=torch.sigmoid(edge_logits),
             threshold=threshold,
+            fragment_stats=graph_batch.fragment_stats,
+            shape_stats=graph_batch.shape_stats,
+            edge_features=graph_batch.edge_features,
+            edge_ignore_mask=graph_batch.edge_ignore_mask,
         )
         return torch.from_numpy(merged)
