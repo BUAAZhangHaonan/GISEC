@@ -49,6 +49,7 @@ class GraphRefiner:
                 "fg_logits": bundle.fg_logits,
                 "boundary_logits": bundle.boundary_logits,
                 "affinity_logits": bundle.affinity_logits,
+                "ownership_offsets": bundle.ownership_offsets,
             },
             depth_map=bundle.depth_map,
             instance_map=instance_map,

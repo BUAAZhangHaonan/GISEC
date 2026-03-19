@@ -53,20 +53,43 @@ class PrototypeConditionedUNetBackbone(nn.Module):
         self.enc4 = ConvBlock(c3, c4)
         self.pool = nn.MaxPool2d(2)
         self.bottleneck = ConvBlock(c4, c4 * 2)
-        self.depth_stem = nn.Sequential(
-            nn.Conv2d(1, c1 // 2, kernel_size=3, padding=1, bias=False),
+        self.depth_geometry_stem = nn.Sequential(
+            nn.Conv2d(3, c1 // 2, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(c1 // 2),
             nn.ReLU(inplace=True),
         )
-        self.bottleneck_fuse = nn.Conv2d(c4 * 2 + 2, c4 * 2, kernel_size=1)
-        self.highres_fuse = nn.Conv2d(c1 + 2, c1, kernel_size=1)
+        self.depth_bottleneck_proj = nn.Conv2d(c1 // 2, 1, kernel_size=1)
+        self.depth_highres_proj = nn.Conv2d(c1 // 2, 1, kernel_size=1)
+        self.depth_bottleneck_fuse = nn.Conv2d(c4 * 2 + 1, c4 * 2, kernel_size=1)
+        self.depth_highres_fuse = nn.Conv2d(c1 + 1, c1, kernel_size=1)
+        self.prototype_bottleneck_fuse = nn.Conv2d(c4 * 2 + 2, c4 * 2, kernel_size=1)
+        self.prototype_highres_fuse = nn.Conv2d(c1 + 2, c1, kernel_size=1)
         self.up3 = UpBlock(c4 * 2, c4, c4)
         self.up2 = UpBlock(c4, c3, c3)
         self.up1 = UpBlock(c3, c2, c2)
         self.up0 = UpBlock(c2, c1, c1)
         self.fg_head = nn.Conv2d(c1, 1, kernel_size=1)
         self.boundary_head = nn.Conv2d(c1, 1, kernel_size=1)
-        self.affinity_head = nn.Conv2d(c1, 2, kernel_size=1)
+        self.ownership_head = nn.Conv2d(c1, 2, kernel_size=1)
+
+    def _depth_to_geometry(self, depth: torch.Tensor) -> torch.Tensor:
+        if depth.ndim != 4 or depth.shape[1] != 1:
+            raise ValueError(
+                f"Expected depth tensor of shape (N, 1, H, W), got {tuple(depth.shape)}")
+        depth = depth.float()
+        finite = torch.isfinite(depth)
+        depth = torch.where(finite, depth, torch.zeros_like(depth))
+        depth_min = depth.amin(dim=(-1, -2), keepdim=True)
+        depth_max = depth.amax(dim=(-1, -2), keepdim=True)
+        normalized = (depth - depth_min) / (depth_max - depth_min).clamp_min(1e-6)
+
+        grad_x = torch.zeros_like(normalized)
+        grad_y = torch.zeros_like(normalized)
+        grad_x[:, :, :, :-1] = normalized[:, :, :, 1:] - normalized[:, :, :, :-1]
+        grad_y[:, :, :-1, :] = normalized[:, :, 1:, :] - normalized[:, :, :-1, :]
+        grad_mag = torch.sqrt(grad_x.square() + grad_y.square() + 1e-12)
+        discontinuity = (grad_mag > 0.05).float()
+        return torch.cat([normalized, grad_mag, discontinuity], dim=1)
 
     def _encode_query(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
         x1 = self.enc1(x)
@@ -92,7 +115,7 @@ class PrototypeConditionedUNetBackbone(nn.Module):
             feats["xb"], masks).mean(dim=0, keepdim=True)
         proto_h = self._masked_proto(
             feats["x1"], masks).mean(dim=0, keepdim=True)
-        depth_feat = self.depth_stem(depths)
+        depth_feat = self.depth_geometry_stem(self._depth_to_geometry(depths))
         proto_d = self._masked_proto(
             depth_feat, masks).mean(dim=0, keepdim=True)
         return PrototypeCache(
@@ -111,38 +134,54 @@ class PrototypeConditionedUNetBackbone(nn.Module):
         feats = self._encode_query(images)
         xb = feats["xb"]
         x1 = feats["x1"]
+        if query_depth is not None:
+            depth_feat = self.depth_geometry_stem(self._depth_to_geometry(query_depth))
+            depth_b = F.interpolate(
+                self.depth_bottleneck_proj(depth_feat),
+                size=xb.shape[-2:],
+                mode="bilinear",
+                align_corners=False,
+            )
+            depth_h = self.depth_highres_proj(depth_feat)
+            xb = self.depth_bottleneck_fuse(torch.cat([xb, depth_b], dim=1))
+            x1 = self.depth_highres_fuse(torch.cat([x1, depth_h], dim=1))
 
         if prototype_cache is not None:
             sim_b = cosine_similarity_map(
                 xb, prototype_cache.proto_b.to(xb.device))
             gate_b = torch.sigmoid(prototype_cache.proto_b.to(
                 xb.device).expand(xb.shape[0], -1, -1, -1))
-            depth_b = torch.zeros_like(sim_b)
-            if query_depth is not None:
-                depth_low = self.depth_stem(query_depth)
-                depth_b = F.interpolate(depth_low.mean(
-                    dim=1, keepdim=True), size=xb.shape[-2:], mode="bilinear", align_corners=False)
-            xb = self.bottleneck_fuse(
-                torch.cat([xb * gate_b, sim_b, depth_b], dim=1))
+            proto_depth_b = F.interpolate(
+                prototype_cache.proto_d.mean(dim=1, keepdim=True).to(xb.device),
+                size=xb.shape[-2:],
+                mode="bilinear",
+                align_corners=False,
+            ).expand(xb.shape[0], -1, -1, -1)
+            xb = self.prototype_bottleneck_fuse(
+                torch.cat([xb * gate_b, sim_b, proto_depth_b], dim=1))
 
             sim_h = cosine_similarity_map(
                 x1, prototype_cache.proto_h.to(x1.device))
             gate_h = torch.sigmoid(prototype_cache.proto_h.to(
                 x1.device).expand(x1.shape[0], -1, -1, -1))
-            depth_h = torch.zeros_like(sim_h)
-            if query_depth is not None:
-                depth_h = self.depth_stem(
-                    query_depth).mean(dim=1, keepdim=True)
-            x1 = self.highres_fuse(
-                torch.cat([x1 * gate_h, sim_h, depth_h], dim=1))
+            proto_depth_h = F.interpolate(
+                prototype_cache.proto_d.mean(dim=1, keepdim=True).to(x1.device),
+                size=x1.shape[-2:],
+                mode="bilinear",
+                align_corners=False,
+            ).expand(x1.shape[0], -1, -1, -1)
+            x1 = self.prototype_highres_fuse(
+                torch.cat([x1 * gate_h, sim_h, proto_depth_h], dim=1))
 
         y3 = self.up3(xb, feats["x4"])
         y2 = self.up2(y3, feats["x3"])
         y1 = self.up1(y2, feats["x2"])
         y0 = self.up0(y1, x1)
+        ownership_offsets = self.ownership_head(y0)
         return {
             "fg_logits": self.fg_head(y0),
             "boundary_logits": self.boundary_head(y0),
-            "affinity_logits": self.affinity_head(y0),
+            "ownership_offsets": ownership_offsets,
+            "affinity_logits": ownership_offsets,
             "feature_map": y0,
         }

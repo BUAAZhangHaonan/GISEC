@@ -50,7 +50,7 @@ class GISECModel(nn.Module):
             feature_map=outputs["feature_map"],
             fg_logits=outputs["fg_logits"],
             boundary_logits=outputs["boundary_logits"],
-            affinity_logits=outputs["affinity_logits"],
+            ownership_offsets=outputs["ownership_offsets"],
             depth_map=depth_map,
         )
 
@@ -67,7 +67,7 @@ class GISECModel(nn.Module):
             feature_map=outputs["feature_map"],
             fg_logits=outputs["fg_logits"],
             boundary_logits=outputs["boundary_logits"],
-            affinity_logits=outputs["affinity_logits"],
+            affinity_logits=outputs.get("affinity_logits", outputs["ownership_offsets"]),
             depth_map=depth_map,
             instance_map=instance_map,
             prototype_cache=prototype_cache,

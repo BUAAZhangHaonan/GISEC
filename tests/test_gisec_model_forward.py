@@ -36,9 +36,23 @@ def test_gisec_model_forward_shapes(tmp_path: Path) -> None:
     )
     assert outputs["fg_logits"].shape == (2, 1, 64, 64)
     assert outputs["boundary_logits"].shape == (2, 1, 64, 64)
-    assert outputs["affinity_logits"].shape == (2, 2, 64, 64)
+    assert outputs["ownership_offsets"].shape == (2, 2, 64, 64)
     assert outputs["feature_map"].shape == (2, 8, 64, 64)
     assert model.output_channels == 8
+
+
+def test_gisec_model_uses_depth_even_without_prototype_cache() -> None:
+    model = GISECModel(base_channels=8)
+    model.eval()
+    images = torch.zeros((1, 3, 64, 64), dtype=torch.float32)
+    shallow_depth = torch.zeros((1, 1, 64, 64), dtype=torch.float32)
+    deep_depth = torch.linspace(0.0, 1.0, steps=64, dtype=torch.float32).view(1, 1, 1, 64).expand(1, 1, 64, 64)
+
+    with torch.no_grad():
+        shallow_outputs = model(images, query_depth=shallow_depth, prototype_cache=None)
+        deep_outputs = model(images, query_depth=deep_depth, prototype_cache=None)
+
+    assert not torch.allclose(shallow_outputs["feature_map"], deep_outputs["feature_map"])
 
 
 def test_gisec_model_builds_fragment_bundle_for_graph_refiner(tmp_path: Path) -> None:
@@ -53,6 +67,7 @@ def test_gisec_model_builds_fragment_bundle_for_graph_refiner(tmp_path: Path) ->
     bundle = model.build_fragment_bundle(outputs=outputs, depth_map=depths)
     assert bundle.feature_map.shape == (1, 8, 64, 64)
     assert bundle.depth_map.shape == (1, 1, 64, 64)
+    assert bundle.ownership_offsets.shape == (1, 2, 64, 64)
 
     refiner = GraphRefiner(model)
     graph_batch = refiner.build_graph_batch_from_bundle(

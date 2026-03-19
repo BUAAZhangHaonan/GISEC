@@ -21,13 +21,18 @@ class ExternalProposalAdapter(nn.Module):
         feature_map: torch.Tensor,
         fg_logits: torch.Tensor,
         boundary_logits: torch.Tensor,
-        affinity_logits: torch.Tensor,
+        ownership_offsets: torch.Tensor | None = None,
+        affinity_logits: torch.Tensor | None = None,
         depth_map: torch.Tensor,
     ) -> FragmentProposalBundle:
+        if ownership_offsets is None and affinity_logits is None:
+            raise ValueError("Expected ownership_offsets or affinity_logits")
+        if ownership_offsets is None:
+            ownership_offsets = affinity_logits
         return FragmentProposalBundle(
             feature_map=self.proj(feature_map),
             fg_logits=fg_logits,
             boundary_logits=boundary_logits,
-            affinity_logits=affinity_logits,
+            ownership_offsets=ownership_offsets,
             depth_map=depth_map,
         )

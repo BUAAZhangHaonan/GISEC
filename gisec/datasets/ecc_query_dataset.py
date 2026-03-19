@@ -57,6 +57,43 @@ def build_affinity_target(instance_map: np.ndarray) -> np.ndarray:
     return affinity
 
 
+def _largest_component(mask: np.ndarray) -> np.ndarray:
+    num, labels, stats, _ = cv2.connectedComponentsWithStats(
+        mask.astype(np.uint8), connectivity=8)
+    if num <= 1:
+        return mask.astype(np.uint8)
+    areas = stats[1:, cv2.CC_STAT_AREA]
+    best = int(np.argmax(areas)) + 1
+    return (labels == best).astype(np.uint8)
+
+
+def _core_centroid(mask: np.ndarray) -> tuple[float, float]:
+    kernel = np.ones((3, 3), dtype=np.uint8)
+    eroded = cv2.erode(mask.astype(np.uint8), kernel, iterations=1)
+    core = _largest_component(eroded) if eroded.any() else _largest_component(mask)
+    ys, xs = np.nonzero(core)
+    if xs.size == 0 or ys.size == 0:
+        ys, xs = np.nonzero(mask)
+    if xs.size == 0 or ys.size == 0:
+        return 0.0, 0.0
+    return float(xs.mean()), float(ys.mean())
+
+
+def build_ownership_target(instance_map: np.ndarray) -> np.ndarray:
+    instance_map = instance_map.astype(np.int32)
+    height, width = instance_map.shape
+    ownership = np.zeros((2, height, width), dtype=np.float32)
+    yy, xx = np.indices((height, width), dtype=np.float32)
+    for inst_id in np.unique(instance_map):
+        if int(inst_id) <= 0:
+            continue
+        mask = instance_map == int(inst_id)
+        cx, cy = _core_centroid(mask.astype(np.uint8))
+        ownership[0, mask] = cx - xx[mask]
+        ownership[1, mask] = cy - yy[mask]
+    return ownership
+
+
 def build_boundary_target(instance_mask: np.ndarray) -> np.ndarray:
     dilated = cv2.dilate(instance_mask, np.ones(
         (3, 3), dtype=np.uint8), iterations=1)
@@ -81,8 +118,13 @@ class QuerySample:
     depth: torch.Tensor
     fg_target: torch.Tensor
     boundary_target: torch.Tensor
-    affinity_target: torch.Tensor
+    ownership_target: torch.Tensor
     instance_map: torch.Tensor
+
+    @property
+    def affinity_target(self) -> torch.Tensor:
+        # Temporary alias while the graph stack is still migrating off local-affinity naming.
+        return self.ownership_target
 
 
 class _LiteCOCO:
@@ -190,8 +232,8 @@ class ECCGraphDataset(Dataset):
             else torch.zeros((1, self.image_size, self.image_size), dtype=torch.float32),
             fg_target=torch.from_numpy(fg_mask[None, ...]).float(),
             boundary_target=torch.from_numpy(boundary[None, ...]).float(),
-            affinity_target=torch.from_numpy(
-                build_affinity_target(instance_map)).float(),
+            ownership_target=torch.from_numpy(
+                build_ownership_target(instance_map)).float(),
             instance_map=torch.from_numpy(instance_map).long(),
         )
 
@@ -205,6 +247,8 @@ def collate_graph_batch(batch: List[QuerySample]) -> Dict[str, Any]:
         "depths": torch.stack([item.depth for item in batch], dim=0),
         "fg_target": torch.stack([item.fg_target for item in batch], dim=0),
         "boundary_target": torch.stack([item.boundary_target for item in batch], dim=0),
-        "affinity_target": torch.stack([item.affinity_target for item in batch], dim=0),
+        "ownership_target": torch.stack([item.ownership_target for item in batch], dim=0),
+        "affinity_target": torch.stack(
+            [getattr(item, "affinity_target", item.ownership_target) for item in batch], dim=0),
         "instance_maps": torch.stack([item.instance_map for item in batch], dim=0),
     }
