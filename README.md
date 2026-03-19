@@ -37,6 +37,8 @@ This repository is intentionally independent from the `magformer` training stack
 - [docs/experiments/README.md](docs/experiments/README.md)
 - [docs/results/README.md](docs/results/README.md)
 - [docs/method/README.md](docs/method/README.md)
+- [docs/method/gisec-v2-method.md](docs/method/gisec-v2-method.md)
+- [docs/plans/2026-03-19-gisec-v2-master-plan.md](docs/plans/2026-03-19-gisec-v2-master-plan.md)
 - [docs/release-checklist.md](docs/release-checklist.md)
 
 ## Quick Start
