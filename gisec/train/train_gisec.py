@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import torch
 import torch.nn.functional as F
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
 
 from gisec.config.variants import get_variant_spec, variant_names
 from gisec.engine.runtime import (
@@ -24,6 +27,74 @@ from gisec.engine.runtime import (
 )
 from gisec.graph_refiner import GraphRefiner
 from gisec.utils.logging import JsonlMetricLogger, setup_logger, write_metrics_csv
+
+
+@dataclass(frozen=True)
+class DistributedContext:
+    enabled: bool
+    backend: str | None
+    dist_url: str | None
+    world_size: int
+    rank: int
+    local_rank: int
+
+
+def resolve_distributed_context(
+    *,
+    launcher: str,
+    device_name: str,
+    dist_backend: str,
+    dist_url: str = "env://",
+    local_rank_arg: int = 0,
+) -> DistributedContext:
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    rank = int(os.environ.get("RANK", "0"))
+    local_rank = int(os.environ.get("LOCAL_RANK", str(local_rank_arg)))
+    enabled = launcher == "torchrun" and world_size > 1
+    if not enabled:
+        return DistributedContext(
+            enabled=False,
+            backend=None,
+            dist_url=None,
+            world_size=1,
+            rank=0,
+            local_rank=0,
+        )
+    backend = str(dist_backend)
+    if device_name == "cpu":
+        backend = "gloo"
+    return DistributedContext(
+        enabled=True,
+        backend=backend,
+        dist_url=str(dist_url),
+        world_size=world_size,
+        rank=rank,
+        local_rank=local_rank,
+    )
+
+
+def _is_main_process(context: DistributedContext) -> bool:
+    return (not context.enabled) or context.rank == 0
+
+
+def _setup_distributed(context: DistributedContext) -> None:
+    if not context.enabled or dist.is_initialized():
+        return
+    dist.init_process_group(
+        backend=str(context.backend),
+        init_method=str(context.dist_url),
+        rank=int(context.rank),
+        world_size=int(context.world_size),
+    )
+
+
+def _cleanup_distributed(context: DistributedContext) -> None:
+    if context.enabled and dist.is_initialized():
+        dist.destroy_process_group()
+
+
+def _unwrap_model(model: torch.nn.Module) -> torch.nn.Module:
+    return model.module if isinstance(model, DDP) else model
 
 
 def _common_parser() -> argparse.ArgumentParser:
@@ -45,6 +116,13 @@ def _common_parser() -> argparse.ArgumentParser:
     parser.add_argument("--overlay-limit", type=int, default=8)
     parser.add_argument("--save-graph-diagnostics", action="store_true")
     parser.add_argument("--diagnostics-limit", type=int, default=64)
+    parser.add_argument("--launcher", choices=["none", "torchrun"], default="none")
+    parser.add_argument("--local-rank", type=int, default=0)
+    parser.add_argument("--nproc-per-node", type=int, default=1)
+    parser.add_argument("--master-port", type=int, default=29500)
+    parser.add_argument("--dist-backend", choices=["nccl", "gloo"], default="nccl")
+    parser.add_argument("--dist-url", type=str, default="env://")
+    parser.add_argument("--sync-bn", action="store_true")
     return parser
 
 
@@ -78,9 +156,20 @@ def parse_infer_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def train_main(args: argparse.Namespace) -> None:
+    dist_context = resolve_distributed_context(
+        launcher=args.launcher,
+        device_name=args.device,
+        dist_backend=args.dist_backend,
+        dist_url=args.dist_url,
+        local_rank_arg=args.local_rank,
+    )
+    _setup_distributed(dist_context)
     output_dir = Path(args.output_dir).resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
-    device = build_device(args.device)
+    if _is_main_process(dist_context):
+        output_dir.mkdir(parents=True, exist_ok=True)
+    device = build_device(args.device, local_rank=dist_context.local_rank if dist_context.enabled else None)
+    if dist_context.enabled and device.type == "cuda":
+        torch.cuda.set_device(device)
     use_cuda = device.type == "cuda"
     variant_spec = get_variant_spec(args.variant)
     run_context = RunContext(
@@ -96,8 +185,12 @@ def train_main(args: argparse.Namespace) -> None:
         device=str(device),
         code_revision=read_git_revision(Path(__file__).resolve().parents[2]),
     )
-    logger = setup_logger("gisec", output_dir / "run.log")
-    metric_logger = JsonlMetricLogger(output_dir / "metrics_log.jsonl")
+    log_path = output_dir / ("run.log" if _is_main_process(dist_context) else f"run.rank{dist_context.rank}.log")
+    metrics_log_path = output_dir / (
+        "metrics_log.jsonl" if _is_main_process(dist_context) else f"metrics_log.rank{dist_context.rank}.jsonl"
+    )
+    logger = setup_logger("gisec", log_path)
+    metric_logger = JsonlMetricLogger(metrics_log_path)
 
     train_loader = build_loader(
         dataset_root=args.dataset_root,
@@ -107,6 +200,9 @@ def train_main(args: argparse.Namespace) -> None:
         batch_size=args.batch,
         num_workers=args.num_workers,
         use_cuda=use_cuda,
+        distributed=dist_context.enabled,
+        rank=dist_context.rank,
+        world_size=dist_context.world_size,
     )
     val_loader = build_loader(
         dataset_root=args.dataset_root,
@@ -119,9 +215,14 @@ def train_main(args: argparse.Namespace) -> None:
     )
 
     model = build_model(device)
-    refiner = GraphRefiner(model)
+    if dist_context.enabled and args.sync_bn and use_cuda:
+        model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
+    if dist_context.enabled:
+        model = DDP(model, device_ids=[device.index] if device.type == "cuda" else None)
+    model_for_graph = _unwrap_model(model)
+    refiner = GraphRefiner(model_for_graph)
     prototype_cache, bank = prepare_prototype_cache(
-        model=model,
+        model=model_for_graph,
         device=device,
         prototype_root=args.prototype_root,
         image_size=args.image_size,
@@ -132,11 +233,12 @@ def train_main(args: argparse.Namespace) -> None:
     ann_file = Path(args.dataset_root) / "annotations" / "instances_val.json"
     params_trainable = sum(int(p.numel())
                            for p in model.parameters() if p.requires_grad)
-    (output_dir / "params_trainable.txt").write_text(str(params_trainable) +
-                                                     "\n", encoding="utf-8")
+    if _is_main_process(dist_context):
+        (output_dir / "params_trainable.txt").write_text(str(params_trainable) +
+                                                         "\n", encoding="utf-8")
 
     metrics_path = output_dir / "metrics.json"
-    if metrics_path.exists():
+    if _is_main_process(dist_context) and metrics_path.exists():
         metrics_path.unlink()
 
     best_ap = -1.0
@@ -144,206 +246,214 @@ def train_main(args: argparse.Namespace) -> None:
     start = time.time()
     if device.type == "cuda" and torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats(device)
-    for epoch in range(1, int(args.epochs) + 1):
-        model.train()
-        for step, batch in enumerate(train_loader, start=1):
-            images = batch["images"].to(device)
-            depths = batch["depths"].to(device)
-            fg_target = batch["fg_target"].to(device)
-            boundary_target = batch["boundary_target"].to(device)
-            ownership_target = batch["ownership_target"].to(device)
-            instance_maps = batch["instance_maps"].to(device)
+    try:
+        for epoch in range(1, int(args.epochs) + 1):
+            model.train()
+            if dist_context.enabled and hasattr(train_loader, "sampler") and hasattr(train_loader.sampler, "set_epoch"):
+                train_loader.sampler.set_epoch(epoch)
+            for step, batch in enumerate(train_loader, start=1):
+                images = batch["images"].to(device)
+                depths = batch["depths"].to(device)
+                fg_target = batch["fg_target"].to(device)
+                boundary_target = batch["boundary_target"].to(device)
+                ownership_target = batch["ownership_target"].to(device)
+                instance_maps = batch["instance_maps"].to(device)
 
-            with torch.cuda.amp.autocast(enabled=use_cuda):
-                outputs = model(images, query_depth=depths,
-                                prototype_cache=prototype_cache)
-                loss_fg = F.binary_cross_entropy_with_logits(
-                    outputs["fg_logits"], fg_target)
-                loss_boundary = F.binary_cross_entropy_with_logits(
-                    outputs["boundary_logits"], boundary_target)
-                fg_mask = fg_target.expand_as(ownership_target) > 0.5
-                ownership_pred = outputs["ownership_offsets"]
-                if fg_mask.any():
-                    loss_ownership = F.smooth_l1_loss(
-                        ownership_pred[fg_mask], ownership_target[fg_mask])
-                else:
-                    loss_ownership = ownership_pred.sum() * 0.0
-                loss = loss_fg + loss_boundary + 0.5 * loss_ownership
-                graph_edge_count = 0
-                graph_positive_edge_targets = 0.0
-                graph_has_edges = False
-                graph_loss_value = 0.0
-
-                if variant_spec.use_learned_edge_scorer:
-                    graph_losses = []
-                    for batch_idx in range(images.shape[0]):
-                        graph_batch = refiner.build_graph_batch(
-                            outputs={key: value[batch_idx: batch_idx + 1]
-                                     for key, value in outputs.items()},
-                            depth_map=depths[batch_idx: batch_idx + 1],
-                            instance_map=instance_maps[batch_idx],
-                            prototype_cache=prototype_cache,
-                            variant=variant_spec,
+                with torch.cuda.amp.autocast(enabled=use_cuda):
+                    outputs = model(images, query_depth=depths, prototype_cache=prototype_cache)
+                    loss_fg = F.binary_cross_entropy_with_logits(outputs["fg_logits"], fg_target)
+                    loss_boundary = F.binary_cross_entropy_with_logits(outputs["boundary_logits"], boundary_target)
+                    fg_mask = fg_target.expand_as(ownership_target) > 0.5
+                    ownership_pred = outputs["ownership_offsets"]
+                    if fg_mask.any():
+                        loss_ownership = F.smooth_l1_loss(
+                            ownership_pred[fg_mask], ownership_target[fg_mask]
                         )
-                        graph_edge_count += int(graph_batch.diagnostics.get(
-                            "num_edges", int(graph_batch.edge_index.shape[1])))
-                        graph_has_edges = graph_has_edges or bool(
-                            graph_batch.edge_index.shape[1] > 0)
-                        if graph_batch.edge_targets is not None:
+                    else:
+                        loss_ownership = ownership_pred.sum() * 0.0
+                    loss = loss_fg + loss_boundary + 0.5 * loss_ownership
+                    graph_edge_count = 0
+                    graph_positive_edge_targets = 0.0
+                    graph_has_edges = False
+                    graph_loss_value = 0.0
+
+                    if variant_spec.use_learned_edge_scorer:
+                        graph_losses = []
+                        for batch_idx in range(images.shape[0]):
+                            graph_batch = refiner.build_graph_batch(
+                                outputs={key: value[batch_idx: batch_idx + 1] for key, value in outputs.items()},
+                                depth_map=depths[batch_idx: batch_idx + 1],
+                                instance_map=instance_maps[batch_idx],
+                                prototype_cache=prototype_cache,
+                                variant=variant_spec,
+                            )
+                            graph_edge_count += int(
+                                graph_batch.diagnostics.get("num_edges", int(graph_batch.edge_index.shape[1]))
+                            )
+                            graph_has_edges = graph_has_edges or bool(graph_batch.edge_index.shape[1] > 0)
+                            if graph_batch.edge_targets is not None:
+                                valid_mask = (
+                                    torch.ones_like(graph_batch.edge_targets, dtype=torch.bool)
+                                    if graph_batch.edge_ignore_mask is None
+                                    else ~graph_batch.edge_ignore_mask
+                                )
+                                graph_positive_edge_targets += float(
+                                    graph_batch.edge_targets[valid_mask].sum().item()
+                                )
+                            if graph_batch.edge_targets is None or graph_batch.edge_targets.numel() == 0:
+                                continue
                             valid_mask = (
                                 torch.ones_like(graph_batch.edge_targets, dtype=torch.bool)
                                 if graph_batch.edge_ignore_mask is None
                                 else ~graph_batch.edge_ignore_mask
                             )
-                            graph_positive_edge_targets += float(
-                                graph_batch.edge_targets[valid_mask].sum().item())
-                        if graph_batch.edge_targets is None or graph_batch.edge_targets.numel() == 0:
-                            continue
-                        valid_mask = (
-                            torch.ones_like(graph_batch.edge_targets, dtype=torch.bool)
-                            if graph_batch.edge_ignore_mask is None
-                            else ~graph_batch.edge_ignore_mask
-                        )
-                        if not bool(valid_mask.any()):
-                            continue
-                        edge_logits = refiner.score_edges(
-                            graph_batch, variant_spec)
-                        graph_losses.append(F.binary_cross_entropy_with_logits(
-                            edge_logits[valid_mask], graph_batch.edge_targets[valid_mask]))
-                    if graph_losses:
-                        graph_loss = torch.stack(graph_losses).mean()
-                        graph_loss_value = float(graph_loss.detach().cpu())
-                        loss = loss + 0.5 * graph_loss
-                else:
-                    graph_edge_count = 0
-                    graph_positive_edge_targets = 0.0
-                    graph_has_edges = False
+                            if not bool(valid_mask.any()):
+                                continue
+                            edge_logits = refiner.score_edges(graph_batch, variant_spec)
+                            graph_losses.append(
+                                F.binary_cross_entropy_with_logits(
+                                    edge_logits[valid_mask], graph_batch.edge_targets[valid_mask]
+                                )
+                            )
+                        if graph_losses:
+                            graph_loss = torch.stack(graph_losses).mean()
+                            graph_loss_value = float(graph_loss.detach().cpu())
+                            loss = loss + 0.5 * graph_loss
 
-            optimizer.zero_grad(set_to_none=True)
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
+                optimizer.zero_grad(set_to_none=True)
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
 
-            metric_row = {
-                "mode": "train",
-                "epoch": epoch,
-                "step": step,
-                "loss": float(loss.detach().cpu()),
-                "loss_fg": float(loss_fg.detach().cpu()),
-                "loss_boundary": float(loss_boundary.detach().cpu()),
-                "loss_ownership": float(loss_ownership.detach().cpu()),
-                "graph_has_edges": int(graph_has_edges),
-                "graph_edge_count": int(graph_edge_count),
-                "graph_positive_edge_targets": float(graph_positive_edge_targets),
-                "graph_loss": float(graph_loss_value),
-            }
-            metric_logger.append(metric_row)
+                metric_row = {
+                    "mode": "train",
+                    "epoch": epoch,
+                    "step": step,
+                    "loss": float(loss.detach().cpu()),
+                    "loss_fg": float(loss_fg.detach().cpu()),
+                    "loss_boundary": float(loss_boundary.detach().cpu()),
+                    "loss_ownership": float(loss_ownership.detach().cpu()),
+                    "graph_has_edges": int(graph_has_edges),
+                    "graph_edge_count": int(graph_edge_count),
+                    "graph_positive_edge_targets": float(graph_positive_edge_targets),
+                    "graph_loss": float(graph_loss_value),
+                }
+                if _is_main_process(dist_context):
+                    metric_logger.append(metric_row)
 
-            if step % 20 == 0:
-                logger.info(
-                    "epoch=%s step=%s loss=%.4f loss_fg=%.4f loss_boundary=%.4f loss_ownership=%.4f graph_edges=%s graph_has_edges=%s graph_pos_targets=%.1f graph_loss=%.4f",
-                    epoch,
-                    step,
-                    float(loss.detach().cpu()),
-                    float(loss_fg.detach().cpu()),
-                    float(loss_boundary.detach().cpu()),
-                    float(loss_ownership.detach().cpu()),
-                    int(graph_edge_count),
-                    int(graph_has_edges),
-                    float(graph_positive_edge_targets),
-                    float(graph_loss_value),
+                if step % 20 == 0 and _is_main_process(dist_context):
+                    logger.info(
+                        "epoch=%s step=%s loss=%.4f loss_fg=%.4f loss_boundary=%.4f loss_ownership=%.4f graph_edges=%s graph_has_edges=%s graph_pos_targets=%.1f graph_loss=%.4f",
+                        epoch,
+                        step,
+                        float(loss.detach().cpu()),
+                        float(loss_fg.detach().cpu()),
+                        float(loss_boundary.detach().cpu()),
+                        float(loss_ownership.detach().cpu()),
+                        int(graph_edge_count),
+                        int(graph_has_edges),
+                        float(graph_positive_edge_targets),
+                        float(graph_loss_value),
+                    )
+                if int(args.max_train_steps) > 0 and step >= int(args.max_train_steps):
+                    break
+
+            if _is_main_process(dist_context):
+                epoch_results = output_dir / f"epoch_{epoch:04d}_results.json"
+                metrics, _benchmark = evaluate_and_export(
+                    model=model_for_graph,
+                    loader=val_loader,
+                    device=device,
+                    prototype_cache=prototype_cache,
+                    variant=variant_spec,
+                    ann_file=ann_file,
+                    results_json=epoch_results,
+                    min_area=args.min_area,
+                    edge_threshold=args.edge_threshold,
+                    max_images=int(args.max_val_images) if int(
+                        args.max_val_images) > 0 else None,
                 )
-            if int(args.max_train_steps) > 0 and step >= int(args.max_train_steps):
-                break
+                metrics["iteration"] = epoch
+                with open(metrics_path, "a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(metrics, ensure_ascii=False) + "\n")
+                metric_logger.append({"mode": "eval", **metrics})
+                segm_ap = float(metrics.get("segm/AP", 0.0))
+                if segm_ap >= best_ap:
+                    best_ap = segm_ap
+                    torch.save(model_for_graph.state_dict(), best_ckpt)
+                logger.info("epoch=%s best_ap=%.4f", epoch, best_ap)
+            if dist_context.enabled:
+                dist.barrier()
 
-        epoch_results = output_dir / f"epoch_{epoch:04d}_results.json"
-        metrics, _benchmark = evaluate_and_export(
-            model=model,
-            loader=val_loader,
-            device=device,
-            prototype_cache=prototype_cache,
-            variant=variant_spec,
-            ann_file=ann_file,
-            results_json=epoch_results,
-            min_area=args.min_area,
-            edge_threshold=args.edge_threshold,
-            max_images=int(args.max_val_images) if int(
-                args.max_val_images) > 0 else None,
-        )
-        metrics["iteration"] = epoch
-        with open(metrics_path, "a", encoding="utf-8") as handle:
-            handle.write(json.dumps(metrics, ensure_ascii=False) + "\n")
-        metric_logger.append({"mode": "eval", **metrics})
-        segm_ap = float(metrics.get("segm/AP", 0.0))
-        if segm_ap >= best_ap:
-            best_ap = segm_ap
-            torch.save(model.state_dict(), best_ckpt)
-        logger.info("epoch=%s best_ap=%.4f", epoch, best_ap)
-
-    final_ckpt = output_dir / "model_final.pth"
-    torch.save(model.state_dict(), final_ckpt)
-    final_results = output_dir / "coco_instances_results.json"
-    final_metrics, inference_speed = evaluate_and_export(
-        model=model,
-        loader=val_loader,
-        device=device,
-        prototype_cache=prototype_cache,
-        variant=variant_spec,
-        ann_file=ann_file,
-        results_json=final_results,
-        min_area=args.min_area,
-        edge_threshold=args.edge_threshold,
-        max_images=int(args.max_val_images) if int(
-            args.max_val_images) > 0 else None,
-        artifact_dir=output_dir,
-        save_overlays=bool(args.save_overlays),
-        overlay_limit=int(args.overlay_limit),
-        save_graph_diagnostics=bool(args.save_graph_diagnostics),
-        diagnostics_limit=int(args.diagnostics_limit),
-    )
-    final_metrics["iteration"] = int(args.epochs)
-    wall_time_sec = int(time.time() - start)
-    write_json(output_dir / "metrics.cocoeval.json", final_metrics)
-    write_json(output_dir / "inference_speed.json", inference_speed)
-    write_metrics_csv(output_dir / "metrics_log.csv", metric_logger.rows)
-    peak_memory_mb = 0.0
-    if device.type == "cuda" and torch.cuda.is_available():
-        peak_memory_mb = float(
-            torch.cuda.max_memory_allocated(device) / (1024.0 * 1024.0))
-    (output_dir /
-     "peak_memory_mb.txt").write_text(f"{peak_memory_mb:.4f}\n", encoding="utf-8")
-    write_json(
-        output_dir / "run_summary.json",
-        asdict(
-            RunSummary(
-                variant=variant_spec.name,
-                contract_mode=args.contract_mode,
-                checkpoint=str(final_ckpt),
-                results_json=str(final_results),
-                metrics=final_metrics,
-                inference_speed=inference_speed,
-                dataset_root=run_context.dataset_root,
-                prototype_root=run_context.prototype_root,
-                split=run_context.split,
-                image_size=run_context.image_size,
-                batch=run_context.batch,
-                num_workers=run_context.num_workers,
-                min_area=run_context.min_area,
-                edge_threshold=run_context.edge_threshold,
-                device=run_context.device,
-                code_revision=run_context.code_revision,
-                params_trainable=params_trainable,
-                training_peak_memory_mb=peak_memory_mb,
-                wall_time_sec=wall_time_sec,
+        if _is_main_process(dist_context):
+            final_ckpt = output_dir / "model_final.pth"
+            torch.save(model_for_graph.state_dict(), final_ckpt)
+            final_results = output_dir / "coco_instances_results.json"
+            final_metrics, inference_speed = evaluate_and_export(
+                model=model_for_graph,
+                loader=val_loader,
+                device=device,
+                prototype_cache=prototype_cache,
+                variant=variant_spec,
+                ann_file=ann_file,
+                results_json=final_results,
+                min_area=args.min_area,
+                edge_threshold=args.edge_threshold,
+                max_images=int(args.max_val_images) if int(
+                    args.max_val_images) > 0 else None,
+                artifact_dir=output_dir,
+                save_overlays=bool(args.save_overlays),
+                overlay_limit=int(args.overlay_limit),
+                save_graph_diagnostics=bool(args.save_graph_diagnostics),
+                diagnostics_limit=int(args.diagnostics_limit),
             )
-        ),
-    )
-    write_json(output_dir / "prototype_bank_manifest.json",
-               asdict(bank.manifest))
-    (output_dir / "last_checkpoint").write_text(final_ckpt.name + "\n", encoding="utf-8")
-    (output_dir / "wall_time_sec.txt").write_text(str(wall_time_sec) + "\n", encoding="utf-8")
-    logger.info("final_best_ap=%.4f training_peak_memory_mb=%.4f",
-                best_ap, peak_memory_mb)
+            final_metrics["iteration"] = int(args.epochs)
+            wall_time_sec = int(time.time() - start)
+            write_json(output_dir / "metrics.cocoeval.json", final_metrics)
+            write_json(output_dir / "inference_speed.json", inference_speed)
+            write_metrics_csv(output_dir / "metrics_log.csv", metric_logger.rows)
+            peak_memory_mb = 0.0
+            if device.type == "cuda" and torch.cuda.is_available():
+                peak_memory_mb = float(
+                    torch.cuda.max_memory_allocated(device) / (1024.0 * 1024.0))
+            (output_dir /
+             "peak_memory_mb.txt").write_text(f"{peak_memory_mb:.4f}\n", encoding="utf-8")
+            write_json(
+                output_dir / "run_summary.json",
+                asdict(
+                    RunSummary(
+                        variant=variant_spec.name,
+                        contract_mode=args.contract_mode,
+                        checkpoint=str(final_ckpt),
+                        results_json=str(final_results),
+                        metrics=final_metrics,
+                        inference_speed=inference_speed,
+                        dataset_root=run_context.dataset_root,
+                        prototype_root=run_context.prototype_root,
+                        split=run_context.split,
+                        image_size=run_context.image_size,
+                        batch=run_context.batch,
+                        num_workers=run_context.num_workers,
+                        min_area=run_context.min_area,
+                        edge_threshold=run_context.edge_threshold,
+                        device=run_context.device,
+                        code_revision=run_context.code_revision,
+                        params_trainable=params_trainable,
+                        training_peak_memory_mb=peak_memory_mb,
+                        wall_time_sec=wall_time_sec,
+                    )
+                ),
+            )
+            write_json(output_dir / "prototype_bank_manifest.json",
+                       asdict(bank.manifest))
+            (output_dir / "last_checkpoint").write_text(final_ckpt.name + "\n", encoding="utf-8")
+            (output_dir / "wall_time_sec.txt").write_text(str(wall_time_sec) + "\n", encoding="utf-8")
+            logger.info("final_best_ap=%.4f training_peak_memory_mb=%.4f",
+                        best_ap, peak_memory_mb)
+        if dist_context.enabled:
+            dist.barrier()
+    finally:
+        _cleanup_distributed(dist_context)
 
 
 def _run_eval_like(args: argparse.Namespace, *, compute_metrics: bool) -> None:

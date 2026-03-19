@@ -12,6 +12,9 @@ MODE="run"
 VARIANT="G5"
 CONTRACT_MODE="compat"
 PYTHON_CMD="$(runner_python_cmd)"
+LAUNCHER="${GISEC_LAUNCHER:-none}"
+NPROC_PER_NODE="${GISEC_TORCHRUN_NPROC_PER_NODE:-}"
+MASTER_PORT="${GISEC_TORCHRUN_MASTER_PORT:-29500}"
 SAVE_OVERLAYS=0
 OVERLAY_LIMIT=8
 SAVE_GRAPH_DIAGNOSTICS=0
@@ -25,6 +28,9 @@ while [[ $# -gt 0 ]]; do
     --variant) VARIANT="$2"; shift 2 ;;
     --contract-mode) CONTRACT_MODE="$2"; shift 2 ;;
     --python) PYTHON_CMD="$2"; shift 2 ;;
+    --launcher) LAUNCHER="$2"; shift 2 ;;
+    --nproc-per-node) NPROC_PER_NODE="$2"; shift 2 ;;
+    --master-port) MASTER_PORT="$2"; shift 2 ;;
     --save-overlays) SAVE_OVERLAYS=1; shift ;;
     --overlay-limit) OVERLAY_LIMIT="$2"; shift 2 ;;
     --save-graph-diagnostics) SAVE_GRAPH_DIAGNOSTICS=1; shift ;;
@@ -34,6 +40,16 @@ while [[ $# -gt 0 ]]; do
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
   esac
 done
+
+if [[ -n "${NPROC_PER_NODE}" && "${LAUNCHER}" == "none" ]]; then
+  LAUNCHER="torchrun"
+fi
+export GISEC_LAUNCHER="${LAUNCHER}"
+if [[ -n "${NPROC_PER_NODE}" ]]; then
+  export GISEC_TORCHRUN_NPROC_PER_NODE="${NPROC_PER_NODE}"
+fi
+export GISEC_TORCHRUN_MASTER_PORT="${MASTER_PORT}"
+LAUNCH_PREFIX="$(runner_launch_prefix "${PYTHON_CMD}")"
 
 if [[ -z "${PROTOTYPE_ROOT}" ]]; then
   echo "--prototype-root is required" >&2
@@ -59,11 +75,14 @@ if [[ "${SAVE_GRAPH_DIAGNOSTICS}" == "1" ]]; then
   EXTRA_ARGS+=(--save-graph-diagnostics --diagnostics-limit "${DIAGNOSTICS_LIMIT}")
 fi
 
-runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${PYTHON_CMD} -m gisec.cli.train \
+runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${LAUNCH_PREFIX} -m gisec.cli.train \
   --dataset-root '${DATASET_ROOT}' \
   --prototype-root '${PROTOTYPE_ROOT}' \
   --output-dir '${OUT}' \
   --variant '${VARIANT}' \
+  --launcher '${LAUNCHER}' \
+  --nproc-per-node ${NPROC_PER_NODE:-1} \
+  --master-port ${MASTER_PORT} \
   --contract-mode '${CONTRACT_MODE}' \
   --image-size 1024 \
   --epochs 20 \

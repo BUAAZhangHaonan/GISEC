@@ -63,3 +63,16 @@ runner_python_cmd() {
   fi
   printf 'python'
 }
+
+runner_launch_prefix() {
+  local python_cmd="$1"
+  local launcher="${GISEC_LAUNCHER:-none}"
+  local nproc="${GISEC_TORCHRUN_NPROC_PER_NODE:-}"
+  local master_port="${GISEC_TORCHRUN_MASTER_PORT:-29500}"
+  if [[ "${launcher}" == "torchrun" || -n "${nproc}" ]]; then
+    local use_nproc="${nproc:-1}"
+    printf 'torchrun --standalone --nnodes 1 --nproc-per-node %s --master-port %s' "${use_nproc}" "${master_port}"
+    return 0
+  fi
+  printf '%s' "${python_cmd}"
+}
