@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import cv2
 import numpy as np
@@ -34,14 +34,16 @@ def draw_mask_overlay(image: np.ndarray, mask: Any, *, color: tuple[int, int, in
     if not mask_u8.any():
         return out
     color_arr = np.asarray(color, dtype=np.float32)
-    out[mask_u8] = np.round((1.0 - alpha) * out[mask_u8] + alpha * color_arr).astype(np.uint8)
+    out[mask_u8] = np.round((1.0 - alpha) * out[mask_u8] +
+                            alpha * color_arr).astype(np.uint8)
     return out
 
 
 def draw_contours(image: np.ndarray, mask: Any, *, color: tuple[int, int, int], thickness: int = 1) -> np.ndarray:
     out = image.copy()
     mask_u8 = (_as_mask(mask) * 255).astype(np.uint8)
-    contours, _ = cv2.findContours(mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(
+        mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if contours:
         cv2.drawContours(out, contours, -1, color, thickness)
     return out
@@ -68,9 +70,12 @@ def render_fragment_merge_preview(
     frag_panel = _render_label_map(image, fragments, alpha=alpha)
     merged_panel = _render_label_map(image, merged, alpha=alpha)
     title_band = np.full((24, image.shape[1] * 2, 3), 255, dtype=np.uint8)
-    cv2.putText(title_band, "Fragments", (8, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (20, 20, 20), 1, cv2.LINE_AA)
-    cv2.putText(title_band, "Merged", (image.shape[1] + 8, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (20, 20, 20), 1, cv2.LINE_AA)
-    preview = cv2.vconcat([title_band, cv2.hconcat([frag_panel, merged_panel])])
+    cv2.putText(title_band, "Fragments", (8, 16),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (20, 20, 20), 1, cv2.LINE_AA)
+    cv2.putText(title_band, "Merged", (image.shape[1] + 8, 16),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (20, 20, 20), 1, cv2.LINE_AA)
+    preview = cv2.vconcat(
+        [title_band, cv2.hconcat([frag_panel, merged_panel])])
     if output_path is not None:
         output = Path(output_path)
         output.parent.mkdir(parents=True, exist_ok=True)

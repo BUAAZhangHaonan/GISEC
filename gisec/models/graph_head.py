@@ -36,16 +36,21 @@ class GraphEdgeScorer(nn.Module):
 
         src, dst = edge_index[0], edge_index[1]
         node_hidden = self.node_proj(node_features)
-        edge_hidden = self.edge_msg(torch.cat([node_hidden[src], node_hidden[dst], edge_features], dim=1))
+        edge_hidden = self.edge_msg(
+            torch.cat([node_hidden[src], node_hidden[dst], edge_features], dim=1))
 
         agg = torch.zeros_like(node_hidden)
-        counts = torch.zeros((node_hidden.shape[0], 1), dtype=node_hidden.dtype, device=node_hidden.device)
+        counts = torch.zeros(
+            (node_hidden.shape[0], 1), dtype=node_hidden.dtype, device=node_hidden.device)
         agg.index_add_(0, src, edge_hidden)
         agg.index_add_(0, dst, edge_hidden)
-        ones = torch.ones((edge_hidden.shape[0], 1), dtype=node_hidden.dtype, device=node_hidden.device)
+        ones = torch.ones(
+            (edge_hidden.shape[0], 1), dtype=node_hidden.dtype, device=node_hidden.device)
         counts.index_add_(0, src, ones)
         counts.index_add_(0, dst, ones)
-        node_hidden = self.node_upd(torch.cat([node_hidden, agg / counts.clamp_min(1.0)], dim=1))
+        node_hidden = self.node_upd(
+            torch.cat([node_hidden, agg / counts.clamp_min(1.0)], dim=1))
 
-        logits = self.edge_out(torch.cat([node_hidden[src], node_hidden[dst], edge_features], dim=1))
+        logits = self.edge_out(
+            torch.cat([node_hidden[src], node_hidden[dst], edge_features], dim=1))
         return logits.squeeze(1)

@@ -25,11 +25,13 @@ def fragments_from_logits(
     min_area: int = 8,
 ) -> np.ndarray:
     fg = (sigmoid_np(fg_logits) >= float(threshold)).astype(np.uint8)
-    boundary = (sigmoid_np(boundary_logits) >= float(threshold)).astype(np.uint8)
+    boundary = (sigmoid_np(boundary_logits) >=
+                float(threshold)).astype(np.uint8)
     interior = (fg & (1 - boundary)).astype(np.uint8)
     if interior.sum() == 0:
         interior = fg
-    num, labels, stats, _ = cv2.connectedComponentsWithStats(interior, connectivity=8)
+    num, labels, stats, _ = cv2.connectedComponentsWithStats(
+        interior, connectivity=8)
     fragments = np.zeros_like(labels, dtype=np.int32)
     next_id = 1
     for label in range(1, num):
@@ -39,7 +41,8 @@ def fragments_from_logits(
         fragments[labels == label] = next_id
         next_id += 1
     if next_id == 1 and fg.sum() > 0:
-        num, labels, stats, _ = cv2.connectedComponentsWithStats(fg, connectivity=8)
+        num, labels, stats, _ = cv2.connectedComponentsWithStats(
+            fg, connectivity=8)
         for label in range(1, num):
             area = int(stats[label, cv2.CC_STAT_AREA])
             if area < int(min_area):
@@ -62,11 +65,12 @@ def _adjacent_fragment_pairs(
     kernel_size = max(3, int(boundary_radius) * 2 + 1)
     kernel = np.ones((kernel_size, kernel_size), dtype=np.uint8)
     masks = {label: (fragments == label).astype(np.uint8) for label in labels}
-    dilated = {label: cv2.dilate(mask, kernel, iterations=1).astype(bool) for label, mask in masks.items()}
+    dilated = {label: cv2.dilate(mask, kernel, iterations=1).astype(
+        bool) for label, mask in masks.items()}
 
     for index, a in enumerate(labels):
         mask_a = masks[a].astype(bool)
-        for b in labels[index + 1 :]:
+        for b in labels[index + 1:]:
             mask_b = masks[b].astype(bool)
             overlap = dilated[a] & dilated[b]
             if not overlap.any():
@@ -125,12 +129,14 @@ def build_graph_batch(
     boundary_prob = torch.sigmoid(boundary_logits.detach())[0, 0].cpu().numpy()
     affinity_prob = torch.sigmoid(affinity_logits.detach())[0].cpu().numpy()
     depth_np = depth_map.detach()[0, 0].cpu().numpy()
-    fragments = fragments_from_logits(fg_prob, boundary_prob, threshold=threshold, min_area=min_area)
+    fragments = fragments_from_logits(
+        fg_prob, boundary_prob, threshold=threshold, min_area=min_area)
     labels = [int(x) for x in np.unique(fragments).tolist() if int(x) > 0]
     if not labels:
         return GraphBatch(
             node_features=feature_map.new_zeros((0, feature_map.shape[1] + 6)),
-            edge_index=torch.zeros((2, 0), dtype=torch.long, device=feature_map.device),
+            edge_index=torch.zeros(
+                (2, 0), dtype=torch.long, device=feature_map.device),
             edge_features=feature_map.new_zeros((0, 6)),
             edge_targets=None,
             fragments=fragments,
@@ -141,18 +147,21 @@ def build_graph_batch(
     fragment_geometry: Dict[int, Dict[str, float]] = {}
     sim_cache = None
     if prototype_cache is not None and variant_spec.use_rgb_prototype_similarity:
-        sim_cache = cosine_similarity_map(feature_map, prototype_cache.proto_h.to(feature_map.device))[0, 0]
+        sim_cache = cosine_similarity_map(
+            feature_map, prototype_cache.proto_h.to(feature_map.device))[0, 0]
     for label in labels:
         mask_np = fragments == label
         mask = torch.from_numpy(mask_np).to(feature_map.device)
         denom = mask.sum().clamp_min(1).float()
-        pooled_feat = (feature_map[0] * mask.unsqueeze(0)).sum(dim=(1, 2)) / denom
+        pooled_feat = (feature_map[0] *
+                       mask.unsqueeze(0)).sum(dim=(1, 2)) / denom
         area_ratio = float(mask_np.mean())
         aspect = _mask_aspect(mask_np)
         depth_values = depth_np[mask_np]
         depth_mean = float(depth_values.mean()) if depth_values.size else 0.0
         depth_std = float(depth_values.std()) if depth_values.size else 0.0
-        ref_rgb = float(sim_cache[mask].mean()) if sim_cache is not None and mask.any() else 0.0
+        ref_rgb = float(sim_cache[mask].mean(
+        )) if sim_cache is not None and mask.any() else 0.0
         ref_depth = 0.0
         if prototype_cache is not None and variant_spec.use_depth_prototype_similarity:
             proto_d = prototype_cache.proto_d.to(feature_map.device)
@@ -193,11 +202,13 @@ def build_graph_batch(
     if not edge_pairs:
         return GraphBatch(
             node_features=torch.stack(pooled, dim=0),
-            edge_index=torch.zeros((2, 0), dtype=torch.long, device=feature_map.device),
+            edge_index=torch.zeros(
+                (2, 0), dtype=torch.long, device=feature_map.device),
             edge_features=feature_map.new_zeros((0, 6)),
             edge_targets=None,
             fragments=fragments,
-            diagnostics={"num_fragments": len(labels), "num_edges": 0, "num_merged": 0},
+            diagnostics={"num_fragments": len(
+                labels), "num_edges": 0, "num_merged": 0},
         )
 
     label_to_idx = {label: idx for idx, label in enumerate(labels)}
@@ -210,13 +221,18 @@ def build_graph_batch(
     for a, b in edge_pairs:
         contacts = pairs[(a, b)]
         contact = contacts["contact"]
-        boundary_crossing = float(boundary_prob[contact].mean()) if contact.any() else 0.0
-        affinity_value = float(affinity_prob[:, contact].mean()) if contact.any() else 0.0
+        boundary_crossing = float(
+            boundary_prob[contact].mean()) if contact.any() else 0.0
+        affinity_value = float(
+            affinity_prob[:, contact].mean()) if contact.any() else 0.0
         if boundary_crossing < 0.5 and affinity_value < 0.5:
             continue
-        depth_delta = abs(fragment_geometry[a]["depth_mean"] - fragment_geometry[b]["depth_mean"])
-        area_delta = abs(fragment_geometry[a]["area_ratio"] - fragment_geometry[b]["area_ratio"])
-        aspect_delta = abs(fragment_geometry[a]["aspect_ratio"] - fragment_geometry[b]["aspect_ratio"])
+        depth_delta = abs(
+            fragment_geometry[a]["depth_mean"] - fragment_geometry[b]["depth_mean"])
+        area_delta = abs(
+            fragment_geometry[a]["area_ratio"] - fragment_geometry[b]["area_ratio"])
+        aspect_delta = abs(
+            fragment_geometry[a]["aspect_ratio"] - fragment_geometry[b]["aspect_ratio"])
         shape_consistency = 1.0 - min(
             1.0,
             abs(fragment_geometry[a]["area_ratio"] - mean_area)
@@ -248,22 +264,26 @@ def build_graph_batch(
     if not edge_index_list:
         return GraphBatch(
             node_features=torch.stack(pooled, dim=0),
-            edge_index=torch.zeros((2, 0), dtype=torch.long, device=feature_map.device),
+            edge_index=torch.zeros(
+                (2, 0), dtype=torch.long, device=feature_map.device),
             edge_features=feature_map.new_zeros((0, 6)),
             edge_targets=None,
             fragments=fragments,
-            diagnostics={"num_fragments": len(labels), "num_edges": 0, "num_merged": 0},
+            diagnostics={"num_fragments": len(
+                labels), "num_edges": 0, "num_merged": 0},
         )
 
     return GraphBatch(
         node_features=torch.stack(pooled, dim=0),
-        edge_index=torch.tensor(edge_index_list, dtype=torch.long, device=feature_map.device).t().contiguous(),
+        edge_index=torch.tensor(
+            edge_index_list, dtype=torch.long, device=feature_map.device).t().contiguous(),
         edge_features=torch.stack(edge_features, dim=0),
         edge_targets=None
         if not edge_targets
         else torch.tensor(edge_targets, dtype=feature_map.dtype, device=feature_map.device),
         fragments=fragments,
-        diagnostics={"num_fragments": len(labels), "num_edges": len(edge_index_list), "num_merged": 0},
+        diagnostics={"num_fragments": len(labels), "num_edges": len(
+            edge_index_list), "num_merged": 0},
     )
 
 

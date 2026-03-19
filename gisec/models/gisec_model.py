@@ -17,11 +17,13 @@ from gisec.models.prototype_unet import PrototypeConditionedUNetBackbone
 class GISECModel(nn.Module):
     def __init__(self, base_channels: int = 16, graph_hidden_dim: int = 64):
         super().__init__()
-        self.backbone = PrototypeConditionedUNetBackbone(in_channels=3, base_channels=base_channels)
+        self.backbone = PrototypeConditionedUNetBackbone(
+            in_channels=3, base_channels=base_channels)
         self.output_channels = self.backbone.output_channels
         node_dim = self.output_channels + 6
         edge_dim = 6
-        self.graph_head = GraphEdgeScorer(node_dim=node_dim, edge_dim=edge_dim, hidden_dim=graph_hidden_dim)
+        self.graph_head = GraphEdgeScorer(
+            node_dim=node_dim, edge_dim=edge_dim, hidden_dim=graph_hidden_dim)
 
     @torch.no_grad()
     def build_prototype_cache(self, bank: PrototypeBank, device: torch.device) -> PrototypeCache:

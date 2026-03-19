@@ -9,7 +9,7 @@ from pathlib import Path
 import torch
 import torch.nn.functional as F
 
-from gisec.config.variants import VariantSpec, get_variant_spec, variant_names
+from gisec.config.variants import get_variant_spec, variant_names
 from gisec.engine.runtime import (
     RunContext,
     RunSummary,
@@ -31,14 +31,16 @@ def _common_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dataset-root", required=True)
     parser.add_argument("--prototype-root", required=True)
     parser.add_argument("--output-dir", required=True)
-    parser.add_argument("--variant", choices=list(variant_names()), default="G5")
+    parser.add_argument(
+        "--variant", choices=list(variant_names()), default="G5")
     parser.add_argument("--image-size", type=int, default=1024)
     parser.add_argument("--batch", type=int, default=4)
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--min-area", type=int, default=10)
     parser.add_argument("--edge-threshold", type=float, default=0.5)
-    parser.add_argument("--contract-mode", choices=["compat", "strict"], default="compat")
+    parser.add_argument("--contract-mode",
+                        choices=["compat", "strict"], default="compat")
     parser.add_argument("--save-overlays", action="store_true")
     parser.add_argument("--overlay-limit", type=int, default=8)
     parser.add_argument("--save-graph-diagnostics", action="store_true")
@@ -58,7 +60,8 @@ def parse_train_args(argv: list[str] | None = None) -> argparse.Namespace:
 def parse_eval_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(parents=[_common_parser()])
     parser.add_argument("--checkpoint", type=str, default="")
-    parser.add_argument("--split", choices=["train", "val", "test"], default="val")
+    parser.add_argument(
+        "--split", choices=["train", "val", "test"], default="val")
     parser.add_argument("--max-images", type=int, default=0)
     parser.add_argument("--results-json", type=str, default="")
     return parser.parse_args(argv)
@@ -67,7 +70,8 @@ def parse_eval_args(argv: list[str] | None = None) -> argparse.Namespace:
 def parse_infer_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(parents=[_common_parser()])
     parser.add_argument("--checkpoint", type=str, default="")
-    parser.add_argument("--split", choices=["train", "val", "test"], default="val")
+    parser.add_argument(
+        "--split", choices=["train", "val", "test"], default="val")
     parser.add_argument("--max-images", type=int, default=0)
     parser.add_argument("--results-json", type=str, default="")
     return parser.parse_args(argv)
@@ -126,8 +130,10 @@ def train_main(args: argparse.Namespace) -> None:
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     scaler = torch.cuda.amp.GradScaler(enabled=use_cuda)
     ann_file = Path(args.dataset_root) / "annotations" / "instances_val.json"
-    params_trainable = sum(int(p.numel()) for p in model.parameters() if p.requires_grad)
-    (output_dir / "params_trainable.txt").write_text(str(params_trainable) + "\n", encoding="utf-8")
+    params_trainable = sum(int(p.numel())
+                           for p in model.parameters() if p.requires_grad)
+    (output_dir / "params_trainable.txt").write_text(str(params_trainable) +
+                                                     "\n", encoding="utf-8")
 
     metrics_path = output_dir / "metrics.json"
     if metrics_path.exists():
@@ -149,10 +155,14 @@ def train_main(args: argparse.Namespace) -> None:
             instance_maps = batch["instance_maps"].to(device)
 
             with torch.cuda.amp.autocast(enabled=use_cuda):
-                outputs = model(images, query_depth=depths, prototype_cache=prototype_cache)
-                loss_fg = F.binary_cross_entropy_with_logits(outputs["fg_logits"], fg_target)
-                loss_boundary = F.binary_cross_entropy_with_logits(outputs["boundary_logits"], boundary_target)
-                loss_affinity = F.binary_cross_entropy_with_logits(outputs["affinity_logits"], affinity_target)
+                outputs = model(images, query_depth=depths,
+                                prototype_cache=prototype_cache)
+                loss_fg = F.binary_cross_entropy_with_logits(
+                    outputs["fg_logits"], fg_target)
+                loss_boundary = F.binary_cross_entropy_with_logits(
+                    outputs["boundary_logits"], boundary_target)
+                loss_affinity = F.binary_cross_entropy_with_logits(
+                    outputs["affinity_logits"], affinity_target)
                 loss = loss_fg + loss_boundary + 0.5 * loss_affinity
                 graph_edge_count = 0
                 graph_positive_edge_targets = 0.0
@@ -163,20 +173,26 @@ def train_main(args: argparse.Namespace) -> None:
                     graph_losses = []
                     for batch_idx in range(images.shape[0]):
                         graph_batch = refiner.build_graph_batch(
-                            outputs={key: value[batch_idx : batch_idx + 1] for key, value in outputs.items()},
-                            depth_map=depths[batch_idx : batch_idx + 1],
+                            outputs={key: value[batch_idx: batch_idx + 1]
+                                     for key, value in outputs.items()},
+                            depth_map=depths[batch_idx: batch_idx + 1],
                             instance_map=instance_maps[batch_idx],
                             prototype_cache=prototype_cache,
                             variant=variant_spec,
                         )
-                        graph_edge_count += int(graph_batch.diagnostics.get("num_edges", int(graph_batch.edge_index.shape[1])))
-                        graph_has_edges = graph_has_edges or bool(graph_batch.edge_index.shape[1] > 0)
+                        graph_edge_count += int(graph_batch.diagnostics.get(
+                            "num_edges", int(graph_batch.edge_index.shape[1])))
+                        graph_has_edges = graph_has_edges or bool(
+                            graph_batch.edge_index.shape[1] > 0)
                         if graph_batch.edge_targets is not None:
-                            graph_positive_edge_targets += float(graph_batch.edge_targets.sum().item())
+                            graph_positive_edge_targets += float(
+                                graph_batch.edge_targets.sum().item())
                         if graph_batch.edge_targets is None or graph_batch.edge_targets.numel() == 0:
                             continue
-                        edge_logits = refiner.score_edges(graph_batch, variant_spec)
-                        graph_losses.append(F.binary_cross_entropy_with_logits(edge_logits, graph_batch.edge_targets))
+                        edge_logits = refiner.score_edges(
+                            graph_batch, variant_spec)
+                        graph_losses.append(F.binary_cross_entropy_with_logits(
+                            edge_logits, graph_batch.edge_targets))
                     if graph_losses:
                         graph_loss = torch.stack(graph_losses).mean()
                         graph_loss_value = float(graph_loss.detach().cpu())
@@ -234,7 +250,8 @@ def train_main(args: argparse.Namespace) -> None:
             results_json=epoch_results,
             min_area=args.min_area,
             edge_threshold=args.edge_threshold,
-            max_images=int(args.max_val_images) if int(args.max_val_images) > 0 else None,
+            max_images=int(args.max_val_images) if int(
+                args.max_val_images) > 0 else None,
         )
         metrics["iteration"] = epoch
         with open(metrics_path, "a", encoding="utf-8") as handle:
@@ -259,7 +276,8 @@ def train_main(args: argparse.Namespace) -> None:
         results_json=final_results,
         min_area=args.min_area,
         edge_threshold=args.edge_threshold,
-        max_images=int(args.max_val_images) if int(args.max_val_images) > 0 else None,
+        max_images=int(args.max_val_images) if int(
+            args.max_val_images) > 0 else None,
         artifact_dir=output_dir,
         save_overlays=bool(args.save_overlays),
         overlay_limit=int(args.overlay_limit),
@@ -273,8 +291,10 @@ def train_main(args: argparse.Namespace) -> None:
     write_metrics_csv(output_dir / "metrics_log.csv", metric_logger.rows)
     peak_memory_mb = 0.0
     if device.type == "cuda" and torch.cuda.is_available():
-        peak_memory_mb = float(torch.cuda.max_memory_allocated(device) / (1024.0 * 1024.0))
-    (output_dir / "peak_memory_mb.txt").write_text(f"{peak_memory_mb:.4f}\n", encoding="utf-8")
+        peak_memory_mb = float(
+            torch.cuda.max_memory_allocated(device) / (1024.0 * 1024.0))
+    (output_dir /
+     "peak_memory_mb.txt").write_text(f"{peak_memory_mb:.4f}\n", encoding="utf-8")
     write_json(
         output_dir / "run_summary.json",
         asdict(
@@ -301,10 +321,12 @@ def train_main(args: argparse.Namespace) -> None:
             )
         ),
     )
-    write_json(output_dir / "prototype_bank_manifest.json", asdict(bank.manifest))
+    write_json(output_dir / "prototype_bank_manifest.json",
+               asdict(bank.manifest))
     (output_dir / "last_checkpoint").write_text(final_ckpt.name + "\n", encoding="utf-8")
     (output_dir / "wall_time_sec.txt").write_text(str(wall_time_sec) + "\n", encoding="utf-8")
-    logger.info("final_best_ap=%.4f training_peak_memory_mb=%.4f", best_ap, peak_memory_mb)
+    logger.info("final_best_ap=%.4f training_peak_memory_mb=%.4f",
+                best_ap, peak_memory_mb)
 
 
 def _run_eval_like(args: argparse.Namespace, *, compute_metrics: bool) -> None:
@@ -344,10 +366,12 @@ def _run_eval_like(args: argparse.Namespace, *, compute_metrics: bool) -> None:
         image_size=args.image_size,
         contract_mode=args.contract_mode,
     )
-    results_json = Path(args.results_json).resolve() if args.results_json else output_dir / "coco_instances_results.json"
+    results_json = Path(args.results_json).resolve(
+    ) if args.results_json else output_dir / "coco_instances_results.json"
     ann_file = None
     if compute_metrics:
-        ann_candidate = Path(args.dataset_root) / "annotations" / f"instances_{args.split}.json"
+        ann_candidate = Path(args.dataset_root) / \
+            "annotations" / f"instances_{args.split}.json"
         if ann_candidate.exists():
             ann_file = ann_candidate
     metrics, inference_speed = evaluate_and_export(
@@ -392,7 +416,8 @@ def _run_eval_like(args: argparse.Namespace, *, compute_metrics: bool) -> None:
             )
         ),
     )
-    write_json(output_dir / "prototype_bank_manifest.json", asdict(bank.manifest))
+    write_json(output_dir / "prototype_bank_manifest.json",
+               asdict(bank.manifest))
 
 
 def eval_main(args: argparse.Namespace) -> None:

@@ -37,7 +37,8 @@ def bank_shape_stats(bank: PrototypeBank) -> Dict[str, float]:
     return {
         "mean_area_ratio": float(bank.shape_stats.get("mean_area_ratio", 0.0)),
         "mean_aspect_ratio": float(
-            bank.shape_stats.get("mean_aspect_ratio", bank.shape_stats.get("mean_bbox_aspect_ratio", 1.0))
+            bank.shape_stats.get("mean_aspect_ratio", bank.shape_stats.get(
+                "mean_bbox_aspect_ratio", 1.0))
         ),
         "mean_bbox_aspect_ratio": float(bank.shape_stats.get("mean_bbox_aspect_ratio", 1.0)),
     }

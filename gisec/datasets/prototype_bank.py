@@ -39,7 +39,8 @@ class PrototypeBankContractError(ValueError):
         self.root = root
         self.missing_items = tuple(missing_items)
         joined = ", ".join(self.missing_items)
-        super().__init__(f"Prototype bank contract check failed under {root}: missing {joined}")
+        super().__init__(
+            f"Prototype bank contract check failed under {root}: missing {joined}")
 
 
 @dataclass(frozen=True)
@@ -94,7 +95,8 @@ def _validate_contract(root: Path, contract_mode: str) -> PrototypeBankManifest:
                 missing.append(path.relative_to(root).as_posix())
     if missing:
         if contract_mode == "compat":
-            raise FileNotFoundError(f"Prototype directory not found: {missing[0]}")
+            raise FileNotFoundError(
+                f"Prototype directory not found: {missing[0]}")
         raise PrototypeBankContractError(root, missing)
 
     qa_payload = _read_json(qa_report_path) if qa_report_path.exists() else {}
@@ -133,11 +135,13 @@ def load_prototype_bank(
     camera_dir = root / "camera"
 
     rgb_files = {p.stem: p for p in sorted(rgb_dir.glob("*")) if p.is_file()}
-    depth_files = {p.stem: p for p in sorted(depth_dir.glob("*.npy")) if p.is_file()}
+    depth_files = {p.stem: p for p in sorted(
+        depth_dir.glob("*.npy")) if p.is_file()}
     mask_files = {p.stem: p for p in sorted(mask_dir.glob("*")) if p.is_file()}
     view_ids = sorted(set(rgb_files) & set(depth_files) & set(mask_files))
     if not view_ids:
-        raise FileNotFoundError(f"No matched rgb/depth/mask prototype views found under {root}")
+        raise FileNotFoundError(
+            f"No matched rgb/depth/mask prototype views found under {root}")
 
     images, depths, masks = [], [], []
     area_ratios, aspect_ratios = [], []
@@ -169,7 +173,8 @@ def load_prototype_bank(
         shape_stats = {}
     shape_stats.setdefault("mean_area_ratio", float(np.mean(area_ratios)))
     shape_stats.setdefault("mean_aspect_ratio", float(np.mean(aspect_ratios)))
-    shape_stats.setdefault("mean_bbox_aspect_ratio", float(np.mean(aspect_ratios)))
+    shape_stats.setdefault("mean_bbox_aspect_ratio",
+                           float(np.mean(aspect_ratios)))
 
     meta: Dict[str, Any] = {}
     manifest_path = meta_dir / "manifest.json"
@@ -190,7 +195,8 @@ def load_prototype_bank(
             )
         manifest_views = meta.get("views")
         if manifest_views is not None and int(manifest_views) != len(view_ids):
-            missing.append(f"meta/manifest.json views={manifest_views} expected={len(view_ids)}")
+            missing.append(
+                f"meta/manifest.json views={manifest_views} expected={len(view_ids)}")
         if not manifest.qa_passed:
             missing.append("meta/qa_report.json qa_passed=false")
         if manifest.qa_errors:
@@ -215,7 +221,8 @@ def load_prototype_bank(
         has_manifest=manifest_path.exists(),
         has_shape_stats=shape_stats_path.exists(),
         has_qa_report=(meta_dir / "qa_report.json").exists(),
-        has_preview_contact_sheet=(meta_dir / "preview_contact_sheet.png").exists(),
+        has_preview_contact_sheet=(
+            meta_dir / "preview_contact_sheet.png").exists(),
         qa_passed=manifest.qa_passed,
         qa_errors=manifest.qa_errors,
         missing_items=tuple(sorted(set(missing))),

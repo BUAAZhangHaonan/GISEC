@@ -60,7 +60,8 @@ class GraphRefiner:
         variant_spec = get_variant_spec(variant)
         if variant_spec.use_learned_edge_scorer:
             return self.model.forward_graph(graph_batch)
-        heuristic_scores = heuristic_edge_scores(graph_batch.edge_features).clamp(1e-4, 1.0 - 1e-4)
+        heuristic_scores = heuristic_edge_scores(
+            graph_batch.edge_features).clamp(1e-4, 1.0 - 1e-4)
         return torch.logit(heuristic_scores)
 
     def merge(self, *, graph_batch: GraphBatch, edge_logits: torch.Tensor, threshold: float) -> torch.Tensor:

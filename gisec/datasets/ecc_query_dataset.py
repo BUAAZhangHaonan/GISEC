@@ -27,14 +27,16 @@ def ann_to_mask(ann: Dict[str, Any], height: int, width: int) -> np.ndarray:
         elif isinstance(segmentation, dict):
             rle = segmentation
         else:
-            raise TypeError(f"Unsupported segmentation type: {type(segmentation)}")
+            raise TypeError(
+                f"Unsupported segmentation type: {type(segmentation)}")
         mask = mask_utils.decode(rle)
         if mask.ndim == 3:
             mask = mask[:, :, 0]
         return (mask > 0).astype(np.uint8)
 
     if not isinstance(segmentation, list):
-        raise TypeError("Polygon-only segmentation fallback requires list segmentation when pycocotools is unavailable")
+        raise TypeError(
+            "Polygon-only segmentation fallback requires list segmentation when pycocotools is unavailable")
     mask = np.zeros((height, width), dtype=np.uint8)
     for polygon in segmentation:
         points = np.asarray(polygon, dtype=np.float32).reshape(-1, 2)
@@ -44,17 +46,22 @@ def ann_to_mask(ann: Dict[str, Any], height: int, width: int) -> np.ndarray:
 
 def build_affinity_target(instance_map: np.ndarray) -> np.ndarray:
     instance_map = instance_map.astype(np.int32)
-    affinity = np.zeros((2, instance_map.shape[0], instance_map.shape[1]), dtype=np.float32)
-    right_same = (instance_map[:, :-1] > 0) & (instance_map[:, :-1] == instance_map[:, 1:])
-    down_same = (instance_map[:-1, :] > 0) & (instance_map[:-1, :] == instance_map[1:, :])
+    affinity = np.zeros(
+        (2, instance_map.shape[0], instance_map.shape[1]), dtype=np.float32)
+    right_same = (instance_map[:, :-1] >
+                  0) & (instance_map[:, :-1] == instance_map[:, 1:])
+    down_same = (instance_map[:-1, :] >
+                 0) & (instance_map[:-1, :] == instance_map[1:, :])
     affinity[0, :, :-1] = right_same.astype(np.float32)
     affinity[1, :-1, :] = down_same.astype(np.float32)
     return affinity
 
 
 def build_boundary_target(instance_mask: np.ndarray) -> np.ndarray:
-    dilated = cv2.dilate(instance_mask, np.ones((3, 3), dtype=np.uint8), iterations=1)
-    eroded = cv2.erode(instance_mask, np.ones((3, 3), dtype=np.uint8), iterations=1)
+    dilated = cv2.dilate(instance_mask, np.ones(
+        (3, 3), dtype=np.uint8), iterations=1)
+    eroded = cv2.erode(instance_mask, np.ones(
+        (3, 3), dtype=np.uint8), iterations=1)
     return (dilated - eroded).clip(min=0).astype(np.uint8)
 
 
@@ -81,11 +88,14 @@ class QuerySample:
 class _LiteCOCO:
     def __init__(self, ann_path: str | Path):
         payload = json.loads(Path(ann_path).read_text(encoding="utf-8"))
-        self._images = {int(item["id"]): item for item in payload.get("images", [])}
-        self._annotations = {int(item["id"]): item for item in payload.get("annotations", [])}
+        self._images = {
+            int(item["id"]): item for item in payload.get("images", [])}
+        self._annotations = {
+            int(item["id"]): item for item in payload.get("annotations", [])}
         self._ann_ids_by_image: Dict[int, List[int]] = {}
         for ann_id, ann in self._annotations.items():
-            self._ann_ids_by_image.setdefault(int(ann["image_id"]), []).append(ann_id)
+            self._ann_ids_by_image.setdefault(
+                int(ann["image_id"]), []).append(ann_id)
 
     def getImgIds(self) -> List[int]:
         return sorted(self._images)
@@ -110,13 +120,15 @@ class ECCGraphDataset(Dataset):
         self.image_size = int(image_size)
         self.train = bool(train)
         coco_cls = _PyCOCO or _LiteCOCO
-        self.coco = coco_cls(str(self.root / "annotations" / f"instances_{split}.json"))
+        self.coco = coco_cls(
+            str(self.root / "annotations" / f"instances_{split}.json"))
         self.image_ids = sorted(self.coco.getImgIds())
         depth_candidates = [
             self.root / "depth" / split,
             self.root / "depth" / "depth_npy" / split,
         ]
-        self.depth_dir = next((path for path in depth_candidates if path.exists()), None)
+        self.depth_dir = next(
+            (path for path in depth_candidates if path.exists()), None)
 
     def __len__(self) -> int:
         return len(self.image_ids)
@@ -124,7 +136,8 @@ class ECCGraphDataset(Dataset):
     def __getitem__(self, index: int) -> QuerySample:
         image_id = int(self.image_ids[index])
         info = self.coco.loadImgs([image_id])[0]
-        image = cv2.imread(str(self.root / "images" / self.split / info["file_name"]), cv2.IMREAD_COLOR)
+        image = cv2.imread(
+            str(self.root / "images" / self.split / info["file_name"]), cv2.IMREAD_COLOR)
         if image is None:
             raise FileNotFoundError(info["file_name"])
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -155,12 +168,17 @@ class ECCGraphDataset(Dataset):
             if depth is not None:
                 depth = depth[:, ::-1].copy()
 
-        image = cv2.resize(image, (self.image_size, self.image_size), interpolation=cv2.INTER_LINEAR)
-        fg_mask = cv2.resize(fg_mask, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
-        boundary = cv2.resize(boundary, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
-        instance_map = cv2.resize(instance_map, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
+        image = cv2.resize(
+            image, (self.image_size, self.image_size), interpolation=cv2.INTER_LINEAR)
+        fg_mask = cv2.resize(
+            fg_mask, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
+        boundary = cv2.resize(
+            boundary, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
+        instance_map = cv2.resize(
+            instance_map, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
         if depth is not None:
-            depth = cv2.resize(depth, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
+            depth = cv2.resize(
+                depth, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
 
         return QuerySample(
             image_id=image_id,
@@ -172,7 +190,8 @@ class ECCGraphDataset(Dataset):
             else torch.zeros((1, self.image_size, self.image_size), dtype=torch.float32),
             fg_target=torch.from_numpy(fg_mask[None, ...]).float(),
             boundary_target=torch.from_numpy(boundary[None, ...]).float(),
-            affinity_target=torch.from_numpy(build_affinity_target(instance_map)).float(),
+            affinity_target=torch.from_numpy(
+                build_affinity_target(instance_map)).float(),
             instance_map=torch.from_numpy(instance_map).long(),
         )
 

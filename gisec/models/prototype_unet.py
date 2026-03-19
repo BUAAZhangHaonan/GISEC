@@ -29,13 +29,15 @@ class ConvBlock(nn.Module):
 class UpBlock(nn.Module):
     def __init__(self, in_channels: int, skip_channels: int, out_channels: int):
         super().__init__()
-        self.up = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2, stride=2)
+        self.up = nn.ConvTranspose2d(
+            in_channels, out_channels, kernel_size=2, stride=2)
         self.conv = ConvBlock(out_channels + skip_channels, out_channels)
 
     def forward(self, x: torch.Tensor, skip: torch.Tensor) -> torch.Tensor:
         x = self.up(x)
         if x.shape[-2:] != skip.shape[-2:]:
-            x = F.interpolate(x, size=skip.shape[-2:], mode="bilinear", align_corners=False)
+            x = F.interpolate(
+                x, size=skip.shape[-2:], mode="bilinear", align_corners=False)
         return self.conv(torch.cat([x, skip], dim=1))
 
 
@@ -43,7 +45,8 @@ class PrototypeConditionedUNetBackbone(nn.Module):
     def __init__(self, in_channels: int = 3, base_channels: int = 32):
         super().__init__()
         self.output_channels = base_channels
-        c1, c2, c3, c4 = base_channels, base_channels * 2, base_channels * 4, base_channels * 8
+        c1, c2, c3, c4 = base_channels, base_channels * \
+            2, base_channels * 4, base_channels * 8
         self.enc1 = ConvBlock(in_channels, c1)
         self.enc2 = ConvBlock(c1, c2)
         self.enc3 = ConvBlock(c2, c3)
@@ -85,10 +88,13 @@ class PrototypeConditionedUNetBackbone(nn.Module):
         masks = bank.masks.to(device)
         depths = bank.depths.to(device)
         feats = self._encode_query(images)
-        proto_b = self._masked_proto(feats["xb"], masks).mean(dim=0, keepdim=True)
-        proto_h = self._masked_proto(feats["x1"], masks).mean(dim=0, keepdim=True)
+        proto_b = self._masked_proto(
+            feats["xb"], masks).mean(dim=0, keepdim=True)
+        proto_h = self._masked_proto(
+            feats["x1"], masks).mean(dim=0, keepdim=True)
         depth_feat = self.depth_stem(depths)
-        proto_d = self._masked_proto(depth_feat, masks).mean(dim=0, keepdim=True)
+        proto_d = self._masked_proto(
+            depth_feat, masks).mean(dim=0, keepdim=True)
         return PrototypeCache(
             proto_b=proto_b,
             proto_h=proto_h,
@@ -107,20 +113,28 @@ class PrototypeConditionedUNetBackbone(nn.Module):
         x1 = feats["x1"]
 
         if prototype_cache is not None:
-            sim_b = cosine_similarity_map(xb, prototype_cache.proto_b.to(xb.device))
-            gate_b = torch.sigmoid(prototype_cache.proto_b.to(xb.device).expand(xb.shape[0], -1, -1, -1))
+            sim_b = cosine_similarity_map(
+                xb, prototype_cache.proto_b.to(xb.device))
+            gate_b = torch.sigmoid(prototype_cache.proto_b.to(
+                xb.device).expand(xb.shape[0], -1, -1, -1))
             depth_b = torch.zeros_like(sim_b)
             if query_depth is not None:
                 depth_low = self.depth_stem(query_depth)
-                depth_b = F.interpolate(depth_low.mean(dim=1, keepdim=True), size=xb.shape[-2:], mode="bilinear", align_corners=False)
-            xb = self.bottleneck_fuse(torch.cat([xb * gate_b, sim_b, depth_b], dim=1))
+                depth_b = F.interpolate(depth_low.mean(
+                    dim=1, keepdim=True), size=xb.shape[-2:], mode="bilinear", align_corners=False)
+            xb = self.bottleneck_fuse(
+                torch.cat([xb * gate_b, sim_b, depth_b], dim=1))
 
-            sim_h = cosine_similarity_map(x1, prototype_cache.proto_h.to(x1.device))
-            gate_h = torch.sigmoid(prototype_cache.proto_h.to(x1.device).expand(x1.shape[0], -1, -1, -1))
+            sim_h = cosine_similarity_map(
+                x1, prototype_cache.proto_h.to(x1.device))
+            gate_h = torch.sigmoid(prototype_cache.proto_h.to(
+                x1.device).expand(x1.shape[0], -1, -1, -1))
             depth_h = torch.zeros_like(sim_h)
             if query_depth is not None:
-                depth_h = self.depth_stem(query_depth).mean(dim=1, keepdim=True)
-            x1 = self.highres_fuse(torch.cat([x1 * gate_h, sim_h, depth_h], dim=1))
+                depth_h = self.depth_stem(
+                    query_depth).mean(dim=1, keepdim=True)
+            x1 = self.highres_fuse(
+                torch.cat([x1 * gate_h, sim_h, depth_h], dim=1))
 
         y3 = self.up3(xb, feats["x4"])
         y2 = self.up2(y3, feats["x3"])

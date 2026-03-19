@@ -86,12 +86,14 @@ def encode_binary_mask(mask: np.ndarray) -> Dict[str, Any]:
             counts = counts.decode("utf-8")
         return {"size": list(rle["size"]), "counts": counts}
     except ImportError:  # pragma: no cover - exercised implicitly in base env
-        contours, _ = __import__("cv2").findContours(mask.astype(np.uint8), __import__("cv2").RETR_EXTERNAL, __import__("cv2").CHAIN_APPROX_SIMPLE)
+        contours, _ = __import__("cv2").findContours(mask.astype(np.uint8), __import__(
+            "cv2").RETR_EXTERNAL, __import__("cv2").CHAIN_APPROX_SIMPLE)
         polygons = []
         for contour in contours:
             if contour.shape[0] < 3:
                 continue
-            polygons.append(contour.reshape(-1, 2).astype(float).flatten().tolist())
+            polygons.append(
+                contour.reshape(-1, 2).astype(float).flatten().tolist())
         return polygons or [[0.0, 0.0, 1.0, 0.0, 1.0, 1.0]]
 
 
@@ -120,9 +122,12 @@ def masks_to_results(
     merge_scores: list[float] | None = None,
 ) -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
-    fg_values = _resolve_score_sequence(fg_scores, count=len(masks), default=0.5)
-    boundary_values = _resolve_score_sequence(boundary_scores, count=len(masks), default=0.5)
-    merge_values = _resolve_score_sequence(merge_scores, count=len(masks), default=0.5)
+    fg_values = _resolve_score_sequence(
+        fg_scores, count=len(masks), default=0.5)
+    boundary_values = _resolve_score_sequence(
+        boundary_scores, count=len(masks), default=0.5)
+    merge_values = _resolve_score_sequence(
+        merge_scores, count=len(masks), default=0.5)
     for index, mask in enumerate(masks):
         if int(mask.sum()) <= 0:
             continue
@@ -162,7 +167,8 @@ def _component_merge_score(
     edge_scores: torch.Tensor,
     threshold: float,
 ) -> float:
-    source_labels = {int(x) for x in np.unique(fragments[merged_mask]).tolist() if int(x) > 0}
+    source_labels = {int(x) for x in np.unique(
+        fragments[merged_mask]).tolist() if int(x) > 0}
     if len(source_labels) <= 1 or edge_index.numel() == 0:
         return 0.5
     label_order = [int(x) for x in np.unique(fragments).tolist() if int(x) > 0]
@@ -205,8 +211,10 @@ def _build_export_records(
             continue
         mask_bool = mask.astype(bool)
         masks.append(mask)
-        fg_scores.append(_clamp_unit(float(fg_prob[mask_bool].mean()) if mask_bool.any() else 0.0))
-        boundary_scores.append(_clamp_unit(float(boundary_prob[mask_bool].mean()) if mask_bool.any() else 0.0))
+        fg_scores.append(_clamp_unit(
+            float(fg_prob[mask_bool].mean()) if mask_bool.any() else 0.0))
+        boundary_scores.append(_clamp_unit(
+            float(boundary_prob[mask_bool].mean()) if mask_bool.any() else 0.0))
         merge_scores.append(
             _component_merge_score(
                 merged_mask=mask_bool,
@@ -283,7 +291,8 @@ def build_benchmark_payload(latencies_ms: list[float], device: torch.device) -> 
     total_sec = float(lat.sum() / 1000.0)
     peak_memory_mb = None
     if device.type == "cuda" and torch.cuda.is_available():
-        peak_memory_mb = float(torch.cuda.max_memory_allocated(device) / (1024.0 * 1024.0))
+        peak_memory_mb = float(
+            torch.cuda.max_memory_allocated(device) / (1024.0 * 1024.0))
     return {
         "status": "ok",
         "timed_images": int(lat.size),
@@ -336,7 +345,8 @@ def build_model(device: torch.device, checkpoint: str | Path | None = None) -> G
 
 def write_json(path: Path, payload: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(payload, ensure_ascii=False,
+                    indent=2, default=str) + "\n", encoding="utf-8")
 
 
 def evaluate_and_export(
@@ -361,10 +371,13 @@ def evaluate_and_export(
     refiner = GraphRefiner(model)
     results: list[Dict[str, Any]] = []
     latencies_ms: list[float] = []
-    diagnostics_path = None if artifact_dir is None else artifact_dir / "graph_diagnostics.jsonl"
-    overlay_dir = None if artifact_dir is None else artifact_dir / "visualizations" / "overlay"
+    diagnostics_path = None if artifact_dir is None else artifact_dir / \
+        "graph_diagnostics.jsonl"
+    overlay_dir = None if artifact_dir is None else artifact_dir / \
+        "visualizations" / "overlay"
     overlay_budget = None if int(overlay_limit) <= 0 else int(overlay_limit)
-    diagnostics_budget = None if int(diagnostics_limit) <= 0 else int(diagnostics_limit)
+    diagnostics_budget = None if int(
+        diagnostics_limit) <= 0 else int(diagnostics_limit)
     overlays_written = 0
     diagnostics_written = 0
     if save_graph_diagnostics and diagnostics_path is not None and diagnostics_path.exists():
@@ -382,7 +395,8 @@ def evaluate_and_export(
             depths = batch["depths"].to(device)
             sync_cuda(device)
             start = time.perf_counter()
-            outputs = model(images, query_depth=depths, prototype_cache=prototype_cache)
+            outputs = model(images, query_depth=depths,
+                            prototype_cache=prototype_cache)
             graph_batch = refiner.build_graph_batch(
                 outputs=outputs,
                 depth_map=depths,
@@ -399,8 +413,10 @@ def evaluate_and_export(
             ).cpu().numpy()
             sync_cuda(device)
             latencies_ms.append((time.perf_counter() - start) * 1000.0)
-            fg_prob = torch.sigmoid(outputs["fg_logits"].detach())[0, 0].cpu().numpy()
-            boundary_prob = torch.sigmoid(outputs["boundary_logits"].detach())[0, 0].cpu().numpy()
+            fg_prob = torch.sigmoid(outputs["fg_logits"].detach())[
+                0, 0].cpu().numpy()
+            boundary_prob = torch.sigmoid(outputs["boundary_logits"].detach())[
+                0, 0].cpu().numpy()
             masks, fg_scores, boundary_scores, merge_scores = _build_export_records(
                 merged=merged,
                 fragments=graph_batch.fragments,
@@ -434,16 +450,18 @@ def evaluate_and_export(
                     if graph_batch.edge_targets is None
                     else float(graph_batch.edge_targets.sum().item()),
                     "edge_score_mean": None if edge_scores.numel() == 0 else float(edge_scores.mean().item()),
-                    "instance_score_mean": None if not masks else float(np.mean([item["score"] for item in results[-len(masks) :]])),
+                    "instance_score_mean": None if not masks else float(np.mean([item["score"] for item in results[-len(masks):]])),
                 }
                 diagnostics_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(diagnostics_path, "a", encoding="utf-8") as handle:
-                    handle.write(json.dumps(diagnostic_row, ensure_ascii=False) + "\n")
+                    handle.write(json.dumps(diagnostic_row,
+                                 ensure_ascii=False) + "\n")
                 diagnostics_written += 1
             if save_overlays and overlay_dir is not None and (overlay_budget is None or overlays_written < overlay_budget):
                 image_rgb = _image_tensor_to_rgb(batch["images"][0])
                 stem = Path(batch["file_names"][0]).stem
-                overlay_path = overlay_dir / f"{batch_index:04d}_{int(batch['image_ids'][0]):06d}_{stem}.png"
+                overlay_path = overlay_dir / \
+                    f"{batch_index:04d}_{int(batch['image_ids'][0]):06d}_{stem}.png"
                 render_fragment_merge_preview(
                     image=image_rgb,
                     fragments=graph_batch.fragments,
@@ -451,7 +469,8 @@ def evaluate_and_export(
                     output_path=overlay_path,
                 )
                 overlays_written += 1
-    results_json.write_text(json.dumps(results, ensure_ascii=False) + "\n", encoding="utf-8")
+    results_json.write_text(json.dumps(
+        results, ensure_ascii=False) + "\n", encoding="utf-8")
     if ann_file is None or not ann_file.exists():
         return {"iteration": -1}, build_benchmark_payload(latencies_ms, device)
     return evaluate_json(ann_file, results_json), build_benchmark_payload(latencies_ms, device)
@@ -465,7 +484,8 @@ def prepare_prototype_cache(
     image_size: int,
     contract_mode: str,
 ):
-    bank = load_prototype_bank(prototype_root, image_size=image_size, contract_mode=contract_mode)
+    bank = load_prototype_bank(
+        prototype_root, image_size=image_size, contract_mode=contract_mode)
     return cache_to_device(model.build_prototype_cache(bank, device), device), bank
 
 

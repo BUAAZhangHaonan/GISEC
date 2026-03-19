@@ -12,7 +12,8 @@ class ExternalProposalAdapter(nn.Module):
         if input_channels == output_channels:
             self.proj = nn.Identity()
         else:
-            self.proj = nn.Conv2d(input_channels, output_channels, kernel_size=1)
+            self.proj = nn.Conv2d(
+                input_channels, output_channels, kernel_size=1)
 
     def to_fragment_bundle(
         self,
