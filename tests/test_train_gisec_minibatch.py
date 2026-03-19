@@ -89,6 +89,10 @@ def test_train_gisec_minibatch(tmp_path: Path) -> None:
             "4",
             "--contract-mode",
             "compat",
+            "--save-overlays",
+            "--overlay-limit",
+            "1",
+            "--save-graph-diagnostics",
         ],
         cwd=str(repo_root),
         check=True,
@@ -103,6 +107,8 @@ def test_train_gisec_minibatch(tmp_path: Path) -> None:
     assert (output_root / "peak_memory_mb.txt").exists()
     assert (output_root / "run.log").exists()
     assert (output_root / "wall_time_sec.txt").exists()
+    assert (output_root / "graph_diagnostics.jsonl").exists()
+    assert list((output_root / "visualizations" / "overlay").glob("*.png"))
     run_summary = json.loads((output_root / "run_summary.json").read_text(encoding="utf-8"))
     assert run_summary["variant"] == "G5"
     assert run_summary["dataset_root"] == str(dataset_root.resolve())
@@ -113,3 +119,9 @@ def test_train_gisec_minibatch(tmp_path: Path) -> None:
     assert run_summary["num_workers"] == 0
     assert run_summary["min_area"] == 4
     assert run_summary["edge_threshold"] == 0.5
+    metric_rows = [json.loads(line) for line in (output_root / "metrics_log.jsonl").read_text(encoding="utf-8").splitlines()]
+    train_rows = [row for row in metric_rows if row.get("mode") == "train"]
+    assert train_rows
+    assert "graph_has_edges" in train_rows[0]
+    assert "graph_edge_count" in train_rows[0]
+    assert "graph_positive_edge_targets" in train_rows[0]

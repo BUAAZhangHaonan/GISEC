@@ -40,13 +40,28 @@ runner_log "${MODE}" "${RUN_LOG}" "[gisec-all] output_root=${OUTPUT_ROOT}"
 
 for variant in B0 G1 G2 G3 G4 G5; do
   runner_log "${MODE}" "${RUN_LOG}" "[gisec-all] START ${variant}"
-  runner_exec "${MODE}" "${RUN_LOG}" "bash '${SCRIPT_DIR}/run_0831_1k_20ep_1024_gisec.sh' \
+  runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${PYTHON_CMD} -m gisec.cli.train \
     --dataset-root '${DATASET_ROOT}' \
     --prototype-root '${PROTOTYPE_ROOT}' \
-    --output-root '${OUTPUT_ROOT}' \
-    --contract-mode '${CONTRACT_MODE}' \
-    --python '${PYTHON_CMD}' \
+    --output-dir '${OUTPUT_ROOT}/${variant}' \
     --variant '${variant}' \
-    --${MODE}"
+    --contract-mode '${CONTRACT_MODE}' \
+    --image-size 1024 \
+    --epochs 20 \
+    --batch 4 \
+    --num-workers 4"
+  runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${PYTHON_CMD} -m gisec.cli.eval \
+    --dataset-root '${DATASET_ROOT}' \
+    --prototype-root '${PROTOTYPE_ROOT}' \
+    --output-dir '${OUTPUT_ROOT}/${variant}/eval_vis' \
+    --checkpoint '${OUTPUT_ROOT}/${variant}/model_best.pth' \
+    --variant '${variant}' \
+    --contract-mode '${CONTRACT_MODE}' \
+    --image-size 1024 \
+    --num-workers 4 \
+    --save-overlays \
+    --overlay-limit 8 \
+    --save-graph-diagnostics \
+    --diagnostics-limit 32"
   runner_log "${MODE}" "${RUN_LOG}" "[gisec-all] END ${variant}"
 done

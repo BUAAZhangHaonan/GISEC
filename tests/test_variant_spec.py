@@ -83,3 +83,65 @@ def test_build_graph_batch_only_enables_shape_feature_for_variants_that_request_
     assert b0_batch.edge_features.shape[1] == 6
     assert torch.allclose(b0_batch.edge_features[:, 5], torch.zeros_like(b0_batch.edge_features[:, 5]))
     assert torch.any(g2_batch.edge_features[:, 5] > 0.0)
+
+
+def test_build_graph_batch_connects_fragments_across_boundary_gap_and_tracks_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    feature_map, fg_logits, boundary_logits, affinity_logits, depth_map = _make_inputs()
+    prototype_cache = _make_prototype_cache()
+    fragments = torch.zeros((16, 16), dtype=torch.int32).numpy()
+    fragments[4:12, 3:7] = 1
+    fragments[4:12, 8:12] = 2
+    boundary_logits[:, :, 4:12, 7] = 4.0
+    monkeypatch.setattr(graph_utils, "fragments_from_logits", lambda *args, **kwargs: fragments.copy())
+
+    instance_map = torch.zeros((16, 16), dtype=torch.long)
+    instance_map[4:12, 3:7] = 1
+    instance_map[4:12, 8:12] = 1
+
+    graph_batch = build_graph_batch(
+        feature_map=feature_map,
+        fg_logits=fg_logits,
+        boundary_logits=boundary_logits,
+        affinity_logits=affinity_logits,
+        depth_map=depth_map,
+        instance_map=instance_map,
+        prototype_cache=prototype_cache,
+        variant=get_variant_spec("G4"),
+        min_area=2,
+    )
+
+    assert graph_batch.edge_index.shape[1] == 1
+    assert graph_batch.edge_targets is not None
+    assert torch.equal(graph_batch.edge_targets, torch.tensor([1.0], dtype=torch.float32))
+    assert graph_batch.diagnostics["num_fragments"] == 2
+    assert graph_batch.diagnostics["num_edges"] == 1
+    assert "num_merged" in graph_batch.diagnostics
+
+
+def test_build_graph_batch_does_not_connect_gap_without_boundary_or_affinity_support(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    feature_map, fg_logits, boundary_logits, affinity_logits, depth_map = _make_inputs()
+    prototype_cache = _make_prototype_cache()
+    fragments = torch.zeros((16, 16), dtype=torch.int32).numpy()
+    fragments[4:12, 3:7] = 1
+    fragments[4:12, 8:12] = 2
+    boundary_logits[:, :, 4:12, 7] = -4.0
+    affinity_logits[:, :, 4:12, 7] = -4.0
+    monkeypatch.setattr(graph_utils, "fragments_from_logits", lambda *args, **kwargs: fragments.copy())
+
+    graph_batch = build_graph_batch(
+        feature_map=feature_map,
+        fg_logits=fg_logits,
+        boundary_logits=boundary_logits,
+        affinity_logits=affinity_logits,
+        depth_map=depth_map,
+        instance_map=None,
+        prototype_cache=prototype_cache,
+        variant=get_variant_spec("G4"),
+        min_area=2,
+    )
+
+    assert graph_batch.edge_index.shape[1] == 0

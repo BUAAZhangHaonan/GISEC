@@ -13,6 +13,10 @@ VARIANT="G5"
 CONTRACT_MODE="compat"
 CHECKPOINT=""
 PYTHON_CMD="$(runner_python_cmd)"
+SAVE_OVERLAYS=0
+OVERLAY_LIMIT=8
+SAVE_GRAPH_DIAGNOSTICS=0
+DIAGNOSTICS_LIMIT=64
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -23,6 +27,10 @@ while [[ $# -gt 0 ]]; do
     --variant) VARIANT="$2"; shift 2 ;;
     --contract-mode) CONTRACT_MODE="$2"; shift 2 ;;
     --python) PYTHON_CMD="$2"; shift 2 ;;
+    --save-overlays) SAVE_OVERLAYS=1; shift ;;
+    --overlay-limit) OVERLAY_LIMIT="$2"; shift 2 ;;
+    --save-graph-diagnostics) SAVE_GRAPH_DIAGNOSTICS=1; shift ;;
+    --diagnostics-limit) DIAGNOSTICS_LIMIT="$2"; shift 2 ;;
     --run) MODE="run"; shift ;;
     --dry-run) MODE="dry-run"; shift ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
@@ -50,6 +58,14 @@ runner_log "${MODE}" "${RUN_LOG}" "[gisec-infer-0831] checkpoint=${CHECKPOINT}"
 runner_log "${MODE}" "${RUN_LOG}" "[gisec-infer-0831] contract_mode=${CONTRACT_MODE}"
 runner_log "${MODE}" "${RUN_LOG}" "[gisec-infer-0831] output_dir=${OUT}"
 
+EXTRA_ARGS=()
+if [[ "${SAVE_OVERLAYS}" == "1" ]]; then
+  EXTRA_ARGS+=(--save-overlays --overlay-limit "${OVERLAY_LIMIT}")
+fi
+if [[ "${SAVE_GRAPH_DIAGNOSTICS}" == "1" ]]; then
+  EXTRA_ARGS+=(--save-graph-diagnostics --diagnostics-limit "${DIAGNOSTICS_LIMIT}")
+fi
+
 runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${PYTHON_CMD} -m gisec.cli.infer \
   --dataset-root '${DATASET_ROOT}' \
   --prototype-root '${PROTOTYPE_ROOT}' \
@@ -58,4 +74,5 @@ runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${PYTHON_CMD} -m gisec.
   --variant '${VARIANT}' \
   --contract-mode '${CONTRACT_MODE}' \
   --image-size 1024 \
-  --num-workers 4"
+  --num-workers 4 \
+  ${EXTRA_ARGS[*]}"

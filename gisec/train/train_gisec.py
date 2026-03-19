@@ -39,6 +39,10 @@ def _common_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-area", type=int, default=10)
     parser.add_argument("--edge-threshold", type=float, default=0.5)
     parser.add_argument("--contract-mode", choices=["compat", "strict"], default="compat")
+    parser.add_argument("--save-overlays", action="store_true")
+    parser.add_argument("--overlay-limit", type=int, default=8)
+    parser.add_argument("--save-graph-diagnostics", action="store_true")
+    parser.add_argument("--diagnostics-limit", type=int, default=64)
     return parser
 
 
@@ -150,6 +154,10 @@ def train_main(args: argparse.Namespace) -> None:
                 loss_boundary = F.binary_cross_entropy_with_logits(outputs["boundary_logits"], boundary_target)
                 loss_affinity = F.binary_cross_entropy_with_logits(outputs["affinity_logits"], affinity_target)
                 loss = loss_fg + loss_boundary + 0.5 * loss_affinity
+                graph_edge_count = 0
+                graph_positive_edge_targets = 0.0
+                graph_has_edges = False
+                graph_loss_value = 0.0
 
                 if variant_spec.use_learned_edge_scorer:
                     graph_losses = []
@@ -161,12 +169,22 @@ def train_main(args: argparse.Namespace) -> None:
                             prototype_cache=prototype_cache,
                             variant=variant_spec,
                         )
+                        graph_edge_count += int(graph_batch.diagnostics.get("num_edges", int(graph_batch.edge_index.shape[1])))
+                        graph_has_edges = graph_has_edges or bool(graph_batch.edge_index.shape[1] > 0)
+                        if graph_batch.edge_targets is not None:
+                            graph_positive_edge_targets += float(graph_batch.edge_targets.sum().item())
                         if graph_batch.edge_targets is None or graph_batch.edge_targets.numel() == 0:
                             continue
                         edge_logits = refiner.score_edges(graph_batch, variant_spec)
                         graph_losses.append(F.binary_cross_entropy_with_logits(edge_logits, graph_batch.edge_targets))
                     if graph_losses:
-                        loss = loss + 0.5 * torch.stack(graph_losses).mean()
+                        graph_loss = torch.stack(graph_losses).mean()
+                        graph_loss_value = float(graph_loss.detach().cpu())
+                        loss = loss + 0.5 * graph_loss
+                else:
+                    graph_edge_count = 0
+                    graph_positive_edge_targets = 0.0
+                    graph_has_edges = False
 
             optimizer.zero_grad(set_to_none=True)
             scaler.scale(loss).backward()
@@ -181,18 +199,26 @@ def train_main(args: argparse.Namespace) -> None:
                 "loss_fg": float(loss_fg.detach().cpu()),
                 "loss_boundary": float(loss_boundary.detach().cpu()),
                 "loss_affinity": float(loss_affinity.detach().cpu()),
+                "graph_has_edges": int(graph_has_edges),
+                "graph_edge_count": int(graph_edge_count),
+                "graph_positive_edge_targets": float(graph_positive_edge_targets),
+                "graph_loss": float(graph_loss_value),
             }
             metric_logger.append(metric_row)
 
             if step % 20 == 0:
                 logger.info(
-                    "epoch=%s step=%s loss=%.4f loss_fg=%.4f loss_boundary=%.4f loss_affinity=%.4f",
+                    "epoch=%s step=%s loss=%.4f loss_fg=%.4f loss_boundary=%.4f loss_affinity=%.4f graph_edges=%s graph_has_edges=%s graph_pos_targets=%.1f graph_loss=%.4f",
                     epoch,
                     step,
                     float(loss.detach().cpu()),
                     float(loss_fg.detach().cpu()),
                     float(loss_boundary.detach().cpu()),
                     float(loss_affinity.detach().cpu()),
+                    int(graph_edge_count),
+                    int(graph_has_edges),
+                    float(graph_positive_edge_targets),
+                    float(graph_loss_value),
                 )
             if int(args.max_train_steps) > 0 and step >= int(args.max_train_steps):
                 break
@@ -234,6 +260,11 @@ def train_main(args: argparse.Namespace) -> None:
         min_area=args.min_area,
         edge_threshold=args.edge_threshold,
         max_images=int(args.max_val_images) if int(args.max_val_images) > 0 else None,
+        artifact_dir=output_dir,
+        save_overlays=bool(args.save_overlays),
+        overlay_limit=int(args.overlay_limit),
+        save_graph_diagnostics=bool(args.save_graph_diagnostics),
+        diagnostics_limit=int(args.diagnostics_limit),
     )
     final_metrics["iteration"] = int(args.epochs)
     wall_time_sec = int(time.time() - start)
@@ -330,6 +361,11 @@ def _run_eval_like(args: argparse.Namespace, *, compute_metrics: bool) -> None:
         min_area=args.min_area,
         edge_threshold=args.edge_threshold,
         max_images=int(args.max_images) if int(args.max_images) > 0 else None,
+        artifact_dir=output_dir,
+        save_overlays=bool(args.save_overlays),
+        overlay_limit=int(args.overlay_limit),
+        save_graph_diagnostics=bool(args.save_graph_diagnostics),
+        diagnostics_limit=int(args.diagnostics_limit),
     )
     write_json(output_dir / "metrics.cocoeval.json", metrics)
     write_json(output_dir / "inference_speed.json", inference_speed)

@@ -128,6 +128,10 @@ def test_eval_and_infer_gisec_minibatch(tmp_path: Path) -> None:
             "1",
             "--contract-mode",
             "compat",
+            "--save-overlays",
+            "--overlay-limit",
+            "1",
+            "--save-graph-diagnostics",
         ],
         cwd=str(repo_root),
         check=True,
@@ -160,6 +164,10 @@ def test_eval_and_infer_gisec_minibatch(tmp_path: Path) -> None:
             "1",
             "--contract-mode",
             "compat",
+            "--save-overlays",
+            "--overlay-limit",
+            "1",
+            "--save-graph-diagnostics",
         ],
         cwd=str(repo_root),
         check=True,
@@ -169,8 +177,12 @@ def test_eval_and_infer_gisec_minibatch(tmp_path: Path) -> None:
 
     assert (eval_output / "metrics.cocoeval.json").exists()
     assert (eval_output / "run_summary.json").exists()
+    assert (eval_output / "graph_diagnostics.jsonl").exists()
     assert (infer_output / "coco_instances_results.json").exists()
     assert (infer_output / "run_summary.json").exists()
+    assert (infer_output / "graph_diagnostics.jsonl").exists()
+    assert list((eval_output / "visualizations" / "overlay").glob("*.png"))
+    assert list((infer_output / "visualizations" / "overlay").glob("*.png"))
 
     eval_summary = json.loads((eval_output / "run_summary.json").read_text(encoding="utf-8"))
     infer_summary = json.loads((infer_output / "run_summary.json").read_text(encoding="utf-8"))
@@ -184,3 +196,10 @@ def test_eval_and_infer_gisec_minibatch(tmp_path: Path) -> None:
     assert infer_summary["split"] == "val"
     assert infer_summary["image_size"] == 64
     assert infer_summary["checkpoint"] == str(checkpoint.resolve())
+    eval_graph_rows = [json.loads(line) for line in (eval_output / "graph_diagnostics.jsonl").read_text(encoding="utf-8").splitlines()]
+    infer_graph_rows = [json.loads(line) for line in (infer_output / "graph_diagnostics.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert eval_graph_rows
+    assert infer_graph_rows
+    assert "num_fragments" in eval_graph_rows[0]
+    assert "num_edges" in eval_graph_rows[0]
+    assert "num_merged" in eval_graph_rows[0]

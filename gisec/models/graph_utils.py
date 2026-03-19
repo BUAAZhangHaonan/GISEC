@@ -49,40 +49,31 @@ def fragments_from_logits(
     return fragments
 
 
-def _adjacent_fragment_pairs(fragments: np.ndarray) -> Dict[Tuple[int, int], Dict[str, np.ndarray]]:
+def _adjacent_fragment_pairs(
+    fragments: np.ndarray,
+    *,
+    boundary_radius: int = 1,
+) -> Dict[Tuple[int, int], Dict[str, np.ndarray]]:
     pairs: Dict[Tuple[int, int], Dict[str, np.ndarray]] = {}
+    labels = [int(x) for x in np.unique(fragments).tolist() if int(x) > 0]
+    if len(labels) < 2:
+        return pairs
 
-    right_a = fragments[:, :-1]
-    right_b = fragments[:, 1:]
-    right_mask = (right_a > 0) & (right_b > 0) & (right_a != right_b)
-    for a, b in zip(right_a[right_mask], right_b[right_mask]):
-        key = tuple(sorted((int(a), int(b))))
-        if key not in pairs:
-            pairs[key] = {
-                "horizontal": np.zeros_like(right_mask, dtype=bool),
-                "vertical": np.zeros((fragments.shape[0] - 1, fragments.shape[1]), dtype=bool),
-            }
-        pairs[key]["horizontal"] |= (
-            right_mask
-            & (np.minimum(right_a, right_b) == min(key))
-            & (np.maximum(right_a, right_b) == max(key))
-        )
+    kernel_size = max(3, int(boundary_radius) * 2 + 1)
+    kernel = np.ones((kernel_size, kernel_size), dtype=np.uint8)
+    masks = {label: (fragments == label).astype(np.uint8) for label in labels}
+    dilated = {label: cv2.dilate(mask, kernel, iterations=1).astype(bool) for label, mask in masks.items()}
 
-    down_a = fragments[:-1, :]
-    down_b = fragments[1:, :]
-    down_mask = (down_a > 0) & (down_b > 0) & (down_a != down_b)
-    for a, b in zip(down_a[down_mask], down_b[down_mask]):
-        key = tuple(sorted((int(a), int(b))))
-        if key not in pairs:
-            pairs[key] = {
-                "horizontal": np.zeros((fragments.shape[0], fragments.shape[1] - 1), dtype=bool),
-                "vertical": np.zeros_like(down_mask, dtype=bool),
-            }
-        pairs[key]["vertical"] |= (
-            down_mask
-            & (np.minimum(down_a, down_b) == min(key))
-            & (np.maximum(down_a, down_b) == max(key))
-        )
+    for index, a in enumerate(labels):
+        mask_a = masks[a].astype(bool)
+        for b in labels[index + 1 :]:
+            mask_b = masks[b].astype(bool)
+            overlap = dilated[a] & dilated[b]
+            if not overlap.any():
+                continue
+            gap_contact = overlap & ~(mask_a | mask_b)
+            contact = gap_contact if gap_contact.any() else overlap
+            pairs[(a, b)] = {"contact": contact}
 
     return pairs
 
@@ -112,6 +103,7 @@ class GraphBatch:
     edge_features: torch.Tensor
     edge_targets: torch.Tensor | None
     fragments: np.ndarray
+    diagnostics: Dict[str, int | float]
 
 
 def build_graph_batch(
@@ -137,11 +129,12 @@ def build_graph_batch(
     labels = [int(x) for x in np.unique(fragments).tolist() if int(x) > 0]
     if not labels:
         return GraphBatch(
-            node_features=feature_map.new_zeros((0, 1)),
+            node_features=feature_map.new_zeros((0, feature_map.shape[1] + 6)),
             edge_index=torch.zeros((2, 0), dtype=torch.long, device=feature_map.device),
-            edge_features=feature_map.new_zeros((0, 1)),
+            edge_features=feature_map.new_zeros((0, 6)),
             edge_targets=None,
             fragments=fragments,
+            diagnostics={"num_fragments": 0, "num_edges": 0, "num_merged": 0},
         )
 
     pooled = []
@@ -201,9 +194,10 @@ def build_graph_batch(
         return GraphBatch(
             node_features=torch.stack(pooled, dim=0),
             edge_index=torch.zeros((2, 0), dtype=torch.long, device=feature_map.device),
-            edge_features=feature_map.new_zeros((0, 1)),
+            edge_features=feature_map.new_zeros((0, 6)),
             edge_targets=None,
             fragments=fragments,
+            diagnostics={"num_fragments": len(labels), "num_edges": 0, "num_merged": 0},
         )
 
     label_to_idx = {label: idx for idx, label in enumerate(labels)}
@@ -215,18 +209,11 @@ def build_graph_batch(
     mean_aspect = float(shape_stats.get("mean_aspect_ratio", 1.0))
     for a, b in edge_pairs:
         contacts = pairs[(a, b)]
-        horiz = contacts["horizontal"]
-        vert = contacts["vertical"]
-        boundary_scores = []
-        affinity_scores = []
-        if horiz.any():
-            boundary_scores.append(float(boundary_prob[:, :-1][horiz].mean()))
-            affinity_scores.append(float(affinity_prob[0][:, :-1][horiz].mean()))
-        if vert.any():
-            boundary_scores.append(float(boundary_prob[:-1, :][vert].mean()))
-            affinity_scores.append(float(affinity_prob[1][:-1, :][vert].mean()))
-        boundary_crossing = float(np.mean(boundary_scores)) if boundary_scores else 0.0
-        affinity_value = float(np.mean(affinity_scores)) if affinity_scores else 0.0
+        contact = contacts["contact"]
+        boundary_crossing = float(boundary_prob[contact].mean()) if contact.any() else 0.0
+        affinity_value = float(affinity_prob[:, contact].mean()) if contact.any() else 0.0
+        if boundary_crossing < 0.5 and affinity_value < 0.5:
+            continue
         depth_delta = abs(fragment_geometry[a]["depth_mean"] - fragment_geometry[b]["depth_mean"])
         area_delta = abs(fragment_geometry[a]["area_ratio"] - fragment_geometry[b]["area_ratio"])
         aspect_delta = abs(fragment_geometry[a]["aspect_ratio"] - fragment_geometry[b]["aspect_ratio"])
@@ -258,6 +245,16 @@ def build_graph_batch(
                 else 0.0
             )
 
+    if not edge_index_list:
+        return GraphBatch(
+            node_features=torch.stack(pooled, dim=0),
+            edge_index=torch.zeros((2, 0), dtype=torch.long, device=feature_map.device),
+            edge_features=feature_map.new_zeros((0, 6)),
+            edge_targets=None,
+            fragments=fragments,
+            diagnostics={"num_fragments": len(labels), "num_edges": 0, "num_merged": 0},
+        )
+
     return GraphBatch(
         node_features=torch.stack(pooled, dim=0),
         edge_index=torch.tensor(edge_index_list, dtype=torch.long, device=feature_map.device).t().contiguous(),
@@ -266,6 +263,7 @@ def build_graph_batch(
         if not edge_targets
         else torch.tensor(edge_targets, dtype=feature_map.dtype, device=feature_map.device),
         fragments=fragments,
+        diagnostics={"num_fragments": len(labels), "num_edges": len(edge_index_list), "num_merged": 0},
     )
 
 

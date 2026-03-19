@@ -16,6 +16,7 @@ from gisec.datasets.prototype_bank import load_prototype_bank
 from gisec.graph_refiner import GraphRefiner
 from gisec.models.gisec_model import GISECModel
 from gisec.models.prototype_cache import cache_to_device
+from gisec.utils.visualization import render_fragment_merge_preview
 
 
 @dataclass
@@ -94,9 +95,35 @@ def encode_binary_mask(mask: np.ndarray) -> Dict[str, Any]:
         return polygons or [[0.0, 0.0, 1.0, 0.0, 1.0, 1.0]]
 
 
-def masks_to_results(image_id: int, masks: List[np.ndarray]) -> List[Dict[str, Any]]:
+def _clamp_unit(value: float) -> float:
+    return float(max(0.0, min(1.0, float(value))))
+
+
+def _resolve_score_sequence(values: list[float] | None, *, count: int, default: float) -> list[float]:
+    if values is None:
+        return [float(default)] * count
+    if len(values) != count:
+        raise ValueError(f"Expected {count} score values, got {len(values)}")
+    return [_clamp_unit(value) for value in values]
+
+
+def _compose_instance_score(*, fg_score: float, boundary_score: float, merge_score: float) -> float:
+    return _clamp_unit(0.5 * fg_score + 0.35 * merge_score + 0.15 * (1.0 - boundary_score))
+
+
+def masks_to_results(
+    image_id: int,
+    masks: List[np.ndarray],
+    *,
+    fg_scores: list[float] | None = None,
+    boundary_scores: list[float] | None = None,
+    merge_scores: list[float] | None = None,
+) -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
-    for mask in masks:
+    fg_values = _resolve_score_sequence(fg_scores, count=len(masks), default=0.5)
+    boundary_values = _resolve_score_sequence(boundary_scores, count=len(masks), default=0.5)
+    merge_values = _resolve_score_sequence(merge_scores, count=len(masks), default=0.5)
+    for index, mask in enumerate(masks):
         if int(mask.sum()) <= 0:
             continue
         ys, xs = np.nonzero(mask > 0)
@@ -106,7 +133,11 @@ def masks_to_results(image_id: int, masks: List[np.ndarray]) -> List[Dict[str, A
             {
                 "image_id": int(image_id),
                 "category_id": 1,
-                "score": 1.0,
+                "score": _compose_instance_score(
+                    fg_score=fg_values[index],
+                    boundary_score=boundary_values[index],
+                    merge_score=merge_values[index],
+                ),
                 "bbox": [x0, y0, x1 - x0 + 1, y1 - y0 + 1],
                 "segmentation": encode_binary_mask(mask.astype(np.uint8)),
             }
@@ -121,6 +152,83 @@ def fragment_masks_from_merged(merged: np.ndarray, min_area: int) -> List[np.nda
         if int(mask.sum()) >= int(min_area):
             masks.append(mask)
     return masks
+
+
+def _component_merge_score(
+    *,
+    merged_mask: np.ndarray,
+    fragments: np.ndarray,
+    edge_index: torch.Tensor,
+    edge_scores: torch.Tensor,
+    threshold: float,
+) -> float:
+    source_labels = {int(x) for x in np.unique(fragments[merged_mask]).tolist() if int(x) > 0}
+    if len(source_labels) <= 1 or edge_index.numel() == 0:
+        return 0.5
+    label_order = [int(x) for x in np.unique(fragments).tolist() if int(x) > 0]
+    accepted_scores: list[float] = []
+    fallback_scores: list[float] = []
+    for (src, dst), score in zip(edge_index.t().tolist(), edge_scores.tolist()):
+        label_src = label_order[int(src)]
+        label_dst = label_order[int(dst)]
+        if label_src not in source_labels or label_dst not in source_labels:
+            continue
+        score_value = _clamp_unit(float(score))
+        fallback_scores.append(score_value)
+        if score_value >= float(threshold):
+            accepted_scores.append(score_value)
+    if accepted_scores:
+        return float(np.mean(accepted_scores))
+    if fallback_scores:
+        return float(np.mean(fallback_scores))
+    return 0.5
+
+
+def _build_export_records(
+    *,
+    merged: np.ndarray,
+    fragments: np.ndarray,
+    fg_prob: np.ndarray,
+    boundary_prob: np.ndarray,
+    edge_index: torch.Tensor,
+    edge_scores: torch.Tensor,
+    min_area: int,
+    threshold: float,
+) -> tuple[list[np.ndarray], list[float], list[float], list[float]]:
+    masks: list[np.ndarray] = []
+    fg_scores: list[float] = []
+    boundary_scores: list[float] = []
+    merge_scores: list[float] = []
+    for label in [int(x) for x in np.unique(merged).tolist() if int(x) > 0]:
+        mask = (merged == label).astype(np.uint8)
+        if int(mask.sum()) < int(min_area):
+            continue
+        mask_bool = mask.astype(bool)
+        masks.append(mask)
+        fg_scores.append(_clamp_unit(float(fg_prob[mask_bool].mean()) if mask_bool.any() else 0.0))
+        boundary_scores.append(_clamp_unit(float(boundary_prob[mask_bool].mean()) if mask_bool.any() else 0.0))
+        merge_scores.append(
+            _component_merge_score(
+                merged_mask=mask_bool,
+                fragments=fragments,
+                edge_index=edge_index,
+                edge_scores=edge_scores,
+                threshold=threshold,
+            )
+        )
+    return masks, fg_scores, boundary_scores, merge_scores
+
+
+def _image_tensor_to_rgb(image_tensor: torch.Tensor) -> np.ndarray:
+    image = image_tensor.detach().cpu().permute(1, 2, 0).numpy()
+    image = np.clip(image, 0.0, 1.0)
+    return np.round(image * 255.0).astype(np.uint8)
+
+
+def _prepare_overlay_dir(overlay_dir: Path) -> None:
+    overlay_dir.mkdir(parents=True, exist_ok=True)
+    for png_path in overlay_dir.glob("*.png"):
+        png_path.unlink()
 
 
 def evaluate_json(ann_file: Path, results_json: Path) -> Dict[str, Any]:
@@ -243,11 +351,26 @@ def evaluate_and_export(
     min_area: int,
     edge_threshold: float,
     max_images: int | None = None,
+    artifact_dir: Path | None = None,
+    save_overlays: bool = False,
+    overlay_limit: int = 0,
+    save_graph_diagnostics: bool = False,
+    diagnostics_limit: int = 0,
 ) -> tuple[Dict[str, Any], Dict[str, Any]]:
     variant_spec = get_variant_spec(variant)
     refiner = GraphRefiner(model)
     results: list[Dict[str, Any]] = []
     latencies_ms: list[float] = []
+    diagnostics_path = None if artifact_dir is None else artifact_dir / "graph_diagnostics.jsonl"
+    overlay_dir = None if artifact_dir is None else artifact_dir / "visualizations" / "overlay"
+    overlay_budget = None if int(overlay_limit) <= 0 else int(overlay_limit)
+    diagnostics_budget = None if int(diagnostics_limit) <= 0 else int(diagnostics_limit)
+    overlays_written = 0
+    diagnostics_written = 0
+    if save_graph_diagnostics and diagnostics_path is not None and diagnostics_path.exists():
+        diagnostics_path.unlink()
+    if save_overlays and overlay_dir is not None:
+        _prepare_overlay_dir(overlay_dir)
     model.eval()
     if device.type == "cuda" and torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats(device)
@@ -268,6 +391,7 @@ def evaluate_and_export(
                 variant=variant_spec,
             )
             edge_logits = refiner.score_edges(graph_batch, variant_spec)
+            edge_scores = torch.sigmoid(edge_logits.detach()).cpu()
             merged = refiner.merge(
                 graph_batch=graph_batch,
                 edge_logits=edge_logits,
@@ -275,8 +399,58 @@ def evaluate_and_export(
             ).cpu().numpy()
             sync_cuda(device)
             latencies_ms.append((time.perf_counter() - start) * 1000.0)
-            masks = fragment_masks_from_merged(merged, min_area=min_area)
-            results.extend(masks_to_results(int(batch["image_ids"][0]), masks))
+            fg_prob = torch.sigmoid(outputs["fg_logits"].detach())[0, 0].cpu().numpy()
+            boundary_prob = torch.sigmoid(outputs["boundary_logits"].detach())[0, 0].cpu().numpy()
+            masks, fg_scores, boundary_scores, merge_scores = _build_export_records(
+                merged=merged,
+                fragments=graph_batch.fragments,
+                fg_prob=fg_prob,
+                boundary_prob=boundary_prob,
+                edge_index=graph_batch.edge_index.cpu(),
+                edge_scores=edge_scores,
+                min_area=min_area,
+                threshold=edge_threshold,
+            )
+            results.extend(
+                masks_to_results(
+                    int(batch["image_ids"][0]),
+                    masks,
+                    fg_scores=fg_scores,
+                    boundary_scores=boundary_scores,
+                    merge_scores=merge_scores,
+                )
+            )
+            if save_graph_diagnostics and diagnostics_path is not None and (
+                diagnostics_budget is None or diagnostics_written < diagnostics_budget
+            ):
+                graph_batch.diagnostics["num_merged"] = len(masks)
+                diagnostic_row = {
+                    "image_id": int(batch["image_ids"][0]),
+                    "file_name": batch["file_names"][0],
+                    "variant": variant_spec.name,
+                    **graph_batch.diagnostics,
+                    "graph_has_edges": int(graph_batch.edge_index.shape[1] > 0),
+                    "graph_positive_edge_targets": 0.0
+                    if graph_batch.edge_targets is None
+                    else float(graph_batch.edge_targets.sum().item()),
+                    "edge_score_mean": None if edge_scores.numel() == 0 else float(edge_scores.mean().item()),
+                    "instance_score_mean": None if not masks else float(np.mean([item["score"] for item in results[-len(masks) :]])),
+                }
+                diagnostics_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(diagnostics_path, "a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(diagnostic_row, ensure_ascii=False) + "\n")
+                diagnostics_written += 1
+            if save_overlays and overlay_dir is not None and (overlay_budget is None or overlays_written < overlay_budget):
+                image_rgb = _image_tensor_to_rgb(batch["images"][0])
+                stem = Path(batch["file_names"][0]).stem
+                overlay_path = overlay_dir / f"{batch_index:04d}_{int(batch['image_ids'][0]):06d}_{stem}.png"
+                render_fragment_merge_preview(
+                    image=image_rgb,
+                    fragments=graph_batch.fragments,
+                    merged=merged,
+                    output_path=overlay_path,
+                )
+                overlays_written += 1
     results_json.write_text(json.dumps(results, ensure_ascii=False) + "\n", encoding="utf-8")
     if ann_file is None or not ann_file.exists():
         return {"iteration": -1}, build_benchmark_payload(latencies_ms, device)
