@@ -10,7 +10,12 @@ import torch.nn.functional as F
 
 from gisec.config.variants import VariantSpec, get_variant_spec
 from gisec.datasets.ecc_query_dataset import ownership_offset_scale
-from gisec.models.prototype_cache import PrototypeCache, cosine_similarity_map
+from gisec.models.prototype_cache import (
+    PrototypeCache,
+    cosine_similarity_map,
+    mix_prototype_slots,
+    route_prototype_slots,
+)
 
 EDGE_TYPE_CONTACT = 0
 EDGE_TYPE_BRIDGE = 1
@@ -309,8 +314,22 @@ def build_graph_batch(
     pooled = []
     fragment_geometry: Dict[int, Dict[str, float | Tuple[int, int, int, int]]] = {}
     sim_cache = None
+    routed_depth_proto = None
     if prototype_cache is not None and variant_spec.use_rgb_prototype_similarity:
-        sim_cache = cosine_similarity_map(feature_map, prototype_cache.proto_h.to(feature_map.device))[0, 0]
+        topk = int(prototype_cache.routing_meta.get("topk", 2))
+        query_descriptor = F.adaptive_avg_pool2d(feature_map, output_size=1).flatten(1)
+        routed_proto_h, routing = route_prototype_slots(
+            query_descriptor,
+            prototype_cache.proto_h.to(feature_map.device),
+            topk=topk,
+        )
+        sim_cache = cosine_similarity_map(feature_map, routed_proto_h)[0, 0]
+        if variant_spec.use_depth_prototype_similarity:
+            routed_depth_proto = mix_prototype_slots(
+                prototype_cache.proto_d.to(feature_map.device),
+                routing["top_indices"],
+                routing["weights"],
+            )
 
     for label in labels:
         mask_np = fragments == label
@@ -326,9 +345,13 @@ def build_graph_batch(
         depth_std = float(depth_values.std()) if depth_values.size else 0.0
         ref_rgb = float(sim_cache[mask].mean()) if sim_cache is not None and mask.any() else 0.0
         ref_depth = 0.0
-        if prototype_cache is not None and variant_spec.use_depth_prototype_similarity:
-            proto_d = prototype_cache.proto_d.to(feature_map.device)
-            depth_feat = F.interpolate(proto_d.mean(dim=1, keepdim=True), size=feature_map.shape[-2:], mode="bilinear", align_corners=False)[0, 0]
+        if routed_depth_proto is not None:
+            depth_feat = F.interpolate(
+                routed_depth_proto.mean(dim=1, keepdim=True),
+                size=feature_map.shape[-2:],
+                mode="bilinear",
+                align_corners=False,
+            )[0, 0]
             ref_depth = float(depth_feat[mask].mean()) if mask.any() else 0.0
         landing_x = float((xx[mask_np] + ownership_np[0][mask_np]).mean()) if ownership_np is not None and mask_np.any() else centroid[0]
         landing_y = float((yy[mask_np] + ownership_np[1][mask_np]).mean()) if ownership_np is not None and mask_np.any() else centroid[1]

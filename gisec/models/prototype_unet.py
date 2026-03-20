@@ -7,7 +7,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from gisec.datasets.prototype_bank import PrototypeBank
-from gisec.models.prototype_cache import PrototypeCache, bank_shape_stats, cosine_similarity_map
+from gisec.models.prototype_cache import (
+    PrototypeCache,
+    bank_shape_stats,
+    cosine_similarity_map,
+    mix_prototype_slots,
+    route_prototype_slots,
+)
 
 
 def _resolve_group_count(channels: int, max_groups: int = 8) -> int:
@@ -59,6 +65,8 @@ class UpBlock(nn.Module):
 class PrototypeConditionedUNetBackbone(nn.Module):
     def __init__(self, in_channels: int = 3, base_channels: int = 32, norm_layer: str = "group"):
         super().__init__()
+        self.prototype_slot_count = 6
+        self.prototype_topk = 2
         self.output_channels = base_channels
         c1, c2, c3, c4 = base_channels, base_channels * \
             2, base_channels * 4, base_channels * 8
@@ -120,24 +128,43 @@ class PrototypeConditionedUNetBackbone(nn.Module):
         denom = mask.sum(dim=(-1, -2), keepdim=True).clamp_min(1.0)
         return weighted.sum(dim=(-1, -2), keepdim=True) / denom
 
+    def _select_prototype_slot_indices(self, proto_slots: torch.Tensor) -> torch.Tensor:
+        slot_count = int(proto_slots.shape[0])
+        if slot_count <= self.prototype_slot_count:
+            return torch.arange(slot_count, device=proto_slots.device)
+        descriptors = F.normalize(proto_slots.mean(dim=(-1, -2)), dim=1)
+        selected = [0]
+        while len(selected) < self.prototype_slot_count:
+            selected_tensor = torch.tensor(selected, device=proto_slots.device, dtype=torch.long)
+            similarity = torch.matmul(descriptors, descriptors[selected_tensor].t())
+            max_similarity = similarity.max(dim=1).values
+            max_similarity[selected_tensor] = float("inf")
+            next_index = int(torch.argmin(max_similarity).item())
+            selected.append(next_index)
+        return torch.tensor(selected, device=proto_slots.device, dtype=torch.long)
+
     @torch.no_grad()
     def build_prototype_cache(self, bank: PrototypeBank, device: torch.device) -> PrototypeCache:
         images = bank.images.to(device)
         masks = bank.masks.to(device)
         depths = bank.depths.to(device)
         feats = self._encode_query(images)
-        proto_b = self._masked_proto(
-            feats["xb"], masks).mean(dim=0, keepdim=True)
-        proto_h = self._masked_proto(
-            feats["x1"], masks).mean(dim=0, keepdim=True)
+        proto_b = self._masked_proto(feats["xb"], masks)
+        slot_indices = self._select_prototype_slot_indices(proto_b)
+        proto_b = proto_b[slot_indices]
+        proto_h = self._masked_proto(feats["x1"], masks)[slot_indices]
         depth_feat = self.depth_geometry_stem(self._depth_to_geometry(depths))
-        proto_d = self._masked_proto(
-            depth_feat, masks).mean(dim=0, keepdim=True)
+        proto_d = self._masked_proto(depth_feat, masks)[slot_indices]
         return PrototypeCache(
             proto_b=proto_b,
             proto_h=proto_h,
             proto_d=proto_d,
             shape_stats=bank_shape_stats(bank),
+            routing_meta={
+                "slot_count": int(proto_b.shape[0]),
+                "topk": min(self.prototype_topk, int(proto_b.shape[0])),
+                "view_ids": [bank.view_ids[int(index)] for index in slot_indices.tolist()],
+            },
         )
 
     def forward(
@@ -149,6 +176,7 @@ class PrototypeConditionedUNetBackbone(nn.Module):
         feats = self._encode_query(images)
         xb = feats["xb"]
         x1 = feats["x1"]
+        depth_feat = None
         if query_depth is not None:
             depth_feat = self.depth_geometry_stem(self._depth_to_geometry(query_depth))
             depth_b = F.interpolate(
@@ -162,29 +190,42 @@ class PrototypeConditionedUNetBackbone(nn.Module):
             x1 = self.depth_highres_fuse(torch.cat([x1, depth_h], dim=1))
 
         if prototype_cache is not None:
-            sim_b = cosine_similarity_map(
-                xb, prototype_cache.proto_b.to(xb.device))
-            gate_b = torch.sigmoid(prototype_cache.proto_b.to(
-                xb.device).expand(xb.shape[0], -1, -1, -1))
+            topk = int(prototype_cache.routing_meta.get("topk", self.prototype_topk))
+            query_descriptor_b = F.adaptive_avg_pool2d(xb, output_size=1).flatten(1)
+            routed_proto_b, routing = route_prototype_slots(
+                query_descriptor_b,
+                prototype_cache.proto_b.to(xb.device),
+                topk=topk,
+            )
+            routed_proto_h = mix_prototype_slots(
+                prototype_cache.proto_h.to(x1.device),
+                routing["top_indices"],
+                routing["weights"],
+            )
+            routed_proto_d = mix_prototype_slots(
+                prototype_cache.proto_d.to(xb.device),
+                routing["top_indices"],
+                routing["weights"],
+            )
+            sim_b = cosine_similarity_map(xb, routed_proto_b)
+            gate_b = torch.sigmoid(routed_proto_b)
             proto_depth_b = F.interpolate(
-                prototype_cache.proto_d.mean(dim=1, keepdim=True).to(xb.device),
+                routed_proto_d.mean(dim=1, keepdim=True),
                 size=xb.shape[-2:],
                 mode="bilinear",
                 align_corners=False,
-            ).expand(xb.shape[0], -1, -1, -1)
+            )
             xb = self.prototype_bottleneck_fuse(
                 torch.cat([xb * gate_b, sim_b, proto_depth_b], dim=1))
 
-            sim_h = cosine_similarity_map(
-                x1, prototype_cache.proto_h.to(x1.device))
-            gate_h = torch.sigmoid(prototype_cache.proto_h.to(
-                x1.device).expand(x1.shape[0], -1, -1, -1))
+            sim_h = cosine_similarity_map(x1, routed_proto_h)
+            gate_h = torch.sigmoid(routed_proto_h)
             proto_depth_h = F.interpolate(
-                prototype_cache.proto_d.mean(dim=1, keepdim=True).to(x1.device),
+                routed_proto_d.mean(dim=1, keepdim=True).to(x1.device),
                 size=x1.shape[-2:],
                 mode="bilinear",
                 align_corners=False,
-            ).expand(x1.shape[0], -1, -1, -1)
+            )
             x1 = self.prototype_highres_fuse(
                 torch.cat([x1 * gate_h, sim_h, proto_depth_h], dim=1))
 

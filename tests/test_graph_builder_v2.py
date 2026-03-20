@@ -25,9 +25,9 @@ def _make_inputs() -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tens
 
 def _make_prototype_cache() -> PrototypeCache:
     return PrototypeCache(
-        proto_b=torch.ones((1, 64, 1, 1), dtype=torch.float32),
-        proto_h=torch.ones((1, 8, 1, 1), dtype=torch.float32),
-        proto_d=torch.ones((1, 4, 1, 1), dtype=torch.float32),
+        proto_b=torch.ones((3, 64, 1, 1), dtype=torch.float32),
+        proto_h=torch.ones((3, 8, 1, 1), dtype=torch.float32),
+        proto_d=torch.ones((3, 4, 1, 1), dtype=torch.float32),
         shape_stats={
             "mean_area_ratio": 0.125,
             "mean_aspect_ratio": 0.75,
@@ -37,6 +37,7 @@ def _make_prototype_cache() -> PrototypeCache:
             "aspect_q10": 0.4,
             "aspect_q90": 1.4,
         },
+        routing_meta={"slot_count": 3, "topk": 2, "view_ids": ["v0", "v1", "v2"]},
     )
 
 
