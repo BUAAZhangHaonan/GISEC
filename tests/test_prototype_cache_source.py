@@ -84,3 +84,32 @@ def test_prepare_prototype_cache_rejects_multi_part_roots(tmp_path: Path) -> Non
             image_size=64,
             contract_mode="compat",
         )
+
+
+def test_prototype_cache_source_can_clear_and_rebuild_after_model_updates(tmp_path: Path) -> None:
+    root = tmp_path / "refs"
+    _write_part_bank(root, color=(20, 40, 60))
+    model = GISECModel(base_channels=8)
+    source = PrototypeCacheSource(
+        model=model,
+        device=torch.device("cpu"),
+        prototype_root=str(root),
+        image_size=64,
+        contract_mode="compat",
+    )
+
+    cache_before, _bank_before = source.resolve_for_query("sample.png")
+    proto_before = cache_before.proto_b.detach().clone()
+
+    with torch.no_grad():
+        model.backbone.enc1.block[0].weight.zero_()
+
+    cache_stale, _bank_stale = source.resolve_for_query("sample.png")
+    assert cache_stale is cache_before
+    assert torch.allclose(cache_stale.proto_b, proto_before)
+
+    source.clear()
+    cache_after, _bank_after = source.resolve_for_query("sample.png")
+
+    assert cache_after is not cache_before
+    assert not torch.allclose(cache_after.proto_b, proto_before)

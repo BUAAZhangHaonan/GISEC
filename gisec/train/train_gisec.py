@@ -132,6 +132,9 @@ def _common_parser() -> argparse.ArgumentParser:
         choices=["all", "uniform", "pose_farthest"],
         default="all",
     )
+    parser.add_argument("--base-channels", type=int, default=16)
+    parser.add_argument("--graph-hidden-dim", type=int, default=64)
+    parser.add_argument("--norm-layer", choices=["group", "batch"], default="group")
     return parser
 
 
@@ -313,7 +316,12 @@ def train_main(args: argparse.Namespace) -> None:
         use_cuda=use_cuda,
     )
 
-    model = build_model(device)
+    model = build_model(
+        device,
+        base_channels=int(args.base_channels),
+        graph_hidden_dim=int(args.graph_hidden_dim),
+        norm_layer=str(args.norm_layer),
+    )
     if dist_context.enabled and args.sync_bn and use_cuda:
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
     if dist_context.enabled:
@@ -360,6 +368,7 @@ def train_main(args: argparse.Namespace) -> None:
                 boundary_target = batch["boundary_target"].to(device)
                 relation_target = relation_target_from_batch(batch, variant_spec).to(device)
                 instance_maps = batch["instance_maps"].to(device)
+                prototype_source.clear()
 
                 with torch.cuda.amp.autocast(enabled=use_cuda):
                     outputs, prototype_caches = forward_with_reference_routing(
@@ -607,7 +616,13 @@ def _run_eval_like(args: argparse.Namespace, *, compute_metrics: bool) -> None:
         use_cuda=use_cuda,
     )
     checkpoint_path = resolve_checkpoint(output_dir, args.checkpoint)
-    model = build_model(device, checkpoint_path)
+    model = build_model(
+        device,
+        checkpoint_path,
+        base_channels=int(args.base_channels),
+        graph_hidden_dim=int(args.graph_hidden_dim),
+        norm_layer=str(args.norm_layer),
+    )
     prototype_source = prepare_prototype_source(
         model=model,
         device=device,

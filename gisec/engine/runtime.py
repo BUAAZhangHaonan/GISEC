@@ -81,6 +81,9 @@ class PrototypeCacheSource:
         )
         self._cache_by_root: dict[Path, tuple[object, PrototypeBank]] = {}
 
+    def clear(self) -> None:
+        self._cache_by_root.clear()
+
     def resolve_for_query(self, file_name: str) -> tuple[object, PrototypeBank]:
         bank = self.source.load_for_query(file_name)
         cache_key = bank.root.resolve()
@@ -408,8 +411,19 @@ def build_loader(
     )
 
 
-def build_model(device: torch.device, checkpoint: str | Path | None = None) -> GISECModel:
-    model = GISECModel(base_channels=16).to(device)
+def build_model(
+    device: torch.device,
+    checkpoint: str | Path | None = None,
+    *,
+    base_channels: int = 16,
+    graph_hidden_dim: int = 64,
+    norm_layer: str = "group",
+) -> GISECModel:
+    model = GISECModel(
+        base_channels=base_channels,
+        graph_hidden_dim=graph_hidden_dim,
+        norm_layer=norm_layer,
+    ).to(device)
     if checkpoint is not None:
         state_dict = torch.load(str(checkpoint), map_location=device)
         model.load_state_dict(state_dict)
@@ -453,6 +467,7 @@ def evaluate_and_export(
         diagnostics_limit) <= 0 else int(diagnostics_limit)
     overlays_written = 0
     diagnostics_written = 0
+    prototype_source.clear()
     if save_graph_diagnostics and diagnostics_path is not None and diagnostics_path.exists():
         diagnostics_path.unlink()
     if save_overlays and overlay_dir is not None:

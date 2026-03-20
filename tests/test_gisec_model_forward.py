@@ -56,6 +56,23 @@ def test_gisec_model_uses_depth_even_without_prototype_cache() -> None:
     assert not torch.allclose(shallow_outputs["feature_map"], deep_outputs["feature_map"])
 
 
+def test_gisec_model_group_norm_stays_stable_between_train_and_eval() -> None:
+    model = GISECModel(base_channels=8, norm_layer="group")
+    images = torch.randn(1, 3, 64, 64)
+    depths = torch.randn(1, 1, 64, 64)
+
+    model.train()
+    with torch.no_grad():
+        train_outputs = model(images, query_depth=depths, prototype_cache=None)
+
+    model.eval()
+    with torch.no_grad():
+        eval_outputs = model(images, query_depth=depths, prototype_cache=None)
+
+    assert torch.allclose(train_outputs["fg_logits"], eval_outputs["fg_logits"], atol=1e-5, rtol=1e-5)
+    assert torch.allclose(train_outputs["boundary_logits"], eval_outputs["boundary_logits"], atol=1e-5, rtol=1e-5)
+
+
 def test_gisec_model_builds_fragment_bundle_for_graph_refiner(tmp_path: Path) -> None:
     ref_root = _make_prototype_root(tmp_path / "refs")
     bank = load_prototype_bank(ref_root, image_size=64)

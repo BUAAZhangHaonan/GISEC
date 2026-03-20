@@ -10,15 +10,30 @@ from gisec.datasets.prototype_bank import PrototypeBank
 from gisec.models.prototype_cache import PrototypeCache, bank_shape_stats, cosine_similarity_map
 
 
+def _resolve_group_count(channels: int, max_groups: int = 8) -> int:
+    for groups in range(min(int(max_groups), int(channels)), 0, -1):
+        if int(channels) % groups == 0:
+            return groups
+    return 1
+
+
+def make_norm2d(channels: int, norm_layer: str) -> nn.Module:
+    if norm_layer == "batch":
+        return nn.BatchNorm2d(channels)
+    if norm_layer == "group":
+        return nn.GroupNorm(_resolve_group_count(channels), channels)
+    raise ValueError(f"Unsupported norm_layer: {norm_layer}")
+
+
 class ConvBlock(nn.Module):
-    def __init__(self, in_channels: int, out_channels: int):
+    def __init__(self, in_channels: int, out_channels: int, norm_layer: str):
         super().__init__()
         self.block = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, 3, padding=1, bias=False),
-            nn.BatchNorm2d(out_channels),
+            make_norm2d(out_channels, norm_layer),
             nn.ReLU(inplace=True),
             nn.Conv2d(out_channels, out_channels, 3, padding=1, bias=False),
-            nn.BatchNorm2d(out_channels),
+            make_norm2d(out_channels, norm_layer),
             nn.ReLU(inplace=True),
         )
 
@@ -27,11 +42,11 @@ class ConvBlock(nn.Module):
 
 
 class UpBlock(nn.Module):
-    def __init__(self, in_channels: int, skip_channels: int, out_channels: int):
+    def __init__(self, in_channels: int, skip_channels: int, out_channels: int, norm_layer: str):
         super().__init__()
         self.up = nn.ConvTranspose2d(
             in_channels, out_channels, kernel_size=2, stride=2)
-        self.conv = ConvBlock(out_channels + skip_channels, out_channels)
+        self.conv = ConvBlock(out_channels + skip_channels, out_channels, norm_layer)
 
     def forward(self, x: torch.Tensor, skip: torch.Tensor) -> torch.Tensor:
         x = self.up(x)
@@ -42,20 +57,20 @@ class UpBlock(nn.Module):
 
 
 class PrototypeConditionedUNetBackbone(nn.Module):
-    def __init__(self, in_channels: int = 3, base_channels: int = 32):
+    def __init__(self, in_channels: int = 3, base_channels: int = 32, norm_layer: str = "group"):
         super().__init__()
         self.output_channels = base_channels
         c1, c2, c3, c4 = base_channels, base_channels * \
             2, base_channels * 4, base_channels * 8
-        self.enc1 = ConvBlock(in_channels, c1)
-        self.enc2 = ConvBlock(c1, c2)
-        self.enc3 = ConvBlock(c2, c3)
-        self.enc4 = ConvBlock(c3, c4)
+        self.enc1 = ConvBlock(in_channels, c1, norm_layer)
+        self.enc2 = ConvBlock(c1, c2, norm_layer)
+        self.enc3 = ConvBlock(c2, c3, norm_layer)
+        self.enc4 = ConvBlock(c3, c4, norm_layer)
         self.pool = nn.MaxPool2d(2)
-        self.bottleneck = ConvBlock(c4, c4 * 2)
+        self.bottleneck = ConvBlock(c4, c4 * 2, norm_layer)
         self.depth_geometry_stem = nn.Sequential(
             nn.Conv2d(3, c1 // 2, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(c1 // 2),
+            make_norm2d(c1 // 2, norm_layer),
             nn.ReLU(inplace=True),
         )
         self.depth_bottleneck_proj = nn.Conv2d(c1 // 2, 1, kernel_size=1)
@@ -64,10 +79,10 @@ class PrototypeConditionedUNetBackbone(nn.Module):
         self.depth_highres_fuse = nn.Conv2d(c1 + 1, c1, kernel_size=1)
         self.prototype_bottleneck_fuse = nn.Conv2d(c4 * 2 + 2, c4 * 2, kernel_size=1)
         self.prototype_highres_fuse = nn.Conv2d(c1 + 2, c1, kernel_size=1)
-        self.up3 = UpBlock(c4 * 2, c4, c4)
-        self.up2 = UpBlock(c4, c3, c3)
-        self.up1 = UpBlock(c3, c2, c2)
-        self.up0 = UpBlock(c2, c1, c1)
+        self.up3 = UpBlock(c4 * 2, c4, c4, norm_layer)
+        self.up2 = UpBlock(c4, c3, c3, norm_layer)
+        self.up1 = UpBlock(c3, c2, c2, norm_layer)
+        self.up0 = UpBlock(c2, c1, c1, norm_layer)
         self.fg_head = nn.Conv2d(c1, 1, kernel_size=1)
         self.boundary_head = nn.Conv2d(c1, 1, kernel_size=1)
         self.ownership_head = nn.Conv2d(c1, 2, kernel_size=1)

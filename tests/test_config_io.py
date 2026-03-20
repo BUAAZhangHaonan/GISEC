@@ -143,3 +143,25 @@ def test_multiple_configs_merge_with_later_override(tmp_path: Path) -> None:
     assert args.variant == "A1"
     assert args.epochs == 1
     assert args.max_train_steps == 8
+
+
+def test_parse_train_args_reads_model_defaults(tmp_path: Path) -> None:
+    config_path = _write_yaml(
+        tmp_path / "model.yaml",
+        {
+            "common": {
+                "dataset_root": "/tmp/dataset",
+                "prototype_root": "/tmp/prototypes",
+                "output_dir": "/tmp/out",
+                "base_channels": 12,
+                "graph_hidden_dim": 48,
+                "norm_layer": "group",
+            }
+        },
+    )
+
+    args = parse_train_args(["--config", str(config_path)])
+
+    assert args.base_channels == 12
+    assert args.graph_hidden_dim == 48
+    assert args.norm_layer == "group"
