@@ -15,6 +15,10 @@ REQUIRED_RUN_SUMMARY_KEYS = (
     "variant",
     "modality",
     "artifact_root",
+    "checkpoint",
+    "results_json",
+    "params_trainable",
+    "wall_time_sec",
     "metrics",
     "inference_speed",
 )

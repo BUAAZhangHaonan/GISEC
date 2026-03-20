@@ -74,6 +74,13 @@ class _FakeYOLO:
         return [prediction]
 
 
+class _FakeYOLOWithDownloads(_FakeYOLO):
+    def train(self, **_kwargs) -> dict[str, str]:
+        Path("yolov8n-seg.pt").write_text("downloaded\n", encoding="utf-8")
+        Path("yolo26n.pt").write_text("downloaded\n", encoding="utf-8")
+        return {"status": "ok"}
+
+
 def test_yolov8_adapter_exports_dataset_yaml_and_labels(tmp_path: Path) -> None:
     dataset_root = tmp_path / "dataset"
     export_root = tmp_path / "export"
@@ -124,3 +131,34 @@ def test_yolov8_seg_rgb_baseline_smoke_exports_shared_artifacts(tmp_path: Path, 
     assert summary["model"] == "yolov8_seg"
     assert summary["variant"] == "rgb_smoke"
     assert summary["modality"] == "rgb"
+    assert summary["checkpoint"] == str((output_root / "model_final.pth").resolve())
+    assert summary["results_json"] == str((output_root / "coco_instances_results.json").resolve())
+    assert summary["params_trainable"] > 0
+    assert summary["wall_time_sec"] >= 0
+
+
+def test_yolov8_seg_smoke_cleans_transient_downloaded_weight_files(tmp_path: Path, monkeypatch) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    monkeypatch.chdir(repo_root)
+
+    dataset_root = repo_root / "dataset"
+    output_root = repo_root / "out"
+    _write_dataset(dataset_root)
+    monkeypatch.setattr("baseline.yolov8_seg.train.get_ultralytics_yolo_class", lambda: _FakeYOLOWithDownloads)
+
+    train_yolov8_seg_baseline(
+        dataset_root=str(dataset_root),
+        output_dir=str(output_root),
+        image_size=64,
+        device=torch.device("cpu"),
+        epochs=1,
+        batch_size=1,
+        num_workers=0,
+        max_val_images=1,
+        score_threshold=0.05,
+        model_source="yolov8n-seg.pt",
+    )
+
+    assert not (repo_root / "yolov8n-seg.pt").exists()
+    assert not (repo_root / "yolo26n.pt").exists()

@@ -23,12 +23,19 @@ def test_baseline_contract_defines_required_artifacts_and_summary_keys() -> None
     assert "artifact_root" in REQUIRED_RUN_SUMMARY_KEYS
 
 
-def test_baseline_export_builds_run_summary_payload() -> None:
+def test_baseline_export_builds_run_summary_payload(tmp_path: Path) -> None:
+    artifact_root = tmp_path / "baselines" / "unet_rgb"
+    artifact_root.mkdir(parents=True)
+    (artifact_root / "model_final.pth").write_text("weights\n", encoding="utf-8")
+    (artifact_root / "coco_instances_results.json").write_text("[]\n", encoding="utf-8")
+    (artifact_root / "params_trainable.txt").write_text("123\n", encoding="utf-8")
+    (artifact_root / "wall_time_sec.txt").write_text("17\n", encoding="utf-8")
+
     payload = build_run_summary_payload(
         model="unet",
         variant="rgb_smoke",
         modality="rgb",
-        artifact_root=Path("/tmp/baselines/unet_rgb"),
+        artifact_root=artifact_root,
         metrics={"segm/AP": 71.5},
         inference_speed={"throughput_fps": 12.0},
     )
@@ -36,7 +43,11 @@ def test_baseline_export_builds_run_summary_payload() -> None:
     assert payload["model"] == "unet"
     assert payload["variant"] == "rgb_smoke"
     assert payload["modality"] == "rgb"
-    assert payload["artifact_root"] == "/tmp/baselines/unet_rgb"
+    assert payload["artifact_root"] == str(artifact_root.resolve())
+    assert payload["checkpoint"] == str((artifact_root / "model_final.pth").resolve())
+    assert payload["results_json"] == str((artifact_root / "coco_instances_results.json").resolve())
+    assert payload["params_trainable"] == 123
+    assert payload["wall_time_sec"] == 17
     assert payload["metrics"]["segm/AP"] == 71.5
     assert payload["inference_speed"]["throughput_fps"] == 12.0
 
