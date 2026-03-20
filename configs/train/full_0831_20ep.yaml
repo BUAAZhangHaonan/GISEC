@@ -3,6 +3,8 @@ common:
   batch: 4
   num_workers: 4
   min_area: 256
+  fragment_fg_threshold: 0.55
+  fragment_boundary_threshold: 0.7
 train:
   epochs: 20
   lr: 1.0e-4

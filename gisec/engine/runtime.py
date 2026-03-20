@@ -29,6 +29,8 @@ class RunContext:
     batch: int
     num_workers: int
     min_area: int
+    fragment_fg_threshold: float
+    fragment_boundary_threshold: float
     edge_threshold: float
     contract_mode: str
     device: str
@@ -50,6 +52,8 @@ class RunSummary:
     batch: int
     num_workers: int
     min_area: int
+    fragment_fg_threshold: float
+    fragment_boundary_threshold: float
     edge_threshold: float
     device: str
     code_revision: str | None = None
@@ -446,6 +450,8 @@ def evaluate_and_export(
     ann_file: Path | None,
     results_json: Path,
     min_area: int,
+    fragment_fg_threshold: float,
+    fragment_boundary_threshold: float,
     edge_threshold: float,
     max_images: int | None = None,
     artifact_dir: Path | None = None,
@@ -491,6 +497,9 @@ def evaluate_and_export(
                 instance_map=None,
                 prototype_cache=prototype_cache,
                 variant=variant_spec,
+                fragment_fg_threshold=fragment_fg_threshold,
+                fragment_boundary_threshold=fragment_boundary_threshold,
+                min_area=min_area,
             )
             edge_logits = refiner.score_edges(graph_batch, variant_spec)
             edge_scores = torch.sigmoid(edge_logits.detach()).cpu()

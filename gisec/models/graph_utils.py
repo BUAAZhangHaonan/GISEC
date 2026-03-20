@@ -25,11 +25,12 @@ def sigmoid_np(logits: np.ndarray) -> np.ndarray:
 def fragments_from_logits(
     fg_logits: np.ndarray,
     boundary_logits: np.ndarray,
-    threshold: float = 0.5,
+    fg_threshold: float = 0.5,
+    boundary_threshold: float = 0.5,
     min_area: int = 8,
 ) -> np.ndarray:
-    fg = (sigmoid_np(fg_logits) >= float(threshold)).astype(np.uint8)
-    boundary = (sigmoid_np(boundary_logits) >= float(threshold)).astype(np.uint8)
+    fg = (sigmoid_np(fg_logits) >= float(fg_threshold)).astype(np.uint8)
+    boundary = (sigmoid_np(boundary_logits) >= float(boundary_threshold)).astype(np.uint8)
     interior = (fg & (1 - boundary)).astype(np.uint8)
     if interior.sum() == 0:
         interior = fg
@@ -258,7 +259,8 @@ def build_graph_batch(
     instance_map: torch.Tensor | None,
     prototype_cache: PrototypeCache | None,
     variant: str | VariantSpec,
-    threshold: float = 0.5,
+    fg_threshold: float = 0.5,
+    boundary_threshold: float = 0.5,
     min_area: int = 8,
     purity_threshold: float = 0.8,
 ) -> GraphBatch:
@@ -276,7 +278,13 @@ def build_graph_batch(
         ownership_np = ownership_offsets.detach()[0].cpu().numpy() * float(offset_scale)
         ownership_support = torch.sigmoid(ownership_offsets.detach()).mean(dim=1)[0].cpu().numpy()
     depth_np = depth_map.detach()[0, 0].cpu().numpy()
-    fragments = fragments_from_logits(fg_prob, boundary_prob, threshold=threshold, min_area=min_area)
+    fragments = fragments_from_logits(
+        fg_prob,
+        boundary_prob,
+        fg_threshold=fg_threshold,
+        boundary_threshold=boundary_threshold,
+        min_area=min_area,
+    )
     labels = [int(x) for x in np.unique(fragments).tolist() if int(x) > 0]
 
     empty_edge_index = torch.zeros((2, 0), dtype=torch.long, device=feature_map.device)

@@ -26,6 +26,9 @@ class GraphRefiner:
         instance_map: torch.Tensor | None,
         prototype_cache: PrototypeCache | None,
         variant: str | VariantSpec,
+        fragment_fg_threshold: float = 0.5,
+        fragment_boundary_threshold: float = 0.5,
+        min_area: int = 8,
     ) -> GraphBatch:
         return self.model.build_graph_batch(
             outputs=outputs,
@@ -33,6 +36,9 @@ class GraphRefiner:
             instance_map=instance_map,
             prototype_cache=prototype_cache,
             variant=get_variant_spec(variant),
+            fragment_fg_threshold=fragment_fg_threshold,
+            fragment_boundary_threshold=fragment_boundary_threshold,
+            min_area=min_area,
         )
 
     def build_graph_batch_from_bundle(
@@ -42,6 +48,9 @@ class GraphRefiner:
         instance_map: torch.Tensor | None,
         prototype_cache: PrototypeCache | None,
         variant: str | VariantSpec,
+        fragment_fg_threshold: float = 0.5,
+        fragment_boundary_threshold: float = 0.5,
+        min_area: int = 8,
     ) -> GraphBatch:
         return self.model.build_graph_batch(
             outputs={
@@ -55,6 +64,9 @@ class GraphRefiner:
             instance_map=instance_map,
             prototype_cache=prototype_cache,
             variant=get_variant_spec(variant),
+            fragment_fg_threshold=fragment_fg_threshold,
+            fragment_boundary_threshold=fragment_boundary_threshold,
+            min_area=min_area,
         )
 
     def score_edges(self, graph_batch: GraphBatch, variant: str | VariantSpec) -> torch.Tensor:

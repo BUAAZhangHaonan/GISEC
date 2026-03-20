@@ -6,7 +6,11 @@ import pytest
 
 import gisec.models.graph_utils as graph_utils
 from gisec.config.variants import get_variant_spec
-from gisec.models.graph_utils import build_graph_batch, merge_instances_from_edge_scores
+from gisec.models.graph_utils import (
+    build_graph_batch,
+    fragments_from_logits,
+    merge_instances_from_edge_scores,
+)
 from gisec.models.prototype_cache import PrototypeCache
 
 
@@ -121,3 +125,30 @@ def test_merge_instances_from_edge_scores_rejects_shape_violating_merges() -> No
 
     labels = sorted(x for x in np.unique(merged).tolist() if x > 0)
     assert labels == [1, 2]
+
+
+def test_fragments_from_logits_supports_independent_fg_and_boundary_thresholds() -> None:
+    fg_logits = np.full((12, 12), -4.0, dtype=np.float32)
+    boundary_logits = np.full((12, 12), -4.0, dtype=np.float32)
+    fg_logits[3:9, 2:10] = 4.0
+    boundary_logits[3:9, 5:7] = 0.4
+
+    split = fragments_from_logits(
+        fg_logits,
+        boundary_logits,
+        fg_threshold=0.5,
+        boundary_threshold=0.5,
+        min_area=2,
+    )
+    merged = fragments_from_logits(
+        fg_logits,
+        boundary_logits,
+        fg_threshold=0.5,
+        boundary_threshold=0.7,
+        min_area=2,
+    )
+
+    split_labels = sorted(x for x in np.unique(split).tolist() if x > 0)
+    merged_labels = sorted(x for x in np.unique(merged).tolist() if x > 0)
+    assert len(split_labels) == 2
+    assert len(merged_labels) == 1

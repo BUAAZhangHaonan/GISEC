@@ -3,6 +3,8 @@ common:
   batch: 1
   num_workers: 2
   min_area: 256
+  fragment_fg_threshold: 0.55
+  fragment_boundary_threshold: 0.7
   save_overlays: true
   overlay_limit: 8
   save_graph_diagnostics: true

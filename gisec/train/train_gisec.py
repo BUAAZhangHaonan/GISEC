@@ -112,6 +112,8 @@ def _common_parser() -> argparse.ArgumentParser:
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--min-area", type=int, default=10)
+    parser.add_argument("--fragment-fg-threshold", type=float, default=0.5)
+    parser.add_argument("--fragment-boundary-threshold", type=float, default=0.5)
     parser.add_argument("--edge-threshold", type=float, default=0.5)
     parser.add_argument("--contract-mode",
                         choices=["compat", "strict"], default="compat")
@@ -282,6 +284,8 @@ def train_main(args: argparse.Namespace) -> None:
         batch=int(args.batch),
         num_workers=int(args.num_workers),
         min_area=int(args.min_area),
+        fragment_fg_threshold=float(args.fragment_fg_threshold),
+        fragment_boundary_threshold=float(args.fragment_boundary_threshold),
         edge_threshold=float(args.edge_threshold),
         contract_mode=args.contract_mode,
         device=str(device),
@@ -412,6 +416,9 @@ def train_main(args: argparse.Namespace) -> None:
                                 instance_map=instance_maps[batch_idx],
                                 prototype_cache=prototype_caches[batch_idx],
                                 variant=variant_spec,
+                                fragment_fg_threshold=float(args.fragment_fg_threshold),
+                                fragment_boundary_threshold=float(args.fragment_boundary_threshold),
+                                min_area=int(args.min_area),
                             )
                             graph_edge_count += int(
                                 graph_batch.diagnostics.get("num_edges", int(graph_batch.edge_index.shape[1]))
@@ -501,6 +508,8 @@ def train_main(args: argparse.Namespace) -> None:
                     ann_file=ann_file,
                     results_json=epoch_results,
                     min_area=args.min_area,
+                    fragment_fg_threshold=args.fragment_fg_threshold,
+                    fragment_boundary_threshold=args.fragment_boundary_threshold,
                     edge_threshold=args.edge_threshold,
                     max_images=int(args.max_val_images) if int(
                         args.max_val_images) > 0 else None,
@@ -530,6 +539,8 @@ def train_main(args: argparse.Namespace) -> None:
                 ann_file=ann_file,
                 results_json=final_results,
                 min_area=args.min_area,
+                fragment_fg_threshold=args.fragment_fg_threshold,
+                fragment_boundary_threshold=args.fragment_boundary_threshold,
                 edge_threshold=args.edge_threshold,
                 max_images=int(args.max_val_images) if int(
                     args.max_val_images) > 0 else None,
@@ -567,6 +578,8 @@ def train_main(args: argparse.Namespace) -> None:
                         batch=run_context.batch,
                         num_workers=run_context.num_workers,
                         min_area=run_context.min_area,
+                        fragment_fg_threshold=run_context.fragment_fg_threshold,
+                        fragment_boundary_threshold=run_context.fragment_boundary_threshold,
                         edge_threshold=run_context.edge_threshold,
                         device=run_context.device,
                         code_revision=run_context.code_revision,
@@ -601,6 +614,8 @@ def _run_eval_like(args: argparse.Namespace, *, compute_metrics: bool) -> None:
         batch=1,
         num_workers=int(args.num_workers),
         min_area=int(args.min_area),
+        fragment_fg_threshold=float(args.fragment_fg_threshold),
+        fragment_boundary_threshold=float(args.fragment_boundary_threshold),
         edge_threshold=float(args.edge_threshold),
         contract_mode=args.contract_mode,
         device=str(device),
@@ -649,6 +664,8 @@ def _run_eval_like(args: argparse.Namespace, *, compute_metrics: bool) -> None:
         ann_file=ann_file,
         results_json=results_json,
         min_area=args.min_area,
+        fragment_fg_threshold=args.fragment_fg_threshold,
+        fragment_boundary_threshold=args.fragment_boundary_threshold,
         edge_threshold=args.edge_threshold,
         max_images=int(args.max_images) if int(args.max_images) > 0 else None,
         artifact_dir=output_dir,
@@ -676,6 +693,8 @@ def _run_eval_like(args: argparse.Namespace, *, compute_metrics: bool) -> None:
                 batch=run_context.batch,
                 num_workers=run_context.num_workers,
                 min_area=run_context.min_area,
+                fragment_fg_threshold=run_context.fragment_fg_threshold,
+                fragment_boundary_threshold=run_context.fragment_boundary_threshold,
                 edge_threshold=run_context.edge_threshold,
                 device=run_context.device,
                 code_revision=run_context.code_revision,

@@ -70,6 +70,9 @@ class GISECModel(nn.Module):
         instance_map: torch.Tensor | None,
         prototype_cache: PrototypeCache | None,
         variant: str | VariantSpec,
+        fragment_fg_threshold: float = 0.5,
+        fragment_boundary_threshold: float = 0.5,
+        min_area: int = 8,
     ) -> GraphBatch:
         variant_spec = get_variant_spec(variant)
         relation_logits = outputs.get("affinity_logits", outputs["ownership_offsets"])
@@ -83,4 +86,7 @@ class GISECModel(nn.Module):
             instance_map=instance_map,
             prototype_cache=prototype_cache,
             variant=variant_spec,
+            fg_threshold=fragment_fg_threshold,
+            boundary_threshold=fragment_boundary_threshold,
+            min_area=min_area,
         )

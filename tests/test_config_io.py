@@ -165,3 +165,23 @@ def test_parse_train_args_reads_model_defaults(tmp_path: Path) -> None:
     assert args.base_channels == 12
     assert args.graph_hidden_dim == 48
     assert args.norm_layer == "group"
+
+
+def test_parse_train_args_reads_fragment_threshold_defaults(tmp_path: Path) -> None:
+    config_path = _write_yaml(
+        tmp_path / "thresholds.yaml",
+        {
+            "common": {
+                "dataset_root": "/tmp/dataset",
+                "prototype_root": "/tmp/prototypes",
+                "output_dir": "/tmp/out",
+                "fragment_fg_threshold": 0.6,
+                "fragment_boundary_threshold": 0.75,
+            }
+        },
+    )
+
+    args = parse_train_args(["--config", str(config_path)])
+
+    assert args.fragment_fg_threshold == 0.6
+    assert args.fragment_boundary_threshold == 0.75
