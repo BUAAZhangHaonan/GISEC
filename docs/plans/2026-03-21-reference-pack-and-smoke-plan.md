@@ -289,3 +289,61 @@ Append a short execution note that records:
 git add docs/plans/2026-03-21-reference-pack-and-smoke-plan.md
 git commit -m "docs: record smoke debug findings"
 ```
+
+---
+
+## Execution Notes
+
+### 2026-03-21 Short Smoke Findings
+
+Completed two targeted `A1` short runs under the same smoke protocol:
+
+```bash
+python -m gisec.cli.train \
+  --config configs/data/ecc_20260318_1k_1566.yaml \
+  --config configs/reference/reference_20260318_1k_13440.yaml \
+  --config configs/train/smoke_1024.yaml \
+  --output-dir output/experiments/gisec_v2_smoke_debug_20260321/A1_ref6 \
+  --variant A1 \
+  --max-train-steps 2 \
+  --max-val-images 4 \
+  --overlay-limit 4 \
+  --diagnostics-limit 8 \
+  --reference-max-views 6
+```
+
+```bash
+python -m gisec.cli.train \
+  --config configs/data/ecc_20260318_1k_1566.yaml \
+  --config configs/reference/reference_20260318_1k_13440.yaml \
+  --config configs/train/smoke_1024.yaml \
+  --output-dir output/experiments/gisec_v2_smoke_debug_20260321/A1_ref16 \
+  --variant A1 \
+  --max-train-steps 2 \
+  --max-val-images 4 \
+  --overlay-limit 4 \
+  --diagnostics-limit 8 \
+  --reference-max-views 16
+```
+
+Observed outcomes:
+
+- Both runs stayed at essentially zero segmentation AP, so reference-pack expansion alone did not move the short-run quality ceiling.
+- `A1_ref6` was much cheaper than `A1_ref16`.
+  - `A1_ref6`: `throughput_fps ~= 0.136`, `training_peak_memory_mb ~= 1619.8`, `wall_time_sec = 102`
+  - `A1_ref16`: `throughput_fps ~= 0.055`, `training_peak_memory_mb ~= 3899.1`, `wall_time_sec = 214`
+- `failure_summary.json` showed all 4 validation images landing in the current `tiny` bucket for both runs.
+- Overlay inspection and exported COCO boxes show the real failure is not "whole image mask".
+  The dominant pattern is thin edge slivers and narrow border-aligned strips, often with very small bbox heights or widths.
+- `reference_routing_summary.json` confirmed the routing path is alive, but the top-2 weights are still almost perfectly flat (`~0.50 / 0.50`), which means the router is not yet making sharp selections.
+- `graph_diagnostics.jsonl` showed many images with zero graph edges, so the graph stage often has little chance to repair the mask stage on these short runs.
+
+Current interpretation:
+
+- The immediate bottleneck is still query-side mask formation and fragment quality, not the lack of more reference views.
+- Increasing `reference_max_views` from `6` to `16` currently makes the run much slower and heavier without producing sharper routing or better AP.
+- The next tuning move should focus on:
+  - foreground / boundary threshold calibration,
+  - fragment size and border-artifact filtering,
+  - explaining why the router stays nearly uniform,
+  - only then reconsidering whether larger reference packs are worth the cost.
