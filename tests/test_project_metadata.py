@@ -25,3 +25,15 @@ def test_project_metadata_uses_gisec_identity() -> None:
     assert "/home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/20260318_1K_13440_reference" in handoff_text
     assert "../../magformer/docs/plans/" in reading_pack_text
     assert "../magformer/docs/plans/" in handoff_text
+
+
+def test_project_metadata_includes_baseline_scaffold() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    baseline_init = repo_root / "baseline" / "__init__.py"
+    baseline_readme = repo_root / "baseline" / "README.md"
+
+    assert baseline_init.exists()
+    assert baseline_readme.exists()
+    readme_text = baseline_readme.read_text(encoding="utf-8")
+    assert "baseline benchmark stack" in readme_text
+    assert "separate from `gisec/`" in readme_text
