@@ -2,6 +2,7 @@ common:
   image_size: 1024
   batch: 1
   num_workers: 2
+  min_area: 256
   save_overlays: true
   overlay_limit: 8
   save_graph_diagnostics: true
