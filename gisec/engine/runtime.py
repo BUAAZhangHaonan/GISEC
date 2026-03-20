@@ -567,6 +567,7 @@ def evaluate_and_export(
                     output_path=overlay_path,
                 )
                 overlays_written += 1
+    results_json.parent.mkdir(parents=True, exist_ok=True)
     results_json.write_text(json.dumps(
         results, ensure_ascii=False) + "\n", encoding="utf-8")
     if ann_file is None or not ann_file.exists():

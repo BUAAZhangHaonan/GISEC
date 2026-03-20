@@ -30,6 +30,12 @@ from gisec.engine.runtime import (
 from gisec.graph_refiner import GraphRefiner
 from gisec.utils.logging import JsonlMetricLogger, setup_logger, write_metrics_csv
 
+MODEL_CONFIG_DEFAULTS = {
+    "base_channels": 16,
+    "graph_hidden_dim": 64,
+    "norm_layer": "group",
+}
+
 
 @dataclass(frozen=True)
 class DistributedContext:
@@ -159,6 +165,43 @@ def _validate_required_args(parser: argparse.ArgumentParser, args: argparse.Name
     missing = [name for name in names if getattr(args, name, None) in (None, "")]
     if missing:
         parser.error("the following arguments are required: " + ", ".join(f"--{name.replace('_', '-')}" for name in missing))
+
+
+def _model_config_from_args(args: argparse.Namespace) -> dict[str, int | str]:
+    return {
+        "base_channels": int(args.base_channels),
+        "graph_hidden_dim": int(args.graph_hidden_dim),
+        "norm_layer": str(args.norm_layer),
+    }
+
+
+def _load_model_config_sidecar(checkpoint_path: Path | None, output_dir: Path | None) -> dict[str, int | str] | None:
+    candidates: list[Path] = []
+    if checkpoint_path is not None:
+        candidates.append(checkpoint_path.parent / "model_config.json")
+    if output_dir is not None:
+        candidates.append(output_dir / "model_config.json")
+    for candidate in candidates:
+        if candidate.exists():
+            return json.loads(candidate.read_text(encoding="utf-8"))
+    return None
+
+
+def resolve_model_config(
+    args: argparse.Namespace,
+    *,
+    checkpoint_path: Path | None = None,
+    output_dir: Path | None = None,
+) -> dict[str, int | str]:
+    resolved = dict(MODEL_CONFIG_DEFAULTS)
+    sidecar = _load_model_config_sidecar(checkpoint_path, output_dir)
+    if sidecar is not None:
+        resolved.update(sidecar)
+    arg_config = _model_config_from_args(args)
+    for key, default_value in MODEL_CONFIG_DEFAULTS.items():
+        if checkpoint_path is None or arg_config[key] != default_value:
+            resolved[key] = arg_config[key]
+    return resolved
 
 
 def parse_train_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -320,12 +363,10 @@ def train_main(args: argparse.Namespace) -> None:
         use_cuda=use_cuda,
     )
 
-    model = build_model(
-        device,
-        base_channels=int(args.base_channels),
-        graph_hidden_dim=int(args.graph_hidden_dim),
-        norm_layer=str(args.norm_layer),
-    )
+    model_config = resolve_model_config(args, output_dir=output_dir)
+    if _is_main_process(dist_context):
+        write_json(output_dir / "model_config.json", model_config)
+    model = build_model(device, **model_config)
     if dist_context.enabled and args.sync_bn and use_cuda:
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
     if dist_context.enabled:
@@ -631,13 +672,9 @@ def _run_eval_like(args: argparse.Namespace, *, compute_metrics: bool) -> None:
         use_cuda=use_cuda,
     )
     checkpoint_path = resolve_checkpoint(output_dir, args.checkpoint)
-    model = build_model(
-        device,
-        checkpoint_path,
-        base_channels=int(args.base_channels),
-        graph_hidden_dim=int(args.graph_hidden_dim),
-        norm_layer=str(args.norm_layer),
-    )
+    model_config = resolve_model_config(args, checkpoint_path=checkpoint_path, output_dir=output_dir)
+    write_json(output_dir / "model_config.json", model_config)
+    model = build_model(device, checkpoint_path, **model_config)
     prototype_source = prepare_prototype_source(
         model=model,
         device=device,
