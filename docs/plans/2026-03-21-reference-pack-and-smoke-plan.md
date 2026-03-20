@@ -1,0 +1,291 @@
+# Reference Pack and Smoke Debug Implementation Plan
+
+> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+
+**Goal:** Refine the per-part reference-pack strategy and build a targeted short-smoke diagnostic loop that can explain the current "partial mask or full-image mask" failures before any larger training run.
+
+**Architecture:** This work is split into two tracks. Track A makes reference-pack selection, routing, and logging more explicit so the universal-model + per-part-reference design is measurable rather than implicit. Track B adds failure-focused smoke diagnostics, small analysis utilities, and short-run configs so we can see why masks collapse without wasting GPU on large matrices.
+
+**Tech Stack:** Python 3.13, PyTorch 2.10, YAML config stack, pytest, existing GISEC CLI/runtime/export pipeline, short smoke training/eval runs.
+
+---
+
+### Task 1: Freeze the execution surface for this round
+
+**Files:**
+- Create: `docs/plans/2026-03-21-reference-pack-and-smoke-plan.md`
+- Modify: `configs/README.md`
+- Test: none
+
+**Step 1: Record the scope**
+
+Write down the two active tracks:
+- Track A: reference-pack policy and observability
+- Track B: smoke failure diagnostics and targeted short runs
+
+**Step 2: Record non-goals**
+
+Write down that this round does not include:
+- full 20-epoch matrix runs
+- large architecture expansion
+- MagFormer bridge changes
+
+**Step 3: Commit**
+
+```bash
+git add docs/plans/2026-03-21-reference-pack-and-smoke-plan.md configs/README.md
+git commit -m "docs: add reference pack and smoke debug plan"
+```
+
+### Task 2: Add explicit reference-pack experiment knobs
+
+**Files:**
+- Modify: `gisec/train/train_gisec.py`
+- Modify: `gisec/engine/runtime.py`
+- Modify: `gisec/datasets/prototype_bank.py`
+- Modify: `configs/reference/reference_20260318_1k_13440.yaml`
+- Modify: `configs/train/smoke_1024.yaml`
+- Test: `tests/test_config_io.py`
+- Test: `tests/test_prototype_cache_source.py`
+- Test: `tests/test_runner_dry_run.py`
+
+**Step 1: Write the failing tests**
+
+Add tests that require:
+- `reference_max_views`, `reference_view_sampler`, `prototype_slot_count`, and `prototype_topk` to survive config stacking
+- runtime description exports to report the active reference-pack policy
+- smoke runner output to show the effective config stack clearly
+
+**Step 2: Run test to verify it fails**
+
+Run:
+
+```bash
+pytest -q tests/test_config_io.py tests/test_prototype_cache_source.py tests/test_runner_dry_run.py
+```
+
+Expected: FAIL because the new policy fields or logging details are missing.
+
+**Step 3: Write minimal implementation**
+
+Implement only enough to:
+- expose the effective reference-pack policy in runtime metadata
+- keep smoke configs cheap while full configs default to richer reference packs
+- make the runner and exported metadata easy to inspect after short runs
+
+**Step 4: Run test to verify it passes**
+
+Run:
+
+```bash
+pytest -q tests/test_config_io.py tests/test_prototype_cache_source.py tests/test_runner_dry_run.py
+```
+
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add gisec/train/train_gisec.py gisec/engine/runtime.py gisec/datasets/prototype_bank.py configs/reference/reference_20260318_1k_13440.yaml configs/train/smoke_1024.yaml tests/test_config_io.py tests/test_prototype_cache_source.py tests/test_runner_dry_run.py
+git commit -m "feat: log reference pack experiment policy"
+```
+
+### Task 3: Export routing and reference-pack diagnostics per run
+
+**Files:**
+- Modify: `gisec/models/prototype_cache.py`
+- Modify: `gisec/models/prototype_unet.py`
+- Modify: `gisec/engine/runtime.py`
+- Test: `tests/test_prototype_routing.py`
+- Test: `tests/test_runtime_export.py`
+
+**Step 1: Write the failing tests**
+
+Add tests that require:
+- routed prototype metadata to include selected slot ids or selected view ids
+- eval/export artifacts to persist reference-routing diagnostics in a machine-readable file
+
+**Step 2: Run test to verify it fails**
+
+Run:
+
+```bash
+pytest -q tests/test_prototype_routing.py tests/test_runtime_export.py
+```
+
+Expected: FAIL because the per-run routing diagnostics file does not exist yet.
+
+**Step 3: Write minimal implementation**
+
+Implement only enough to:
+- preserve routed slot metadata
+- write a compact JSON or JSONL artifact into each run directory
+- avoid bloating the hot path with full tensor dumps
+
+**Step 4: Run test to verify it passes**
+
+Run:
+
+```bash
+pytest -q tests/test_prototype_routing.py tests/test_runtime_export.py
+```
+
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add gisec/models/prototype_cache.py gisec/models/prototype_unet.py gisec/engine/runtime.py tests/test_prototype_routing.py tests/test_runtime_export.py
+git commit -m "feat: export reference routing diagnostics"
+```
+
+### Task 4: Add failure-mode diagnostics for short smoke runs
+
+**Files:**
+- Modify: `gisec/engine/runtime.py`
+- Modify: `gisec/utils/visualization.py`
+- Modify: `scripts/analysis/overlay_diagnostics.py`
+- Test: `tests/test_overlay_diagnostics.py`
+- Test: `tests/test_eval_infer_gisec_minibatch.py`
+
+**Step 1: Write the failing tests**
+
+Add tests that require short eval/export runs to produce:
+- a compact failure summary
+- a small set of overlays labeled by failure category
+- counts for empty-mask, tiny-mask, and full-image-mask predictions
+
+**Step 2: Run test to verify it fails**
+
+Run:
+
+```bash
+pytest -q tests/test_overlay_diagnostics.py tests/test_eval_infer_gisec_minibatch.py
+```
+
+Expected: FAIL because these diagnostics do not exist yet.
+
+**Step 3: Write minimal implementation**
+
+Implement only enough to:
+- classify exported predictions into coarse failure buckets
+- write a `failure_summary.json`
+- reuse the existing overlay path instead of inventing a second output tree
+
+**Step 4: Run test to verify it passes**
+
+Run:
+
+```bash
+pytest -q tests/test_overlay_diagnostics.py tests/test_eval_infer_gisec_minibatch.py
+```
+
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add gisec/engine/runtime.py gisec/utils/visualization.py scripts/analysis/overlay_diagnostics.py tests/test_overlay_diagnostics.py tests/test_eval_infer_gisec_minibatch.py
+git commit -m "feat: add smoke failure diagnostics"
+```
+
+### Task 5: Add a targeted smoke runbook for effect debugging
+
+**Files:**
+- Modify: `scripts/experiments/run_0831_gisec_v2_smoke.sh`
+- Create: `configs/train/smoke_debug_1024.yaml`
+- Modify: `configs/README.md`
+- Modify: `README.md`
+- Test: `tests/test_runner_dry_run.py`
+
+**Step 1: Write the failing tests**
+
+Add tests that require a dedicated smoke-debug config and runner path to be discoverable from dry-run output.
+
+**Step 2: Run test to verify it fails**
+
+Run:
+
+```bash
+pytest -q tests/test_runner_dry_run.py -k smoke
+```
+
+Expected: FAIL because the dedicated debug config path is not wired yet.
+
+**Step 3: Write minimal implementation**
+
+Implement only enough to:
+- add a smoke-debug config tuned for observability rather than throughput
+- keep the existing smoke runner compatible
+- document how to invoke the debug run
+
+**Step 4: Run test to verify it passes**
+
+Run:
+
+```bash
+pytest -q tests/test_runner_dry_run.py -k smoke
+```
+
+Expected: PASS
+
+**Step 5: Commit**
+
+```bash
+git add scripts/experiments/run_0831_gisec_v2_smoke.sh configs/train/smoke_debug_1024.yaml configs/README.md README.md tests/test_runner_dry_run.py
+git commit -m "feat: add smoke debug runbook"
+```
+
+### Task 6: Run short experiments and summarize the next tuning move
+
+**Files:**
+- Output: `output/experiments/gisec_v2_smoke_debug_*`
+- Modify: `docs/plans/2026-03-21-reference-pack-and-smoke-plan.md`
+
+**Step 1: Run verification**
+
+Run:
+
+```bash
+pytest -q
+```
+
+Expected: PASS
+
+**Step 2: Run targeted short smoke**
+
+Run a minimal sequence such as:
+
+```bash
+python -m gisec.cli.train \
+  --config configs/data/ecc_20260318_1k_1566.yaml \
+  --config configs/reference/reference_20260318_1k_13440.yaml \
+  --config configs/train/smoke_debug_1024.yaml \
+  --output-dir output/experiments/gisec_v2_smoke_debug/A1 \
+  --variant A1
+```
+
+Then repeat for the next most relevant variant if needed.
+
+**Step 3: Inspect artifacts**
+
+Inspect:
+- `run_summary.json`
+- `failure_summary.json`
+- `graph_diagnostics.jsonl`
+- `reference_routing*.json*`
+- `visualizations/overlay/`
+
+**Step 4: Update the plan doc with results**
+
+Append a short execution note that records:
+- which failure bucket dominates
+- whether reference routing looks healthy
+- the next hyperparameter or threshold change to try
+
+**Step 5: Commit**
+
+```bash
+git add docs/plans/2026-03-21-reference-pack-and-smoke-plan.md
+git commit -m "docs: record smoke debug findings"
+```
