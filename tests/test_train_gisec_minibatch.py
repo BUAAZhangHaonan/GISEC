@@ -116,6 +116,7 @@ def test_train_gisec_minibatch(tmp_path: Path) -> None:
     assert (output_root / "graph_diagnostics.jsonl").exists()
     assert list((output_root / "visualizations" / "overlay").glob("*.png"))
     run_summary = json.loads((output_root / "run_summary.json").read_text(encoding="utf-8"))
+    manifest = json.loads((output_root / "prototype_bank_manifest.json").read_text(encoding="utf-8"))
     assert run_summary["variant"] == "G5"
     assert run_summary["dataset_root"] == str(dataset_root.resolve())
     assert run_summary["prototype_root"] == str(prototype_root.resolve())
@@ -125,6 +126,10 @@ def test_train_gisec_minibatch(tmp_path: Path) -> None:
     assert run_summary["num_workers"] == 0
     assert run_summary["min_area"] == 4
     assert run_summary["edge_threshold"] == 0.5
+    assert manifest["max_views"] == 0
+    assert manifest["view_sampler"] == "all"
+    assert manifest["prototype_slot_count"] == 6
+    assert manifest["prototype_topk"] == 2
     metric_rows = [json.loads(line) for line in (output_root / "metrics_log.jsonl").read_text(encoding="utf-8").splitlines()]
     train_rows = [row for row in metric_rows if row.get("mode") == "train"]
     assert train_rows

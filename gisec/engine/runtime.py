@@ -104,6 +104,8 @@ class PrototypeCacheSource:
             "contract_mode": self.source.contract_mode,
             "max_views": int(self.source.max_views),
             "view_sampler": self.source.view_sampler,
+            "prototype_slot_count": int(getattr(self.model.backbone, "prototype_slot_count", 0)),
+            "prototype_topk": int(getattr(self.model.backbone, "prototype_topk", 0)),
             "available_parts": len(self.source.available_parts),
             "resolved_roots": resolved_roots,
         }

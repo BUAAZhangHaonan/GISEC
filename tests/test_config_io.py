@@ -189,3 +189,44 @@ def test_parse_train_args_reads_fragment_threshold_defaults(tmp_path: Path) -> N
 
     assert args.fragment_fg_threshold == 0.6
     assert args.fragment_boundary_threshold == 0.75
+
+
+def test_parse_train_args_allows_smoke_config_to_override_reference_policy(tmp_path: Path) -> None:
+    reference_path = _write_yaml(
+        tmp_path / "reference.yaml",
+        {
+            "common": {
+                "dataset_root": "/tmp/dataset",
+                "prototype_root": "/tmp/prototypes",
+                "output_dir": "/tmp/out",
+                "reference_max_views": 16,
+                "reference_view_sampler": "pose_farthest",
+                "prototype_slot_count": 6,
+                "prototype_topk": 2,
+            }
+        },
+    )
+    smoke_path = _write_yaml(
+        tmp_path / "smoke.yaml",
+        {
+            "common": {
+                "reference_max_views": 6,
+                "prototype_slot_count": 4,
+                "prototype_topk": 1,
+            }
+        },
+    )
+
+    args = parse_train_args(
+        [
+            "--config",
+            str(reference_path),
+            "--config",
+            str(smoke_path),
+        ]
+    )
+
+    assert args.reference_max_views == 6
+    assert args.reference_view_sampler == "pose_farthest"
+    assert args.prototype_slot_count == 4
+    assert args.prototype_topk == 1

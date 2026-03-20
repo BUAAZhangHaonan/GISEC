@@ -113,3 +113,26 @@ def test_prototype_cache_source_can_clear_and_rebuild_after_model_updates(tmp_pa
 
     assert cache_after is not cache_before
     assert not torch.allclose(cache_after.proto_b, proto_before)
+
+
+def test_prototype_cache_source_describe_reports_reference_and_routing_policy(tmp_path: Path) -> None:
+    root = tmp_path / "refs"
+    _write_part_bank(root, color=(20, 40, 60))
+    model = GISECModel(base_channels=8, prototype_slot_count=4, prototype_topk=1)
+    source = PrototypeCacheSource(
+        model=model,
+        device=torch.device("cpu"),
+        prototype_root=str(root),
+        image_size=64,
+        contract_mode="compat",
+        max_views=16,
+        view_sampler="pose_farthest",
+    )
+
+    source.resolve_for_query("sample.png")
+    description = source.describe()
+
+    assert description["max_views"] == 16
+    assert description["view_sampler"] == "pose_farthest"
+    assert description["prototype_slot_count"] == 4
+    assert description["prototype_topk"] == 1
