@@ -347,3 +347,24 @@ Current interpretation:
   - fragment size and border-artifact filtering,
   - explaining why the router stays nearly uniform,
   - only then reconsidering whether larger reference packs are worth the cost.
+
+Additional threshold-sweep note:
+
+- A follow-up export-only sweep on the same `A1_ref6` checkpoint tested:
+  - `fg=0.55 / boundary=0.70 / min_area=256`
+  - `fg=0.52 / boundary=0.70 / min_area=256`
+  - `fg=0.50 / boundary=0.70 / min_area=256`
+  - `fg=0.55 / boundary=0.60 / min_area=256`
+  - `fg=0.55 / boundary=0.70 / min_area=128`
+  - `fg=0.58 / boundary=0.70 / min_area=256`
+- The sweep changed the exported failure buckets, but did not recover segmentation quality:
+  - lowering `fg_threshold` from `0.55` to `0.52` or `0.50` turned the 4-image probe from `tiny` to `normal`, but `segm/AP` stayed `0.0`
+  - raising `fg_threshold` to `0.58` created one `empty` case and still left `segm/AP = 0.0`
+  - changing `boundary_threshold` or `min_area` only nudged `bbox/AP` at the fourth decimal place
+- Manual logit inspection showed the stronger root cause:
+  - `fg_prob` is badly compressed around `~0.51-0.57`, so `0.55` only keeps thin high-response strips
+  - `0.52` or `0.50` admits a near-full-frame component, which changes the failure label but still does not match real instances
+  - the short-run failure is therefore not just a bad default threshold; the foreground head is not producing instance-shaped confidence fields yet
+- Updated next-step implication:
+  - do not spend the next GPU block on wider threshold grids alone
+  - prioritize query-side foreground calibration / mask-shape formation before another large sweep
