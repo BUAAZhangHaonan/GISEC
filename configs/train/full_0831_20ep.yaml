@@ -1,0 +1,7 @@
+common:
+  image_size: 1024
+  batch: 4
+  num_workers: 4
+train:
+  epochs: 20
+  lr: 1.0e-4

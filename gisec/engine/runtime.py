@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
 from gisec.config.variants import VariantSpec, get_variant_spec
-from gisec.datasets.prototype_bank import load_prototype_bank
+from gisec.datasets.prototype_bank import PrototypeBank, PrototypeBankSource, load_prototype_bank
 from gisec.graph_refiner import GraphRefiner
 from gisec.models.gisec_model import GISECModel
 from gisec.models.prototype_cache import cache_to_device
@@ -56,6 +56,61 @@ class RunSummary:
     params_trainable: int | None = None
     training_peak_memory_mb: float | None = None
     wall_time_sec: int | None = None
+
+
+class PrototypeCacheSource:
+    def __init__(
+        self,
+        *,
+        model: GISECModel,
+        device: torch.device,
+        prototype_root: str,
+        image_size: int,
+        contract_mode: str,
+        max_views: int = 0,
+        view_sampler: str = "all",
+    ) -> None:
+        self.model = model
+        self.device = device
+        self.source = PrototypeBankSource(
+            root=Path(prototype_root),
+            image_size=image_size,
+            contract_mode=contract_mode,
+            max_views=max_views,
+            view_sampler=view_sampler,
+        )
+        self._cache_by_root: dict[Path, tuple[object, PrototypeBank]] = {}
+
+    def resolve_for_query(self, file_name: str) -> tuple[object, PrototypeBank]:
+        bank = self.source.load_for_query(file_name)
+        cache_key = bank.root.resolve()
+        if cache_key not in self._cache_by_root:
+            cache = cache_to_device(self.model.build_prototype_cache(bank, self.device), self.device)
+            self._cache_by_root[cache_key] = (cache, bank)
+        return self._cache_by_root[cache_key]
+
+    def describe(self) -> dict[str, Any]:
+        resolved_roots = sorted(str(root) for root in self._cache_by_root)
+        description = {
+            "root": str(self.source.root),
+            "mode": "single_bank" if self.source.is_single_bank else "per_part",
+            "contract_mode": self.source.contract_mode,
+            "max_views": int(self.source.max_views),
+            "view_sampler": self.source.view_sampler,
+            "available_parts": len(self.source.available_parts),
+            "resolved_roots": resolved_roots,
+        }
+        if self.source.is_single_bank and self._cache_by_root:
+            _, bank = next(iter(self._cache_by_root.values()))
+            description["single_bank_manifest"] = {
+                "root": str(bank.manifest.root),
+                "contract_mode": bank.manifest.contract_mode,
+                "view_count": int(bank.manifest.view_count),
+                "has_camera": bool(bank.manifest.has_camera),
+                "has_manifest": bool(bank.manifest.has_manifest),
+                "has_shape_stats": bool(bank.manifest.has_shape_stats),
+            }
+        return description
 
 
 def read_git_revision(repo_root: Path) -> str | None:
@@ -372,7 +427,7 @@ def evaluate_and_export(
     model: GISECModel,
     loader: DataLoader,
     device: torch.device,
-    prototype_cache,
+    prototype_source: PrototypeCacheSource,
     variant: str | VariantSpec,
     ann_file: Path | None,
     results_json: Path,
@@ -413,8 +468,8 @@ def evaluate_and_export(
             depths = batch["depths"].to(device)
             sync_cuda(device)
             start = time.perf_counter()
-            outputs = model(images, query_depth=depths,
-                            prototype_cache=prototype_cache)
+            prototype_cache, _bank = prototype_source.resolve_for_query(batch["file_names"][0])
+            outputs = model(images, query_depth=depths, prototype_cache=prototype_cache)
             graph_batch = refiner.build_graph_batch(
                 outputs=outputs,
                 depth_map=depths,
@@ -495,6 +550,27 @@ def evaluate_and_export(
     return evaluate_json(ann_file, results_json), build_benchmark_payload(latencies_ms, device)
 
 
+def prepare_prototype_source(
+    *,
+    model: GISECModel,
+    device: torch.device,
+    prototype_root: str,
+    image_size: int,
+    contract_mode: str,
+    max_views: int = 0,
+    view_sampler: str = "all",
+) -> PrototypeCacheSource:
+    return PrototypeCacheSource(
+        model=model,
+        device=device,
+        prototype_root=prototype_root,
+        image_size=image_size,
+        contract_mode=contract_mode,
+        max_views=max_views,
+        view_sampler=view_sampler,
+    )
+
+
 def prepare_prototype_cache(
     *,
     model: GISECModel,
@@ -502,10 +578,24 @@ def prepare_prototype_cache(
     prototype_root: str,
     image_size: int,
     contract_mode: str,
-):
-    bank = load_prototype_bank(
-        prototype_root, image_size=image_size, contract_mode=contract_mode)
-    return cache_to_device(model.build_prototype_cache(bank, device), device), bank
+    max_views: int = 0,
+    view_sampler: str = "all",
+) -> tuple[object, PrototypeBank]:
+    source = prepare_prototype_source(
+        model=model,
+        device=device,
+        prototype_root=prototype_root,
+        image_size=image_size,
+        contract_mode=contract_mode,
+        max_views=max_views,
+        view_sampler=view_sampler,
+    )
+    if not source.source.is_single_bank:
+        raise ValueError(
+            "prepare_prototype_cache only supports a single prototype bank root; "
+            "use prepare_prototype_source for per-part reference routing."
+        )
+    return source.resolve_for_query("__single_bank__.png")
 
 
 def resolve_checkpoint(output_dir: Path, checkpoint: str) -> Path:

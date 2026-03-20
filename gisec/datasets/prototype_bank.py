@@ -70,8 +70,67 @@ class PrototypeBank:
     manifest: PrototypeBankManifest
 
 
+@dataclass
+class PrototypeBankSource:
+    root: Path
+    image_size: int
+    contract_mode: str = "compat"
+    max_views: int = 0
+    view_sampler: str = "all"
+
+    def __post_init__(self) -> None:
+        self.root = Path(self.root).resolve()
+        self._is_single_bank = _is_bank_root(self.root)
+        self._bank_cache: dict[Path, PrototypeBank] = {}
+        self._available_parts = sorted(
+            [
+                path.name
+                for path in self.root.iterdir()
+                if path.is_dir() and _is_bank_root(path)
+            ],
+            key=lambda item: (-len(item), item),
+        ) if not self._is_single_bank else []
+
+    @property
+    def available_parts(self) -> list[str]:
+        return list(self._available_parts)
+
+    @property
+    def is_single_bank(self) -> bool:
+        return self._is_single_bank
+
+    def resolve_root_for_query(self, file_name: str) -> Path:
+        if self._is_single_bank:
+            return self.root
+        part_key = extract_query_part_key(file_name, self._available_parts)
+        return (self.root / part_key).resolve()
+
+    def load_for_query(self, file_name: str) -> PrototypeBank:
+        resolved_root = self.resolve_root_for_query(file_name)
+        if resolved_root not in self._bank_cache:
+            self._bank_cache[resolved_root] = load_prototype_bank(
+                resolved_root,
+                image_size=self.image_size,
+                contract_mode=self.contract_mode,
+                max_views=self.max_views,
+                view_sampler=self.view_sampler,
+            )
+        return self._bank_cache[resolved_root]
+
+
 def _read_json(path: Path) -> Dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _is_bank_root(root: Path) -> bool:
+    return all((root / name).exists() for name in ["rgb", "depth", "mask"])
+
+
+def extract_query_part_key(file_name: str, available_parts: list[str]) -> str:
+    for part_key in sorted(available_parts, key=lambda item: (-len(item), item)):
+        if file_name.startswith(part_key + "_"):
+            return part_key
+    raise KeyError(f"Could not resolve part key from query file name: {file_name}")
 
 
 def _validate_contract(root: Path, contract_mode: str) -> PrototypeBankManifest:
@@ -122,9 +181,13 @@ def load_prototype_bank(
     prototype_root: str | Path,
     image_size: int,
     contract_mode: str = "compat",
+    max_views: int = 0,
+    view_sampler: str = "all",
 ) -> PrototypeBank:
     if contract_mode not in {"compat", "strict"}:
         raise ValueError(f"Unsupported contract_mode: {contract_mode}")
+    if view_sampler not in {"all", "uniform", "pose_farthest"}:
+        raise ValueError(f"Unsupported view_sampler: {view_sampler}")
 
     root = Path(prototype_root).resolve()
     manifest = _validate_contract(root, contract_mode)
@@ -142,6 +205,12 @@ def load_prototype_bank(
     if not view_ids:
         raise FileNotFoundError(
             f"No matched rgb/depth/mask prototype views found under {root}")
+    view_ids = _sample_view_ids(
+        root=root,
+        view_ids=view_ids,
+        max_views=max_views,
+        view_sampler=view_sampler,
+    )
 
     images, depths, masks = [], [], []
     area_ratios, aspect_ratios = [], []
@@ -240,3 +309,69 @@ def load_prototype_bank(
         meta=meta,
         manifest=manifest,
     )
+
+
+def _sample_view_ids(
+    *,
+    root: Path,
+    view_ids: list[str],
+    max_views: int,
+    view_sampler: str,
+) -> list[str]:
+    if int(max_views) <= 0 or len(view_ids) <= int(max_views):
+        return list(view_ids)
+    if view_sampler == "uniform":
+        return _uniform_sample_view_ids(view_ids, max_views)
+    if view_sampler == "pose_farthest":
+        sampled = _pose_farthest_sample_view_ids(root, view_ids, max_views)
+        if sampled:
+            return sampled
+        return _uniform_sample_view_ids(view_ids, max_views)
+    return list(view_ids[:max_views])
+
+
+def _uniform_sample_view_ids(view_ids: list[str], max_views: int) -> list[str]:
+    if max_views <= 0 or len(view_ids) <= max_views:
+        return list(view_ids)
+    if max_views == 1:
+        return [view_ids[0]]
+    selected = {
+        int(round(index))
+        for index in np.linspace(0, len(view_ids) - 1, num=max_views)
+    }
+    return [view_ids[index] for index in sorted(selected)]
+
+
+def _pose_farthest_sample_view_ids(root: Path, view_ids: list[str], max_views: int) -> list[str]:
+    camera_dir = root / "camera"
+    vectors = []
+    for view_id in view_ids:
+        path = camera_dir / f"{view_id}.json"
+        if not path.exists():
+            return []
+        payload = _read_json(path)
+        position = payload.get("position")
+        quat = payload.get("quat_xyzw")
+        if not isinstance(position, list) or not isinstance(quat, list):
+            return []
+        vectors.append(np.asarray(list(position) + list(quat), dtype=np.float32))
+    if not vectors:
+        return []
+    selected = [0]
+    while len(selected) < min(int(max_views), len(view_ids)):
+        best_index = None
+        best_distance = -1.0
+        for index, vector in enumerate(vectors):
+            if index in selected:
+                continue
+            distance = min(
+                float(np.linalg.norm(vector - vectors[selected_index]))
+                for selected_index in selected
+            )
+            if distance > best_distance:
+                best_distance = distance
+                best_index = index
+        if best_index is None:
+            break
+        selected.append(best_index)
+    return [view_ids[index] for index in sorted(selected)]

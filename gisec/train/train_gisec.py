@@ -12,15 +12,17 @@ import torch.nn.functional as F
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 
+from gisec.config.io import extract_argparse_defaults, load_yaml_config, merge_config_dicts
 from gisec.config.variants import get_variant_spec, variant_names
 from gisec.engine.runtime import (
+    PrototypeCacheSource,
     RunContext,
     RunSummary,
     build_device,
     build_loader,
     build_model,
     evaluate_and_export,
-    prepare_prototype_cache,
+    prepare_prototype_source,
     read_git_revision,
     resolve_checkpoint,
     write_json,
@@ -99,9 +101,10 @@ def _unwrap_model(model: torch.nn.Module) -> torch.nn.Module:
 
 def _common_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--dataset-root", required=True)
-    parser.add_argument("--prototype-root", required=True)
-    parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--config", action="append", default=[])
+    parser.add_argument("--dataset-root")
+    parser.add_argument("--prototype-root")
+    parser.add_argument("--output-dir")
     parser.add_argument(
         "--variant", choices=list(variant_names()), default="G5")
     parser.add_argument("--image-size", type=int, default=1024)
@@ -123,36 +126,75 @@ def _common_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dist-backend", choices=["nccl", "gloo"], default="nccl")
     parser.add_argument("--dist-url", type=str, default="env://")
     parser.add_argument("--sync-bn", action="store_true")
+    parser.add_argument("--reference-max-views", type=int, default=0)
+    parser.add_argument(
+        "--reference-view-sampler",
+        choices=["all", "uniform", "pose_farthest"],
+        default="all",
+    )
     return parser
 
 
+def _config_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--config", action="append", default=[])
+    return parser
+
+
+def _load_parser_defaults(argv: list[str] | None, *, mode: str) -> dict[str, object]:
+    config_args, _ = _config_parser().parse_known_args(argv)
+    config_paths = list(getattr(config_args, "config", []) or [])
+    if not config_paths:
+        return {}
+    config = merge_config_dicts(load_yaml_config(path) for path in config_paths)
+    return extract_argparse_defaults(config, mode=mode)
+
+
+def _validate_required_args(parser: argparse.ArgumentParser, args: argparse.Namespace, names: list[str]) -> None:
+    missing = [name for name in names if getattr(args, name, None) in (None, "")]
+    if missing:
+        parser.error("the following arguments are required: " + ", ".join(f"--{name.replace('_', '-')}" for name in missing))
+
+
 def parse_train_args(argv: list[str] | None = None) -> argparse.Namespace:
+    defaults = _load_parser_defaults(argv, mode="train")
     parser = argparse.ArgumentParser(parents=[_common_parser()])
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--max-train-steps", type=int, default=0)
     parser.add_argument("--max-val-images", type=int, default=0)
-    return parser.parse_args(argv)
+    parser.set_defaults(**defaults)
+    args = parser.parse_args(argv)
+    _validate_required_args(parser, args, ["dataset_root", "prototype_root", "output_dir"])
+    return args
 
 
 def parse_eval_args(argv: list[str] | None = None) -> argparse.Namespace:
+    defaults = _load_parser_defaults(argv, mode="eval")
     parser = argparse.ArgumentParser(parents=[_common_parser()])
     parser.add_argument("--checkpoint", type=str, default="")
     parser.add_argument(
         "--split", choices=["train", "val", "test"], default="val")
     parser.add_argument("--max-images", type=int, default=0)
     parser.add_argument("--results-json", type=str, default="")
-    return parser.parse_args(argv)
+    parser.set_defaults(**defaults)
+    args = parser.parse_args(argv)
+    _validate_required_args(parser, args, ["dataset_root", "prototype_root", "output_dir"])
+    return args
 
 
 def parse_infer_args(argv: list[str] | None = None) -> argparse.Namespace:
+    defaults = _load_parser_defaults(argv, mode="infer")
     parser = argparse.ArgumentParser(parents=[_common_parser()])
     parser.add_argument("--checkpoint", type=str, default="")
     parser.add_argument(
         "--split", choices=["train", "val", "test"], default="val")
     parser.add_argument("--max-images", type=int, default=0)
     parser.add_argument("--results-json", type=str, default="")
-    return parser.parse_args(argv)
+    parser.set_defaults(**defaults)
+    args = parser.parse_args(argv)
+    _validate_required_args(parser, args, ["dataset_root", "prototype_root", "output_dir"])
+    return args
 
 
 def relation_target_key(variant: str | object) -> str:
@@ -162,6 +204,33 @@ def relation_target_key(variant: str | object) -> str:
 
 def relation_target_from_batch(batch: dict[str, torch.Tensor], variant: str | object) -> torch.Tensor:
     return batch[relation_target_key(variant)]
+
+
+def forward_with_reference_routing(
+    *,
+    model: torch.nn.Module,
+    images: torch.Tensor,
+    depths: torch.Tensor,
+    file_names: list[str],
+    prototype_source: PrototypeCacheSource,
+) -> tuple[dict[str, torch.Tensor], list[object]]:
+    outputs_by_sample: list[dict[str, torch.Tensor]] = []
+    prototype_caches: list[object] = []
+    for batch_index, file_name in enumerate(file_names):
+        prototype_cache, _bank = prototype_source.resolve_for_query(file_name)
+        outputs_by_sample.append(
+            model(
+                images[batch_index: batch_index + 1],
+                query_depth=depths[batch_index: batch_index + 1],
+                prototype_cache=prototype_cache,
+            )
+        )
+        prototype_caches.append(prototype_cache)
+    merged_outputs = {
+        key: torch.cat([sample[key] for sample in outputs_by_sample], dim=0)
+        for key in outputs_by_sample[0]
+    }
+    return merged_outputs, prototype_caches
 
 
 def train_main(args: argparse.Namespace) -> None:
@@ -230,12 +299,14 @@ def train_main(args: argparse.Namespace) -> None:
         model = DDP(model, device_ids=[device.index] if device.type == "cuda" else None)
     model_for_graph = _unwrap_model(model)
     refiner = GraphRefiner(model_for_graph)
-    prototype_cache, bank = prepare_prototype_cache(
+    prototype_source = prepare_prototype_source(
         model=model_for_graph,
         device=device,
         prototype_root=args.prototype_root,
         image_size=args.image_size,
         contract_mode=args.contract_mode,
+        max_views=int(args.reference_max_views),
+        view_sampler=str(args.reference_view_sampler),
     )
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     scaler = torch.cuda.amp.GradScaler(enabled=use_cuda)
@@ -261,6 +332,7 @@ def train_main(args: argparse.Namespace) -> None:
             if dist_context.enabled and hasattr(train_loader, "sampler") and hasattr(train_loader.sampler, "set_epoch"):
                 train_loader.sampler.set_epoch(epoch)
             for step, batch in enumerate(train_loader, start=1):
+                file_names = list(batch["file_names"])
                 images = batch["images"].to(device)
                 depths = batch["depths"].to(device)
                 fg_target = batch["fg_target"].to(device)
@@ -269,7 +341,13 @@ def train_main(args: argparse.Namespace) -> None:
                 instance_maps = batch["instance_maps"].to(device)
 
                 with torch.cuda.amp.autocast(enabled=use_cuda):
-                    outputs = model(images, query_depth=depths, prototype_cache=prototype_cache)
+                    outputs, prototype_caches = forward_with_reference_routing(
+                        model=model,
+                        images=images,
+                        depths=depths,
+                        file_names=file_names,
+                        prototype_source=prototype_source,
+                    )
                     loss_fg = F.binary_cross_entropy_with_logits(outputs["fg_logits"], fg_target)
                     loss_boundary = F.binary_cross_entropy_with_logits(outputs["boundary_logits"], boundary_target)
                     relation_pred = outputs["ownership_offsets"]
@@ -296,7 +374,7 @@ def train_main(args: argparse.Namespace) -> None:
                                 outputs={key: value[batch_idx: batch_idx + 1] for key, value in outputs.items()},
                                 depth_map=depths[batch_idx: batch_idx + 1],
                                 instance_map=instance_maps[batch_idx],
-                                prototype_cache=prototype_cache,
+                                prototype_cache=prototype_caches[batch_idx],
                                 variant=variant_spec,
                             )
                             graph_edge_count += int(
@@ -378,7 +456,7 @@ def train_main(args: argparse.Namespace) -> None:
                     model=model_for_graph,
                     loader=val_loader,
                     device=device,
-                    prototype_cache=prototype_cache,
+                    prototype_source=prototype_source,
                     variant=variant_spec,
                     ann_file=ann_file,
                     results_json=epoch_results,
@@ -407,7 +485,7 @@ def train_main(args: argparse.Namespace) -> None:
                 model=model_for_graph,
                 loader=val_loader,
                 device=device,
-                prototype_cache=prototype_cache,
+                prototype_source=prototype_source,
                 variant=variant_spec,
                 ann_file=ann_file,
                 results_json=final_results,
@@ -458,8 +536,7 @@ def train_main(args: argparse.Namespace) -> None:
                     )
                 ),
             )
-            write_json(output_dir / "prototype_bank_manifest.json",
-                       asdict(bank.manifest))
+            write_json(output_dir / "prototype_bank_manifest.json", prototype_source.describe())
             (output_dir / "last_checkpoint").write_text(final_ckpt.name + "\n", encoding="utf-8")
             (output_dir / "wall_time_sec.txt").write_text(str(wall_time_sec) + "\n", encoding="utf-8")
             logger.info("final_best_ap=%.4f training_peak_memory_mb=%.4f",
@@ -500,12 +577,14 @@ def _run_eval_like(args: argparse.Namespace, *, compute_metrics: bool) -> None:
     )
     checkpoint_path = resolve_checkpoint(output_dir, args.checkpoint)
     model = build_model(device, checkpoint_path)
-    prototype_cache, bank = prepare_prototype_cache(
+    prototype_source = prepare_prototype_source(
         model=model,
         device=device,
         prototype_root=args.prototype_root,
         image_size=args.image_size,
         contract_mode=args.contract_mode,
+        max_views=int(args.reference_max_views),
+        view_sampler=str(args.reference_view_sampler),
     )
     results_json = Path(args.results_json).resolve(
     ) if args.results_json else output_dir / "coco_instances_results.json"
@@ -519,7 +598,7 @@ def _run_eval_like(args: argparse.Namespace, *, compute_metrics: bool) -> None:
         model=model,
         loader=loader,
         device=device,
-        prototype_cache=prototype_cache,
+        prototype_source=prototype_source,
         variant=variant_spec,
         ann_file=ann_file,
         results_json=results_json,
@@ -557,8 +636,7 @@ def _run_eval_like(args: argparse.Namespace, *, compute_metrics: bool) -> None:
             )
         ),
     )
-    write_json(output_dir / "prototype_bank_manifest.json",
-               asdict(bank.manifest))
+    write_json(output_dir / "prototype_bank_manifest.json", prototype_source.describe())
 
 
 def eval_main(args: argparse.Namespace) -> None:

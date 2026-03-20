@@ -14,6 +14,7 @@ PYTHON_CMD="$(runner_python_cmd)"
 LAUNCHER="${GISEC_LAUNCHER:-none}"
 NPROC_PER_NODE="${GISEC_TORCHRUN_NPROC_PER_NODE:-}"
 MASTER_PORT="${GISEC_TORCHRUN_MASTER_PORT:-29500}"
+CONFIG_ARGS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -22,6 +23,7 @@ while [[ $# -gt 0 ]]; do
     --output-root) OUTPUT_ROOT="$2"; shift 2 ;;
     --contract-mode) CONTRACT_MODE="$2"; shift 2 ;;
     --python) PYTHON_CMD="$2"; shift 2 ;;
+    --config) CONFIG_ARGS+=(--config "$2"); shift 2 ;;
     --launcher) LAUNCHER="$2"; shift 2 ;;
     --nproc-per-node) NPROC_PER_NODE="$2"; shift 2 ;;
     --master-port) MASTER_PORT="$2"; shift 2 ;;
@@ -59,6 +61,7 @@ for variant in A0 A1 B0 G1 G2 G3 G4 G5; do
     --prototype-root '${PROTOTYPE_ROOT}' \
     --output-dir '${OUTPUT_ROOT}/${variant}' \
     --variant '${variant}' \
+    ${CONFIG_ARGS[*]} \
     --launcher '${LAUNCHER}' \
     --nproc-per-node ${NPROC_PER_NODE:-1} \
     --master-port ${MASTER_PORT} \
@@ -73,6 +76,7 @@ for variant in A0 A1 B0 G1 G2 G3 G4 G5; do
     --output-dir '${OUTPUT_ROOT}/${variant}/eval_vis' \
     --checkpoint '${OUTPUT_ROOT}/${variant}/model_best.pth' \
     --variant '${variant}' \
+    ${CONFIG_ARGS[*]} \
     --contract-mode '${CONTRACT_MODE}' \
     --image-size 1024 \
     --num-workers 4 \

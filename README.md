@@ -96,6 +96,19 @@ bash scripts/experiments/run_0831_1k_20ep_1024_gisec.sh \
 
 Use `GISEC_CONDA_ENV=gisec` or `GISEC_PYTHON=/path/to/python` to control how the shell runners invoke Python.
 
+### Configs
+
+The repository now supports layered YAML defaults under [configs/README.md](/home/k100/.config/superpowers/worktrees/gisec/gisec-v2-phase1/configs/README.md). CLI flags still win over YAML, so you can keep using the current commands while gradually moving experiment settings out of shell scripts.
+
+```bash
+python -m gisec.cli.train \
+  --config configs/data/ecc_20260318_1k_1566.yaml \
+  --config configs/reference/reference_20260318_1k_13440.yaml \
+  --config configs/variant/a1.yaml \
+  --config configs/train/smoke_1024.yaml \
+  --output-dir output/experiments/gisec_v2_smoke/A1
+```
+
 ## Variant Semantics
 
 - `B0`: heuristic merge baseline without prototype priors

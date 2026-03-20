@@ -13,6 +13,7 @@ dependencies = [
   "opencv-python",
   "pycocotools",
   "torch",
+  "PyYAML",
 ]
 
 [project.optional-dependencies]

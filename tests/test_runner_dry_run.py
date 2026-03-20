@@ -69,6 +69,38 @@ def test_gisec_runner_dry_run_accepts_a0_variant(tmp_path: Path) -> None:
     assert "variant=A0" in res.stdout
 
 
+def test_gisec_runner_dry_run_forwards_config_argument(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    script = repo_root / "scripts" / "experiments" / "run_0831_1k_20ep_1024_gisec.sh"
+    ref_root = tmp_path / "prototype_bank"
+    config_path = tmp_path / "smoke.yaml"
+    for name in ["rgb", "depth", "mask", "meta"]:
+        (ref_root / name).mkdir(parents=True)
+    config_path.write_text("common: {}\n", encoding="utf-8")
+
+    res = subprocess.run(
+        [
+            "bash",
+            str(script),
+            "--dataset-root",
+            str(tmp_path / "dataset"),
+            "--prototype-root",
+            str(ref_root),
+            "--output-root",
+            str(tmp_path / "out"),
+            "--config",
+            str(config_path),
+            "--dry-run",
+        ],
+        cwd=str(tmp_path),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert f"--config '{config_path}'" in res.stdout or f"--config {config_path}" in res.stdout
+
+
 def test_gisec_runner_dry_run_supports_torchrun_launcher(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     script = repo_root / "scripts" / "experiments" / "run_0831_1k_20ep_1024_gisec.sh"

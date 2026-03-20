@@ -19,6 +19,7 @@ SAVE_OVERLAYS=0
 OVERLAY_LIMIT=8
 SAVE_GRAPH_DIAGNOSTICS=0
 DIAGNOSTICS_LIMIT=64
+CONFIG_ARGS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -28,6 +29,7 @@ while [[ $# -gt 0 ]]; do
     --variant) VARIANT="$2"; shift 2 ;;
     --contract-mode) CONTRACT_MODE="$2"; shift 2 ;;
     --python) PYTHON_CMD="$2"; shift 2 ;;
+    --config) CONFIG_ARGS+=(--config "$2"); shift 2 ;;
     --launcher) LAUNCHER="$2"; shift 2 ;;
     --nproc-per-node) NPROC_PER_NODE="$2"; shift 2 ;;
     --master-port) MASTER_PORT="$2"; shift 2 ;;
@@ -80,6 +82,7 @@ runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${LAUNCH_PREFIX} -m gis
   --prototype-root '${PROTOTYPE_ROOT}' \
   --output-dir '${OUT}' \
   --variant '${VARIANT}' \
+  ${CONFIG_ARGS[*]} \
   --launcher '${LAUNCHER}' \
   --nproc-per-node ${NPROC_PER_NODE:-1} \
   --master-port ${MASTER_PORT} \
