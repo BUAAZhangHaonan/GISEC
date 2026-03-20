@@ -8,6 +8,7 @@ from gisec.datasets.ecc_query_dataset import (
     build_affinity_target,
     build_ownership_target,
     collate_graph_batch,
+    ownership_offset_scale,
 )
 
 
@@ -56,3 +57,14 @@ def test_build_affinity_target_keeps_local_right_and_down_semantics() -> None:
     assert affinity[1, 1, 1] == 1.0
     assert affinity[0, 1, 2] == 0.0
     assert affinity[1, 2, 1] == 0.0
+
+
+def test_build_ownership_target_scales_large_images_for_stability() -> None:
+    instance_map = np.zeros((64, 64), dtype=np.int32)
+    instance_map[16:48, 16:48] = 1
+
+    ownership = build_ownership_target(instance_map)
+
+    assert ownership_offset_scale(64, 64) == 2.0
+    assert ownership[0, 16, 16] == 7.75
+    assert ownership[1, 16, 16] == 7.75

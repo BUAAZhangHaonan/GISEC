@@ -79,18 +79,23 @@ def _core_centroid(mask: np.ndarray) -> tuple[float, float]:
     return float(xs.mean()), float(ys.mean())
 
 
+def ownership_offset_scale(height: int, width: int) -> float:
+    return float(max(max(int(height), int(width)) / 32.0, 1.0))
+
+
 def build_ownership_target(instance_map: np.ndarray) -> np.ndarray:
     instance_map = instance_map.astype(np.int32)
     height, width = instance_map.shape
     ownership = np.zeros((2, height, width), dtype=np.float32)
     yy, xx = np.indices((height, width), dtype=np.float32)
+    scale = ownership_offset_scale(height, width)
     for inst_id in np.unique(instance_map):
         if int(inst_id) <= 0:
             continue
         mask = instance_map == int(inst_id)
         cx, cy = _core_centroid(mask.astype(np.uint8))
-        ownership[0, mask] = cx - xx[mask]
-        ownership[1, mask] = cy - yy[mask]
+        ownership[0, mask] = (cx - xx[mask]) / scale
+        ownership[1, mask] = (cy - yy[mask]) / scale
     return ownership
 
 

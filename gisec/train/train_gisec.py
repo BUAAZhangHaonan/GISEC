@@ -161,6 +161,8 @@ def parse_train_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(parents=[_common_parser()])
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--fg-dice-weight", type=float, default=0.5)
+    parser.add_argument("--boundary-pos-weight", type=float, default=4.0)
     parser.add_argument("--max-train-steps", type=int, default=0)
     parser.add_argument("--max-val-images", type=int, default=0)
     parser.set_defaults(**defaults)
@@ -204,6 +206,25 @@ def relation_target_key(variant: str | object) -> str:
 
 def relation_target_from_batch(batch: dict[str, torch.Tensor], variant: str | object) -> torch.Tensor:
     return batch[relation_target_key(variant)]
+
+
+def dice_loss_with_logits(logits: torch.Tensor, target: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+    probs = torch.sigmoid(logits)
+    dims = tuple(range(1, probs.ndim))
+    intersection = (probs * target).sum(dim=dims)
+    union = probs.sum(dim=dims) + target.sum(dim=dims)
+    dice = (2.0 * intersection + float(eps)) / (union + float(eps))
+    return 1.0 - dice.mean()
+
+
+def balanced_bce_with_logits(
+    logits: torch.Tensor,
+    target: torch.Tensor,
+    *,
+    positive_weight: float = 1.0,
+) -> torch.Tensor:
+    pos_weight = torch.as_tensor(float(positive_weight), device=logits.device, dtype=logits.dtype)
+    return F.binary_cross_entropy_with_logits(logits, target, pos_weight=pos_weight)
 
 
 def forward_with_reference_routing(
@@ -348,8 +369,14 @@ def train_main(args: argparse.Namespace) -> None:
                         file_names=file_names,
                         prototype_source=prototype_source,
                     )
-                    loss_fg = F.binary_cross_entropy_with_logits(outputs["fg_logits"], fg_target)
-                    loss_boundary = F.binary_cross_entropy_with_logits(outputs["boundary_logits"], boundary_target)
+                    loss_fg_bce = F.binary_cross_entropy_with_logits(outputs["fg_logits"], fg_target)
+                    loss_fg_dice = dice_loss_with_logits(outputs["fg_logits"], fg_target)
+                    loss_fg = loss_fg_bce + float(args.fg_dice_weight) * loss_fg_dice
+                    loss_boundary = balanced_bce_with_logits(
+                        outputs["boundary_logits"],
+                        boundary_target,
+                        positive_weight=float(args.boundary_pos_weight),
+                    )
                     relation_pred = outputs["ownership_offsets"]
                     if variant_spec.use_ownership_supervision:
                         fg_mask = fg_target.expand_as(relation_target) > 0.5
@@ -421,6 +448,8 @@ def train_main(args: argparse.Namespace) -> None:
                     "step": step,
                     "loss": float(loss.detach().cpu()),
                     "loss_fg": float(loss_fg.detach().cpu()),
+                    "loss_fg_bce": float(loss_fg_bce.detach().cpu()),
+                    "loss_fg_dice": float(loss_fg_dice.detach().cpu()),
                     "loss_boundary": float(loss_boundary.detach().cpu()),
                     "loss_relation": float(loss_relation.detach().cpu()),
                     "relation_target": relation_target_key(variant_spec),
@@ -434,11 +463,13 @@ def train_main(args: argparse.Namespace) -> None:
 
                 if step % 20 == 0 and _is_main_process(dist_context):
                     logger.info(
-                        "epoch=%s step=%s loss=%.4f loss_fg=%.4f loss_boundary=%.4f loss_relation=%.4f relation_target=%s graph_edges=%s graph_has_edges=%s graph_pos_targets=%.1f graph_loss=%.4f",
+                        "epoch=%s step=%s loss=%.4f loss_fg=%.4f loss_fg_bce=%.4f loss_fg_dice=%.4f loss_boundary=%.4f loss_relation=%.4f relation_target=%s graph_edges=%s graph_has_edges=%s graph_pos_targets=%.1f graph_loss=%.4f",
                         epoch,
                         step,
                         float(loss.detach().cpu()),
                         float(loss_fg.detach().cpu()),
+                        float(loss_fg_bce.detach().cpu()),
+                        float(loss_fg_dice.detach().cpu()),
                         float(loss_boundary.detach().cpu()),
                         float(loss_relation.detach().cpu()),
                         relation_target_key(variant_spec),

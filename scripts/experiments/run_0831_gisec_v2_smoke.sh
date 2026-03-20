@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 source "${SCRIPT_DIR}/common_runner.sh"
 
-DATASET_ROOT="/home/k100/zhn/electronic-components-grasp-and-segment/magformer_datasets/0831_1K"
+DATASET_ROOT=""
 PROTOTYPE_ROOT=""
 OUTPUT_ROOT="${REPO_ROOT}/output/experiments/gisec_v2_smoke"
 MODE="run"
@@ -14,7 +14,11 @@ PYTHON_CMD="$(runner_python_cmd)"
 LAUNCHER="${GISEC_LAUNCHER:-none}"
 NPROC_PER_NODE="${GISEC_TORCHRUN_NPROC_PER_NODE:-}"
 MASTER_PORT="${GISEC_TORCHRUN_MASTER_PORT:-29500}"
-CONFIG_ARGS=()
+CONFIG_ARGS=(
+  --config "${REPO_ROOT}/configs/data/ecc_20260318_1k_1566.yaml"
+  --config "${REPO_ROOT}/configs/reference/reference_20260318_1k_13440.yaml"
+  --config "${REPO_ROOT}/configs/train/smoke_1024.yaml"
+)
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -42,10 +46,13 @@ if [[ -n "${NPROC_PER_NODE}" ]]; then
 fi
 export GISEC_TORCHRUN_MASTER_PORT="${MASTER_PORT}"
 LAUNCH_PREFIX="$(runner_launch_prefix "${PYTHON_CMD}")"
-
-if [[ -z "${PROTOTYPE_ROOT}" ]]; then
-  echo "--prototype-root is required" >&2
-  exit 1
+DATASET_ARG=""
+PROTOTYPE_ARG=""
+if [[ -n "${DATASET_ROOT}" ]]; then
+  DATASET_ARG="--dataset-root '${DATASET_ROOT}'"
+fi
+if [[ -n "${PROTOTYPE_ROOT}" ]]; then
+  PROTOTYPE_ARG="--prototype-root '${PROTOTYPE_ROOT}'"
 fi
 
 mkdir -p "${OUTPUT_ROOT}"
@@ -56,24 +63,21 @@ runner_log "${MODE}" "${RUN_LOG}" "[gisec-v2-smoke] prototype_root=${PROTOTYPE_R
 runner_log "${MODE}" "${RUN_LOG}" "[gisec-v2-smoke] contract_mode=${CONTRACT_MODE}"
 runner_log "${MODE}" "${RUN_LOG}" "[gisec-v2-smoke] output_root=${OUTPUT_ROOT}"
 runner_log "${MODE}" "${RUN_LOG}" "[gisec-v2-smoke] launcher=${LAUNCHER}"
+runner_log "${MODE}" "${RUN_LOG}" "[gisec-v2-smoke] config_stack=${CONFIG_ARGS[*]}"
 
 for variant in A0 A1; do
   OUT="${OUTPUT_ROOT}/${variant}"
   runner_log "${MODE}" "${RUN_LOG}" "[gisec-v2-smoke] variant=${variant}"
   runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${LAUNCH_PREFIX} -m gisec.cli.train \
-    --dataset-root '${DATASET_ROOT}' \
-    --prototype-root '${PROTOTYPE_ROOT}' \
+    ${CONFIG_ARGS[*]} \
+    ${DATASET_ARG} \
+    ${PROTOTYPE_ARG} \
     --output-dir '${OUT}' \
     --variant '${variant}' \
-    ${CONFIG_ARGS[*]} \
     --launcher '${LAUNCHER}' \
     --nproc-per-node ${NPROC_PER_NODE:-1} \
     --master-port ${MASTER_PORT} \
     --contract-mode '${CONTRACT_MODE}' \
-    --image-size 1024 \
-    --epochs 1 \
-    --batch 1 \
-    --num-workers 2 \
     --max-train-steps 8 \
     --max-val-images 16 \
     --save-overlays \

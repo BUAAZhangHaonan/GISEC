@@ -200,3 +200,26 @@ def test_gisec_v2_smoke_runner_lists_a0_and_a1(tmp_path: Path) -> None:
 
     assert "variant=A0" in res.stdout
     assert "variant=A1" in res.stdout
+
+
+def test_gisec_v2_smoke_runner_uses_default_config_stack(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    script = repo_root / "scripts" / "experiments" / "run_0831_gisec_v2_smoke.sh"
+
+    res = subprocess.run(
+        [
+            "bash",
+            str(script),
+            "--output-root",
+            str(tmp_path / "out"),
+            "--dry-run",
+        ],
+        cwd=str(tmp_path),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "configs/data/ecc_20260318_1k_1566.yaml" in res.stdout
+    assert "configs/reference/reference_20260318_1k_13440.yaml" in res.stdout
+    assert "configs/train/smoke_1024.yaml" in res.stdout

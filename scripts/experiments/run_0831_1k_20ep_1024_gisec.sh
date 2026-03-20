@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 source "${SCRIPT_DIR}/common_runner.sh"
 
-DATASET_ROOT="/home/k100/zhn/electronic-components-grasp-and-segment/magformer_datasets/0831_1K"
+DATASET_ROOT=""
 PROTOTYPE_ROOT=""
 OUTPUT_ROOT="${REPO_ROOT}/output/experiments/gisec_0831"
 MODE="run"
@@ -19,7 +19,11 @@ SAVE_OVERLAYS=0
 OVERLAY_LIMIT=8
 SAVE_GRAPH_DIAGNOSTICS=0
 DIAGNOSTICS_LIMIT=64
-CONFIG_ARGS=()
+CONFIG_ARGS=(
+  --config "${REPO_ROOT}/configs/data/ecc_20260318_1k_1566.yaml"
+  --config "${REPO_ROOT}/configs/reference/reference_20260318_1k_13440.yaml"
+  --config "${REPO_ROOT}/configs/train/full_0831_20ep.yaml"
+)
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -52,10 +56,13 @@ if [[ -n "${NPROC_PER_NODE}" ]]; then
 fi
 export GISEC_TORCHRUN_MASTER_PORT="${MASTER_PORT}"
 LAUNCH_PREFIX="$(runner_launch_prefix "${PYTHON_CMD}")"
-
-if [[ -z "${PROTOTYPE_ROOT}" ]]; then
-  echo "--prototype-root is required" >&2
-  exit 1
+DATASET_ARG=""
+PROTOTYPE_ARG=""
+if [[ -n "${DATASET_ROOT}" ]]; then
+  DATASET_ARG="--dataset-root '${DATASET_ROOT}'"
+fi
+if [[ -n "${PROTOTYPE_ROOT}" ]]; then
+  PROTOTYPE_ARG="--prototype-root '${PROTOTYPE_ROOT}'"
 fi
 
 OUT="${OUTPUT_ROOT}/${VARIANT}"
@@ -68,6 +75,7 @@ runner_log "${MODE}" "${RUN_LOG}" "[gisec-0831] dataset_root=${DATASET_ROOT}"
 runner_log "${MODE}" "${RUN_LOG}" "[gisec-0831] prototype_root=${PROTOTYPE_ROOT}"
 runner_log "${MODE}" "${RUN_LOG}" "[gisec-0831] contract_mode=${CONTRACT_MODE}"
 runner_log "${MODE}" "${RUN_LOG}" "[gisec-0831] output_dir=${OUT}"
+runner_log "${MODE}" "${RUN_LOG}" "[gisec-0831] config_stack=${CONFIG_ARGS[*]}"
 
 EXTRA_ARGS=()
 if [[ "${SAVE_OVERLAYS}" == "1" ]]; then
@@ -78,17 +86,13 @@ if [[ "${SAVE_GRAPH_DIAGNOSTICS}" == "1" ]]; then
 fi
 
 runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${LAUNCH_PREFIX} -m gisec.cli.train \
-  --dataset-root '${DATASET_ROOT}' \
-  --prototype-root '${PROTOTYPE_ROOT}' \
+  ${CONFIG_ARGS[*]} \
+  ${DATASET_ARG} \
+  ${PROTOTYPE_ARG} \
   --output-dir '${OUT}' \
   --variant '${VARIANT}' \
-  ${CONFIG_ARGS[*]} \
   --launcher '${LAUNCHER}' \
   --nproc-per-node ${NPROC_PER_NODE:-1} \
   --master-port ${MASTER_PORT} \
   --contract-mode '${CONTRACT_MODE}' \
-  --image-size 1024 \
-  --epochs 20 \
-  --batch 4 \
-  --num-workers 4 \
   ${EXTRA_ARGS[*]}"

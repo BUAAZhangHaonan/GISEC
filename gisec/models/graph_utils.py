@@ -9,6 +9,7 @@ import torch
 import torch.nn.functional as F
 
 from gisec.config.variants import VariantSpec, get_variant_spec
+from gisec.datasets.ecc_query_dataset import ownership_offset_scale
 from gisec.models.prototype_cache import PrototypeCache, cosine_similarity_map
 
 EDGE_TYPE_CONTACT = 0
@@ -270,8 +271,9 @@ def build_graph_batch(
         affinity_prob = torch.sigmoid(affinity_logits.detach())[0].cpu().numpy()
     ownership_np = None
     ownership_support = None
+    offset_scale = ownership_offset_scale(fg_prob.shape[0], fg_prob.shape[1])
     if variant_spec.use_ownership_graph_cues and ownership_offsets is not None:
-        ownership_np = ownership_offsets.detach()[0].cpu().numpy()
+        ownership_np = ownership_offsets.detach()[0].cpu().numpy() * float(offset_scale)
         ownership_support = torch.sigmoid(ownership_offsets.detach()).mean(dim=1)[0].cpu().numpy()
     depth_np = depth_map.detach()[0, 0].cpu().numpy()
     fragments = fragments_from_logits(fg_prob, boundary_prob, threshold=threshold, min_area=min_area)
