@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 
 from baseline.common.dataset import BaselineInstanceDataset
 from baseline.unet.eval import evaluate_unet_baseline
-from baseline.unet.model import UNetBaseline
+from baseline.unet.model import build_unet_family_model
 
 
 def train_unet_baseline(
@@ -24,10 +24,11 @@ def train_unet_baseline(
     max_train_steps: int = 0,
     max_val_images: int = 0,
     threshold: float = 0.5,
+    model_name: str = "unet",
 ) -> None:
     artifact_root = Path(output_dir)
     artifact_root.mkdir(parents=True, exist_ok=True)
-    model = UNetBaseline().to(device)
+    model = build_unet_family_model(str(model_name)).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1.0e-3)
     dataset = BaselineInstanceDataset(
         dataset_root=dataset_root,
@@ -75,6 +76,7 @@ def train_unet_baseline(
     (artifact_root / "wall_time_sec.txt").write_text(f"{wall_time_sec}\n", encoding="utf-8")
     evaluate_unet_baseline(
         model=model,
+        model_name=str(model_name),
         dataset_root=dataset_root,
         output_dir=output_dir,
         image_size=image_size,

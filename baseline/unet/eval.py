@@ -31,6 +31,7 @@ def _connected_component_masks(binary_mask: np.ndarray) -> list[np.ndarray]:
 def evaluate_unet_baseline(
     *,
     model: torch.nn.Module,
+    model_name: str,
     dataset_root: str,
     output_dir: str,
     image_size: int,
@@ -95,7 +96,7 @@ def evaluate_unet_baseline(
     write_json(artifact_root / "metrics.cocoeval.json", metrics)
     write_json(artifact_root / "inference_speed.json", speed)
     summary = build_run_summary_payload(
-        model="unet",
+        model=str(model_name),
         variant="rgb_smoke",
         modality="rgb",
         artifact_root=artifact_root,
