@@ -35,7 +35,7 @@ This module is always active. It converts raw depth into three cheap geometry ma
 These maps enter the backbone from the start. The purpose is to expose geometric events directly, especially places where RGB looks continuous but geometry says the surface is broken.
 
 ### `PrototypeRouter`
-This module replaces the `v1` single averaged prototype. Each part keeps `K=6` prototype slots. The query first produces a global descriptor, then uses top-2 soft routing to mix the most relevant prototype slots. If camera pose metadata exists, it can act as a routing prior that suppresses obviously incompatible views, but it does not become a backbone feature.
+This module replaces the `v1` single averaged prototype. Each part first samples a compact reference pack with `pose_farthest` coverage; the current default target is `16` views for full runs, while smoke runs can override this downward. From that pack, the model keeps `K=6` prototype slots. The query first produces a global descriptor, then uses top-2 soft routing to mix the most relevant prototype slots. If camera pose metadata exists, it can act as a routing prior that suppresses obviously incompatible views, but it does not become a backbone feature.
 
 This keeps reference conditioning lightweight while preserving view-specific structure that was lost in `v1`.
 

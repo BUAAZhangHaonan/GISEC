@@ -2,6 +2,7 @@ common:
   image_size: 1024
   batch: 1
   num_workers: 2
+  reference_max_views: 6
   min_area: 256
   fragment_fg_threshold: 0.55
   fragment_boundary_threshold: 0.7

@@ -6,6 +6,9 @@ These YAML files are thin defaults for the existing CLI.
 - `train`, `eval`, and `infer` only apply to the matching command
 - later `--config` files override earlier ones
 - direct CLI flags still override YAML values
+- the default reference-pack policy is `pose_farthest` with `16` views for full runs
+- `configs/train/smoke_1024.yaml` intentionally overrides that to `6` views so smoke runs stay cheap
+- prototype routing can now be configured with `prototype_slot_count` and `prototype_topk`
 
 Example:
 
