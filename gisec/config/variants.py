@@ -11,6 +11,11 @@ class VariantSpec:
     use_shape_stats: bool
     use_rgb_prototype_similarity: bool
     use_depth_prototype_similarity: bool
+    use_ownership_supervision: bool
+    use_ownership_graph_cues: bool
+    use_bridge_edges: bool
+    use_purity_filtering: bool
+    use_constrained_merge: bool
 
     @property
     def uses_prototype_similarity(self) -> bool:
@@ -18,6 +23,32 @@ class VariantSpec:
 
 
 VARIANT_SPECS = {
+    "A0": VariantSpec(
+        name="A0",
+        description="Carry-over RGB-D prototype baseline with local affinity supervision and contact-only merge",
+        use_learned_edge_scorer=True,
+        use_shape_stats=False,
+        use_rgb_prototype_similarity=True,
+        use_depth_prototype_similarity=True,
+        use_ownership_supervision=False,
+        use_ownership_graph_cues=False,
+        use_bridge_edges=False,
+        use_purity_filtering=False,
+        use_constrained_merge=False,
+    ),
+    "A1": VariantSpec(
+        name="A1",
+        description="A0 plus ownership-offset supervision and ownership graph cues",
+        use_learned_edge_scorer=True,
+        use_shape_stats=False,
+        use_rgb_prototype_similarity=True,
+        use_depth_prototype_similarity=True,
+        use_ownership_supervision=True,
+        use_ownership_graph_cues=True,
+        use_bridge_edges=False,
+        use_purity_filtering=False,
+        use_constrained_merge=False,
+    ),
     "B0": VariantSpec(
         name="B0",
         description="Heuristic graph merge baseline without prototype priors",
@@ -25,6 +56,11 @@ VARIANT_SPECS = {
         use_shape_stats=False,
         use_rgb_prototype_similarity=False,
         use_depth_prototype_similarity=False,
+        use_ownership_supervision=True,
+        use_ownership_graph_cues=True,
+        use_bridge_edges=True,
+        use_purity_filtering=True,
+        use_constrained_merge=True,
     ),
     "G1": VariantSpec(
         name="G1",
@@ -33,6 +69,11 @@ VARIANT_SPECS = {
         use_shape_stats=False,
         use_rgb_prototype_similarity=False,
         use_depth_prototype_similarity=False,
+        use_ownership_supervision=True,
+        use_ownership_graph_cues=True,
+        use_bridge_edges=True,
+        use_purity_filtering=True,
+        use_constrained_merge=True,
     ),
     "G2": VariantSpec(
         name="G2",
@@ -41,6 +82,11 @@ VARIANT_SPECS = {
         use_shape_stats=True,
         use_rgb_prototype_similarity=False,
         use_depth_prototype_similarity=False,
+        use_ownership_supervision=True,
+        use_ownership_graph_cues=True,
+        use_bridge_edges=True,
+        use_purity_filtering=True,
+        use_constrained_merge=True,
     ),
     "G3": VariantSpec(
         name="G3",
@@ -49,6 +95,11 @@ VARIANT_SPECS = {
         use_shape_stats=False,
         use_rgb_prototype_similarity=True,
         use_depth_prototype_similarity=False,
+        use_ownership_supervision=True,
+        use_ownership_graph_cues=True,
+        use_bridge_edges=True,
+        use_purity_filtering=True,
+        use_constrained_merge=True,
     ),
     "G4": VariantSpec(
         name="G4",
@@ -57,6 +108,11 @@ VARIANT_SPECS = {
         use_shape_stats=False,
         use_rgb_prototype_similarity=True,
         use_depth_prototype_similarity=True,
+        use_ownership_supervision=True,
+        use_ownership_graph_cues=True,
+        use_bridge_edges=True,
+        use_purity_filtering=True,
+        use_constrained_merge=True,
     ),
     "G5": VariantSpec(
         name="G5",
@@ -65,6 +121,11 @@ VARIANT_SPECS = {
         use_shape_stats=True,
         use_rgb_prototype_similarity=True,
         use_depth_prototype_similarity=True,
+        use_ownership_supervision=True,
+        use_ownership_graph_cues=True,
+        use_bridge_edges=True,
+        use_purity_filtering=True,
+        use_constrained_merge=True,
     ),
 }
 

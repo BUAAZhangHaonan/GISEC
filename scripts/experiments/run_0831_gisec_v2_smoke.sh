@@ -7,7 +7,7 @@ source "${SCRIPT_DIR}/common_runner.sh"
 
 DATASET_ROOT="/home/k100/zhn/electronic-components-grasp-and-segment/magformer_datasets/0831_1K"
 PROTOTYPE_ROOT=""
-OUTPUT_ROOT="${REPO_ROOT}/output/experiments/gisec_0831_matrix"
+OUTPUT_ROOT="${REPO_ROOT}/output/experiments/gisec_v2_smoke"
 MODE="run"
 CONTRACT_MODE="compat"
 PYTHON_CMD="$(runner_python_cmd)"
@@ -31,6 +31,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -n "${NPROC_PER_NODE}" && "${LAUNCHER}" == "none" ]]; then
+  LAUNCHER="torchrun"
+fi
 export GISEC_LAUNCHER="${LAUNCHER}"
 if [[ -n "${NPROC_PER_NODE}" ]]; then
   export GISEC_TORCHRUN_NPROC_PER_NODE="${NPROC_PER_NODE}"
@@ -45,40 +48,33 @@ fi
 
 mkdir -p "${OUTPUT_ROOT}"
 RUN_LOG="$(runner_setup_log "${OUTPUT_ROOT}" "${MODE}")"
-runner_log "${MODE}" "${RUN_LOG}" "[gisec-all] mode=${MODE}"
-runner_log "${MODE}" "${RUN_LOG}" "[gisec-all] dataset_root=${DATASET_ROOT}"
-runner_log "${MODE}" "${RUN_LOG}" "[gisec-all] prototype_root=${PROTOTYPE_ROOT}"
-runner_log "${MODE}" "${RUN_LOG}" "[gisec-all] contract_mode=${CONTRACT_MODE}"
-runner_log "${MODE}" "${RUN_LOG}" "[gisec-all] output_root=${OUTPUT_ROOT}"
-runner_log "${MODE}" "${RUN_LOG}" "[gisec-all] launcher=${LAUNCHER}"
+runner_log "${MODE}" "${RUN_LOG}" "[gisec-v2-smoke] mode=${MODE}"
+runner_log "${MODE}" "${RUN_LOG}" "[gisec-v2-smoke] dataset_root=${DATASET_ROOT}"
+runner_log "${MODE}" "${RUN_LOG}" "[gisec-v2-smoke] prototype_root=${PROTOTYPE_ROOT}"
+runner_log "${MODE}" "${RUN_LOG}" "[gisec-v2-smoke] contract_mode=${CONTRACT_MODE}"
+runner_log "${MODE}" "${RUN_LOG}" "[gisec-v2-smoke] output_root=${OUTPUT_ROOT}"
+runner_log "${MODE}" "${RUN_LOG}" "[gisec-v2-smoke] launcher=${LAUNCHER}"
 
-for variant in A0 A1 B0 G1 G2 G3 G4 G5; do
-  runner_log "${MODE}" "${RUN_LOG}" "[gisec-all] START ${variant}"
+for variant in A0 A1; do
+  OUT="${OUTPUT_ROOT}/${variant}"
+  runner_log "${MODE}" "${RUN_LOG}" "[gisec-v2-smoke] variant=${variant}"
   runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${LAUNCH_PREFIX} -m gisec.cli.train \
     --dataset-root '${DATASET_ROOT}' \
     --prototype-root '${PROTOTYPE_ROOT}' \
-    --output-dir '${OUTPUT_ROOT}/${variant}' \
+    --output-dir '${OUT}' \
     --variant '${variant}' \
     --launcher '${LAUNCHER}' \
     --nproc-per-node ${NPROC_PER_NODE:-1} \
     --master-port ${MASTER_PORT} \
     --contract-mode '${CONTRACT_MODE}' \
     --image-size 1024 \
-    --epochs 20 \
-    --batch 4 \
-    --num-workers 4"
-  runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${PYTHON_CMD} -m gisec.cli.eval \
-    --dataset-root '${DATASET_ROOT}' \
-    --prototype-root '${PROTOTYPE_ROOT}' \
-    --output-dir '${OUTPUT_ROOT}/${variant}/eval_vis' \
-    --checkpoint '${OUTPUT_ROOT}/${variant}/model_best.pth' \
-    --variant '${variant}' \
-    --contract-mode '${CONTRACT_MODE}' \
-    --image-size 1024 \
-    --num-workers 4 \
+    --epochs 1 \
+    --batch 1 \
+    --num-workers 2 \
+    --max-train-steps 8 \
+    --max-val-images 16 \
     --save-overlays \
     --overlay-limit 8 \
     --save-graph-diagnostics \
-    --diagnostics-limit 32"
-  runner_log "${MODE}" "${RUN_LOG}" "[gisec-all] END ${variant}"
+    --diagnostics-limit 16"
 done

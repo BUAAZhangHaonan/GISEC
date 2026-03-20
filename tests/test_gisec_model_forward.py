@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 import torch
 
+import gisec.models.gisec_model as gisec_model_module
 from gisec.datasets.prototype_bank import load_prototype_bank
 from gisec.graph_refiner import GraphRefiner
 from gisec.models.gisec_model import GISECModel
@@ -77,3 +78,61 @@ def test_gisec_model_builds_fragment_bundle_for_graph_refiner(tmp_path: Path) ->
         variant="G5",
     )
     assert graph_batch.node_features.ndim == 2
+
+
+def test_gisec_model_routes_a0_graph_building_to_affinity_logits(monkeypatch) -> None:
+    captured = {}
+
+    def fake_build_graph_batch(**kwargs):
+        captured.update(kwargs)
+        return "sentinel"
+
+    monkeypatch.setattr(gisec_model_module, "build_graph_batch", fake_build_graph_batch)
+    model = GISECModel(base_channels=8)
+    outputs = {
+        "feature_map": torch.ones((1, 8, 16, 16), dtype=torch.float32),
+        "fg_logits": torch.ones((1, 1, 16, 16), dtype=torch.float32),
+        "boundary_logits": torch.ones((1, 1, 16, 16), dtype=torch.float32),
+        "ownership_offsets": torch.ones((1, 2, 16, 16), dtype=torch.float32),
+    }
+
+    result = model.build_graph_batch(
+        outputs=outputs,
+        depth_map=torch.ones((1, 1, 16, 16), dtype=torch.float32),
+        instance_map=None,
+        prototype_cache=None,
+        variant="A0",
+    )
+
+    assert result == "sentinel"
+    assert captured["affinity_logits"] is outputs["ownership_offsets"]
+    assert captured["ownership_offsets"] is None
+
+
+def test_gisec_model_routes_a1_graph_building_to_ownership_offsets(monkeypatch) -> None:
+    captured = {}
+
+    def fake_build_graph_batch(**kwargs):
+        captured.update(kwargs)
+        return "sentinel"
+
+    monkeypatch.setattr(gisec_model_module, "build_graph_batch", fake_build_graph_batch)
+    model = GISECModel(base_channels=8)
+    outputs = {
+        "feature_map": torch.ones((1, 8, 16, 16), dtype=torch.float32),
+        "fg_logits": torch.ones((1, 1, 16, 16), dtype=torch.float32),
+        "boundary_logits": torch.ones((1, 1, 16, 16), dtype=torch.float32),
+        "ownership_offsets": torch.ones((1, 2, 16, 16), dtype=torch.float32),
+    }
+
+    result = model.build_graph_batch(
+        outputs=outputs,
+        depth_map=torch.ones((1, 1, 16, 16), dtype=torch.float32),
+        instance_map=None,
+        prototype_cache=None,
+        variant="A1",
+    )
+
+    assert result == "sentinel"
+    assert captured["affinity_logits"] is None
+    assert captured["ownership_offsets"] is outputs["ownership_offsets"]

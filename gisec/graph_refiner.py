@@ -65,12 +65,21 @@ class GraphRefiner:
             graph_batch.edge_features).clamp(1e-4, 1.0 - 1e-4)
         return torch.logit(heuristic_scores)
 
-    def merge(self, *, graph_batch: GraphBatch, edge_logits: torch.Tensor, threshold: float) -> torch.Tensor:
+    def merge(
+        self,
+        *,
+        graph_batch: GraphBatch,
+        edge_logits: torch.Tensor,
+        threshold: float,
+        variant: str | VariantSpec = "G5",
+    ) -> torch.Tensor:
+        variant_spec = get_variant_spec(variant)
         merged = merge_instances_from_edge_scores(
             fragments=graph_batch.fragments,
             edge_index=graph_batch.edge_index,
             edge_scores=torch.sigmoid(edge_logits),
             threshold=threshold,
+            constrained=variant_spec.use_constrained_merge,
             fragment_stats=graph_batch.fragment_stats,
             shape_stats=graph_batch.shape_stats,
             edge_features=graph_batch.edge_features,

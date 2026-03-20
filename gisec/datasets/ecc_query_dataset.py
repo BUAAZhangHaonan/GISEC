@@ -118,13 +118,9 @@ class QuerySample:
     depth: torch.Tensor
     fg_target: torch.Tensor
     boundary_target: torch.Tensor
+    affinity_target: torch.Tensor
     ownership_target: torch.Tensor
     instance_map: torch.Tensor
-
-    @property
-    def affinity_target(self) -> torch.Tensor:
-        # Temporary alias while the graph stack is still migrating off local-affinity naming.
-        return self.ownership_target
 
 
 class _LiteCOCO:
@@ -232,6 +228,7 @@ class ECCGraphDataset(Dataset):
             else torch.zeros((1, self.image_size, self.image_size), dtype=torch.float32),
             fg_target=torch.from_numpy(fg_mask[None, ...]).float(),
             boundary_target=torch.from_numpy(boundary[None, ...]).float(),
+            affinity_target=torch.from_numpy(build_affinity_target(instance_map)).float(),
             ownership_target=torch.from_numpy(
                 build_ownership_target(instance_map)).float(),
             instance_map=torch.from_numpy(instance_map).long(),
@@ -248,7 +245,6 @@ def collate_graph_batch(batch: List[QuerySample]) -> Dict[str, Any]:
         "fg_target": torch.stack([item.fg_target for item in batch], dim=0),
         "boundary_target": torch.stack([item.boundary_target for item in batch], dim=0),
         "ownership_target": torch.stack([item.ownership_target for item in batch], dim=0),
-        "affinity_target": torch.stack(
-            [getattr(item, "affinity_target", item.ownership_target) for item in batch], dim=0),
+        "affinity_target": torch.stack([item.affinity_target for item in batch], dim=0),
         "instance_maps": torch.stack([item.instance_map for item in batch], dim=0),
     }

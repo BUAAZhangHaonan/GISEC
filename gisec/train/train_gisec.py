@@ -155,6 +155,15 @@ def parse_infer_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def relation_target_key(variant: str | object) -> str:
+    variant_spec = get_variant_spec(variant)
+    return "ownership_target" if variant_spec.use_ownership_supervision else "affinity_target"
+
+
+def relation_target_from_batch(batch: dict[str, torch.Tensor], variant: str | object) -> torch.Tensor:
+    return batch[relation_target_key(variant)]
+
+
 def train_main(args: argparse.Namespace) -> None:
     dist_context = resolve_distributed_context(
         launcher=args.launcher,
@@ -256,22 +265,25 @@ def train_main(args: argparse.Namespace) -> None:
                 depths = batch["depths"].to(device)
                 fg_target = batch["fg_target"].to(device)
                 boundary_target = batch["boundary_target"].to(device)
-                ownership_target = batch["ownership_target"].to(device)
+                relation_target = relation_target_from_batch(batch, variant_spec).to(device)
                 instance_maps = batch["instance_maps"].to(device)
 
                 with torch.cuda.amp.autocast(enabled=use_cuda):
                     outputs = model(images, query_depth=depths, prototype_cache=prototype_cache)
                     loss_fg = F.binary_cross_entropy_with_logits(outputs["fg_logits"], fg_target)
                     loss_boundary = F.binary_cross_entropy_with_logits(outputs["boundary_logits"], boundary_target)
-                    fg_mask = fg_target.expand_as(ownership_target) > 0.5
-                    ownership_pred = outputs["ownership_offsets"]
-                    if fg_mask.any():
-                        loss_ownership = F.smooth_l1_loss(
-                            ownership_pred[fg_mask], ownership_target[fg_mask]
-                        )
+                    relation_pred = outputs["ownership_offsets"]
+                    if variant_spec.use_ownership_supervision:
+                        fg_mask = fg_target.expand_as(relation_target) > 0.5
+                        if fg_mask.any():
+                            loss_relation = F.smooth_l1_loss(
+                                relation_pred[fg_mask], relation_target[fg_mask]
+                            )
+                        else:
+                            loss_relation = relation_pred.sum() * 0.0
                     else:
-                        loss_ownership = ownership_pred.sum() * 0.0
-                    loss = loss_fg + loss_boundary + 0.5 * loss_ownership
+                        loss_relation = F.binary_cross_entropy_with_logits(relation_pred, relation_target)
+                    loss = loss_fg + loss_boundary + 0.5 * loss_relation
                     graph_edge_count = 0
                     graph_positive_edge_targets = 0.0
                     graph_has_edges = False
@@ -332,7 +344,8 @@ def train_main(args: argparse.Namespace) -> None:
                     "loss": float(loss.detach().cpu()),
                     "loss_fg": float(loss_fg.detach().cpu()),
                     "loss_boundary": float(loss_boundary.detach().cpu()),
-                    "loss_ownership": float(loss_ownership.detach().cpu()),
+                    "loss_relation": float(loss_relation.detach().cpu()),
+                    "relation_target": relation_target_key(variant_spec),
                     "graph_has_edges": int(graph_has_edges),
                     "graph_edge_count": int(graph_edge_count),
                     "graph_positive_edge_targets": float(graph_positive_edge_targets),
@@ -343,13 +356,14 @@ def train_main(args: argparse.Namespace) -> None:
 
                 if step % 20 == 0 and _is_main_process(dist_context):
                     logger.info(
-                        "epoch=%s step=%s loss=%.4f loss_fg=%.4f loss_boundary=%.4f loss_ownership=%.4f graph_edges=%s graph_has_edges=%s graph_pos_targets=%.1f graph_loss=%.4f",
+                        "epoch=%s step=%s loss=%.4f loss_fg=%.4f loss_boundary=%.4f loss_relation=%.4f relation_target=%s graph_edges=%s graph_has_edges=%s graph_pos_targets=%.1f graph_loss=%.4f",
                         epoch,
                         step,
                         float(loss.detach().cpu()),
                         float(loss_fg.detach().cpu()),
                         float(loss_boundary.detach().cpu()),
-                        float(loss_ownership.detach().cpu()),
+                        float(loss_relation.detach().cpu()),
+                        relation_target_key(variant_spec),
                         int(graph_edge_count),
                         int(graph_has_edges),
                         float(graph_positive_edge_targets),

@@ -197,6 +197,7 @@ def _ownership_score(
     fragment_b: Dict[str, float | Tuple[int, int, int, int]],
     ownership_available: bool,
     ownership_np: np.ndarray | None,
+    ownership_support: np.ndarray | None,
     affinity_prob: np.ndarray | None,
     support_mask: np.ndarray,
 ) -> float:
@@ -209,7 +210,10 @@ def _ownership_score(
         mismatch = np.linalg.norm(frag_a_offset - frag_b_offset)
         mismatch += np.linalg.norm(corridor_offset - frag_a_offset)
         mismatch += np.linalg.norm(corridor_offset - frag_b_offset)
-        return float(np.exp(-float(mismatch) / 8.0))
+        confidence = 1.0
+        if ownership_support is not None and support_mask.any():
+            confidence = float(ownership_support[support_mask].mean())
+        return float(np.exp(-float(mismatch) / 8.0) * confidence)
     if affinity_prob is None or not support_mask.any():
         return 0.0
     return float(affinity_prob[:, support_mask].mean())
@@ -266,7 +270,7 @@ def build_graph_batch(
         affinity_prob = torch.sigmoid(affinity_logits.detach())[0].cpu().numpy()
     ownership_np = None
     ownership_support = None
-    if ownership_offsets is not None:
+    if variant_spec.use_ownership_graph_cues and ownership_offsets is not None:
         ownership_np = ownership_offsets.detach()[0].cpu().numpy()
         ownership_support = torch.sigmoid(ownership_offsets.detach()).mean(dim=1)[0].cpu().numpy()
     depth_np = depth_map.detach()[0, 0].cpu().numpy()
@@ -345,10 +349,11 @@ def build_graph_batch(
         }
 
     pair_map = _contact_fragment_pairs(fragments, boundary_prob)
-    bridge_map = _bridge_fragment_pairs(labels, fragment_geometry, boundary_prob, depth_np, ownership_support, fragments)
-    for key, payload in bridge_map.items():
-        if key not in pair_map:
-            pair_map[key] = payload
+    if variant_spec.use_bridge_edges:
+        bridge_map = _bridge_fragment_pairs(labels, fragment_geometry, boundary_prob, depth_np, ownership_support, fragments)
+        for key, payload in bridge_map.items():
+            if key not in pair_map:
+                pair_map[key] = payload
 
     if not pair_map:
         return GraphBatch(
@@ -373,13 +378,21 @@ def build_graph_batch(
     shape_stats = prototype_cache.shape_stats if prototype_cache is not None else {}
     mean_area = float(shape_stats.get("mean_area_ratio", 0.0))
     mean_aspect = float(shape_stats.get("mean_aspect_ratio", 1.0))
-    ownership_available = ownership_np is not None
+    ownership_available = variant_spec.use_ownership_graph_cues and ownership_np is not None
 
     for (a, b), payload in sorted(pair_map.items()):
         support_mask = payload["mask"].astype(bool)
         edge_kind = int(payload["type"])
         boundary_crossing = float(boundary_prob[support_mask].mean()) if support_mask.any() else 0.0
-        ownership_value = _ownership_score(fragment_geometry[a], fragment_geometry[b], ownership_available, ownership_np, affinity_prob, support_mask)
+        ownership_value = _ownership_score(
+            fragment_geometry[a],
+            fragment_geometry[b],
+            ownership_available,
+            ownership_np,
+            ownership_support,
+            affinity_prob,
+            support_mask,
+        )
         if ownership_value < 0.5 and (edge_kind == EDGE_TYPE_BRIDGE or boundary_crossing < 0.5):
             continue
 
@@ -395,7 +408,7 @@ def build_graph_batch(
         )
 
         ignore_edge = False
-        if instance_map_np is not None:
+        if variant_spec.use_purity_filtering and instance_map_np is not None:
             if float(fragment_geometry[a]["purity"]) < float(purity_threshold) or float(fragment_geometry[b]["purity"]) < float(purity_threshold):
                 ignore_edge = True
             elif support_mask.any() and _corridor_instance_purity(support_mask, instance_map_np) < float(purity_threshold):
@@ -515,6 +528,7 @@ def merge_instances_from_edge_scores(
     edge_index: torch.Tensor,
     edge_scores: torch.Tensor,
     threshold: float,
+    constrained: bool = True,
     fragment_stats: List[Dict[str, float | Tuple[int, int, int, int]]] | None = None,
     shape_stats: Dict[str, float] | None = None,
     edge_features: torch.Tensor | None = None,
@@ -560,9 +574,9 @@ def merge_instances_from_edge_scores(
         stats_a = stats_by_root.get(src_root)
         stats_b = stats_by_root.get(dst_root)
         edge_feature = None if edge_features is None else edge_features[edge_idx]
-        if edge_feature is not None and edge_feature.numel() >= 3 and float(edge_feature[2]) > 0.35:
+        if constrained and edge_feature is not None and edge_feature.numel() >= 3 and float(edge_feature[2]) > 0.35:
             continue
-        if stats_a is not None and stats_b is not None:
+        if constrained and stats_a is not None and stats_b is not None:
             if not _merge_allowed(stats_a=stats_a, stats_b=stats_b, shape_stats=shape_stats, edge_feature=edge_feature):
                 continue
         union(src_label, dst_label)

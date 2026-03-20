@@ -5,6 +5,7 @@ import torch
 
 from gisec.datasets.ecc_query_dataset import build_ownership_target, collate_graph_batch
 from gisec.models.gisec_model import GISECModel
+from gisec.train.train_gisec import relation_target_key
 
 
 def test_build_ownership_target_points_to_core_centroid() -> None:
@@ -29,6 +30,7 @@ def test_collate_graph_batch_emits_ownership_target() -> None:
         depth = torch.zeros(1, 8, 8)
         fg_target = torch.zeros(1, 8, 8)
         boundary_target = torch.zeros(1, 8, 8)
+        affinity_target = torch.zeros(2, 8, 8)
         ownership_target = torch.zeros(2, 8, 8)
         instance_map = torch.zeros(8, 8, dtype=torch.long)
 
@@ -61,3 +63,9 @@ def test_query_depth_affects_outputs_without_prototype_cache() -> None:
         out_b = model(images, query_depth=depth_b, prototype_cache=None)
 
     assert not torch.allclose(out_a["fg_logits"], out_b["fg_logits"])
+
+
+def test_relation_target_key_switches_between_affinity_and_ownership() -> None:
+    assert relation_target_key("A0") == "affinity_target"
+    assert relation_target_key("A1") == "ownership_target"
+    assert relation_target_key("G4") == "ownership_target"

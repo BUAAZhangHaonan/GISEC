@@ -428,6 +428,7 @@ def evaluate_and_export(
                 graph_batch=graph_batch,
                 edge_logits=edge_logits,
                 threshold=edge_threshold,
+                variant=variant_spec,
             ).cpu().numpy()
             sync_cuda(device)
             latencies_ms.append((time.perf_counter() - start) * 1000.0)

@@ -5,7 +5,7 @@ from typing import Dict
 import torch
 import torch.nn as nn
 
-from gisec.config.variants import VariantSpec
+from gisec.config.variants import VariantSpec, get_variant_spec
 from gisec.datasets.prototype_bank import PrototypeBank
 from gisec.models.fragment_bundle import FragmentProposalBundle
 from gisec.models.graph_head import GraphEdgeScorer
@@ -63,14 +63,16 @@ class GISECModel(nn.Module):
         prototype_cache: PrototypeCache | None,
         variant: str | VariantSpec,
     ) -> GraphBatch:
+        variant_spec = get_variant_spec(variant)
+        relation_logits = outputs.get("affinity_logits", outputs["ownership_offsets"])
         return build_graph_batch(
             feature_map=outputs["feature_map"],
             fg_logits=outputs["fg_logits"],
             boundary_logits=outputs["boundary_logits"],
-            affinity_logits=outputs.get("affinity_logits", outputs["ownership_offsets"]),
-            ownership_offsets=outputs.get("ownership_offsets"),
+            affinity_logits=None if variant_spec.use_ownership_graph_cues else relation_logits,
+            ownership_offsets=outputs.get("ownership_offsets") if variant_spec.use_ownership_graph_cues else None,
             depth_map=depth_map,
             instance_map=instance_map,
             prototype_cache=prototype_cache,
-            variant=variant,
+            variant=variant_spec,
         )
