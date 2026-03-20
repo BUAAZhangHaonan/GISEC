@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from baseline.common.dataset import BaselineInstanceDataset
+from baseline.rgbd.fusion import prepare_unet_inputs, unet_input_channels
 from baseline.unet.eval import evaluate_unet_baseline
 from baseline.unet.model import build_unet_family_model
 
@@ -25,16 +26,20 @@ def train_unet_baseline(
     max_val_images: int = 0,
     threshold: float = 0.5,
     model_name: str = "unet",
+    input_mode: str = "rgb",
 ) -> None:
     artifact_root = Path(output_dir)
     artifact_root.mkdir(parents=True, exist_ok=True)
-    model = build_unet_family_model(str(model_name)).to(device)
+    model = build_unet_family_model(
+        str(model_name),
+        in_channels=unet_input_channels(input_mode=str(input_mode)),
+    ).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1.0e-3)
     dataset = BaselineInstanceDataset(
         dataset_root=dataset_root,
         split="train",
         image_size=image_size,
-        include_depth=False,
+        include_depth=str(input_mode) != "rgb",
     )
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
     if int(batch_size) != 1:
@@ -53,7 +58,7 @@ def train_unet_baseline(
     step_count = 0
     for _epoch in range(int(epochs)):
         for sample in loader:
-            image = sample["image"].unsqueeze(0).to(device)
+            image = prepare_unet_inputs(sample, input_mode=str(input_mode)).unsqueeze(0).to(device)
             target = sample["masks"].unsqueeze(0).to(device).float().amax(dim=1, keepdim=True)
             logits = model(image)
             loss = F.binary_cross_entropy_with_logits(logits, target)
@@ -84,4 +89,5 @@ def train_unet_baseline(
         num_workers=num_workers,
         threshold=threshold,
         max_images=max_val_images,
+        input_mode=str(input_mode),
     )

@@ -13,6 +13,7 @@ from torch.utils.data import DataLoader
 from baseline.common.coco_export import masks_to_coco_results
 from baseline.common.dataset import BaselineInstanceDataset
 from baseline.common.export import build_run_summary_payload
+from baseline.rgbd.fusion import prepare_unet_inputs, unet_modality, unet_variant_name
 from gisec.engine.runtime import build_benchmark_payload, evaluate_json, write_json
 from gisec.utils.visualization import render_fragment_merge_preview
 
@@ -39,6 +40,7 @@ def evaluate_unet_baseline(
     num_workers: int,
     threshold: float,
     max_images: int = 0,
+    input_mode: str = "rgb",
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     artifact_root = Path(output_dir)
     overlay_dir = artifact_root / "visualizations" / "overlay"
@@ -47,7 +49,7 @@ def evaluate_unet_baseline(
         dataset_root=dataset_root,
         split="val",
         image_size=image_size,
-        include_depth=False,
+        include_depth=str(input_mode) != "rgb",
     )
     loader = DataLoader(
         dataset,
@@ -63,7 +65,7 @@ def evaluate_unet_baseline(
         for index, sample in enumerate(loader):
             if max_images > 0 and index >= int(max_images):
                 break
-            image = sample["image"].unsqueeze(0).to(device)
+            image = prepare_unet_inputs(sample, input_mode=str(input_mode)).unsqueeze(0).to(device)
             start = time.perf_counter()
             logits = model(image)
             latencies_ms.append((time.perf_counter() - start) * 1000.0)
@@ -97,8 +99,8 @@ def evaluate_unet_baseline(
     write_json(artifact_root / "inference_speed.json", speed)
     summary = build_run_summary_payload(
         model=str(model_name),
-        variant="rgb_smoke",
-        modality="rgb",
+        variant=unet_variant_name(input_mode=str(input_mode)),
+        modality=unet_modality(input_mode=str(input_mode)),
         artifact_root=artifact_root,
         metrics=metrics,
         inference_speed=speed,
