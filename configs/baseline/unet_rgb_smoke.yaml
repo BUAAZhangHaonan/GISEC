@@ -1,0 +1,9 @@
+common:
+  image_size: 1024
+  batch: 1
+  num_workers: 2
+  device: cuda
+train:
+  epochs: 1
+  max_train_steps: 8
+  max_val_images: 16
