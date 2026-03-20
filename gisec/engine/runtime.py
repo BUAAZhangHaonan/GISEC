@@ -178,6 +178,60 @@ def _compose_instance_score(*, fg_score: float, boundary_score: float, merge_sco
     return _clamp_unit(0.5 * fg_score + 0.35 * merge_score + 0.15 * (1.0 - boundary_score))
 
 
+def _classify_mask_failure(
+    masks: List[np.ndarray],
+    *,
+    image_shape: tuple[int, int],
+    min_area: int,
+) -> str:
+    if not masks:
+        return "empty"
+    image_area = max(1, int(image_shape[0]) * int(image_shape[1]))
+    total_area = int(sum(int(mask.sum()) for mask in masks))
+    if float(total_area) / float(image_area) >= 0.95:
+        return "full"
+    tiny_floor = max(int(min_area), int(round(0.02 * image_area)))
+    if total_area < tiny_floor:
+        return "tiny"
+    return "normal"
+
+
+def _extract_reference_routing_row(
+    routing: Dict[str, Any] | None,
+    *,
+    image_id: int,
+    file_name: str,
+) -> Dict[str, Any] | None:
+    if not routing:
+        return None
+    weights = routing.get("weights")
+    top_indices = routing.get("top_indices")
+    selected_view_ids = routing.get("selected_view_ids", [])
+    return {
+        "image_id": int(image_id),
+        "file_name": file_name,
+        "prototype_slot_count": int(routing.get("prototype_slot_count", 0)),
+        "prototype_topk": int(routing.get("prototype_topk", 0)),
+        "top_indices": [] if top_indices is None else [[int(item) for item in row] for row in top_indices.tolist()],
+        "weights": [] if weights is None else [[float(item) for item in row] for row in weights.tolist()],
+        "selected_view_ids": list(selected_view_ids[0]) if selected_view_ids else [],
+    }
+
+
+def _summarize_reference_routing(rows: list[Dict[str, Any]]) -> Dict[str, Any]:
+    histogram: dict[str, int] = {}
+    for row in rows:
+        for view_id in row.get("selected_view_ids", []):
+            histogram[str(view_id)] = int(histogram.get(str(view_id), 0)) + 1
+    first = rows[0] if rows else {}
+    return {
+        "total_images": len(rows),
+        "prototype_slot_count": int(first.get("prototype_slot_count", 0)) if rows else 0,
+        "prototype_topk": int(first.get("prototype_topk", 0)) if rows else 0,
+        "selected_view_histogram": dict(sorted(histogram.items())),
+    }
+
+
 def masks_to_results(
     image_id: int,
     masks: List[np.ndarray],
@@ -472,6 +526,9 @@ def evaluate_and_export(
     latencies_ms: list[float] = []
     diagnostics_path = None if artifact_dir is None else artifact_dir / \
         "graph_diagnostics.jsonl"
+    failure_summary_path = None if artifact_dir is None else artifact_dir / "failure_summary.json"
+    routing_summary_path = None if artifact_dir is None else artifact_dir / "reference_routing_summary.json"
+    routing_rows_path = None if artifact_dir is None else artifact_dir / "reference_routing.jsonl"
     overlay_dir = None if artifact_dir is None else artifact_dir / \
         "visualizations" / "overlay"
     overlay_budget = None if int(overlay_limit) <= 0 else int(overlay_limit)
@@ -479,9 +536,13 @@ def evaluate_and_export(
         diagnostics_limit) <= 0 else int(diagnostics_limit)
     overlays_written = 0
     diagnostics_written = 0
+    failure_counts = {"empty": 0, "tiny": 0, "full": 0, "normal": 0}
+    routing_rows: list[Dict[str, Any]] = []
     prototype_source.clear()
     if save_graph_diagnostics and diagnostics_path is not None and diagnostics_path.exists():
         diagnostics_path.unlink()
+    if routing_rows_path is not None and routing_rows_path.exists():
+        routing_rows_path.unlink()
     if save_overlays and overlay_dir is not None:
         _prepare_overlay_dir(overlay_dir)
     model.eval()
@@ -540,6 +601,23 @@ def evaluate_and_export(
                     merge_scores=merge_scores,
                 )
             )
+            failure_bucket = _classify_mask_failure(
+                masks,
+                image_shape=merged.shape,
+                min_area=int(min_area),
+            )
+            failure_counts[failure_bucket] = int(failure_counts.get(failure_bucket, 0)) + 1
+            routing_row = _extract_reference_routing_row(
+                outputs.get("reference_routing"),
+                image_id=int(batch["image_ids"][0]),
+                file_name=batch["file_names"][0],
+            )
+            if routing_row is not None:
+                routing_rows.append(routing_row)
+                if routing_rows_path is not None:
+                    routing_rows_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(routing_rows_path, "a", encoding="utf-8") as handle:
+                        handle.write(json.dumps(routing_row, ensure_ascii=False) + "\n")
             if save_graph_diagnostics and diagnostics_path is not None and (
                 diagnostics_budget is None or diagnostics_written < diagnostics_budget
             ):
@@ -555,6 +633,7 @@ def evaluate_and_export(
                     else float(graph_batch.edge_targets.sum().item()),
                     "edge_score_mean": None if edge_scores.numel() == 0 else float(edge_scores.mean().item()),
                     "instance_score_mean": None if not masks else float(np.mean([item["score"] for item in results[-len(masks):]])),
+                    "failure_bucket": failure_bucket,
                 }
                 diagnostics_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(diagnostics_path, "a", encoding="utf-8") as handle:
@@ -565,7 +644,7 @@ def evaluate_and_export(
                 image_rgb = _image_tensor_to_rgb(batch["images"][0])
                 stem = Path(batch["file_names"][0]).stem
                 overlay_path = overlay_dir / \
-                    f"{batch_index:04d}_{int(batch['image_ids'][0]):06d}_{stem}.png"
+                    f"{batch_index:04d}_{int(batch['image_ids'][0]):06d}_{failure_bucket}_{stem}.png"
                 render_fragment_merge_preview(
                     image=image_rgb,
                     fragments=graph_batch.fragments,
@@ -573,6 +652,16 @@ def evaluate_and_export(
                     output_path=overlay_path,
                 )
                 overlays_written += 1
+    if failure_summary_path is not None:
+        write_json(
+            failure_summary_path,
+            {
+                "total_images": int(sum(failure_counts.values())),
+                "counts": failure_counts,
+            },
+        )
+    if routing_summary_path is not None:
+        write_json(routing_summary_path, _summarize_reference_routing(routing_rows))
     results_json.parent.mkdir(parents=True, exist_ok=True)
     results_json.write_text(json.dumps(
         results, ensure_ascii=False) + "\n", encoding="utf-8")

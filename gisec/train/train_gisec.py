@@ -6,6 +6,7 @@ import os
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 import torch
 import torch.nn.functional as F
@@ -289,7 +290,7 @@ def forward_with_reference_routing(
     file_names: list[str],
     prototype_source: PrototypeCacheSource,
 ) -> tuple[dict[str, torch.Tensor], list[object]]:
-    outputs_by_sample: list[dict[str, torch.Tensor]] = []
+    outputs_by_sample: list[dict[str, Any]] = []
     prototype_caches: list[object] = []
     for batch_index, file_name in enumerate(file_names):
         prototype_cache, _bank = prototype_source.resolve_for_query(file_name)
@@ -301,10 +302,13 @@ def forward_with_reference_routing(
             )
         )
         prototype_caches.append(prototype_cache)
-    merged_outputs = {
-        key: torch.cat([sample[key] for sample in outputs_by_sample], dim=0)
-        for key in outputs_by_sample[0]
-    }
+    merged_outputs: dict[str, Any] = {}
+    for key in outputs_by_sample[0]:
+        values = [sample[key] for sample in outputs_by_sample]
+        if isinstance(values[0], torch.Tensor):
+            merged_outputs[key] = torch.cat(values, dim=0)
+        else:
+            merged_outputs[key] = values
     return merged_outputs, prototype_caches
 
 

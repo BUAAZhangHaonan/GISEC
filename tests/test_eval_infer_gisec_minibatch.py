@@ -178,14 +178,26 @@ def test_eval_and_infer_gisec_minibatch(tmp_path: Path) -> None:
     assert (eval_output / "metrics.cocoeval.json").exists()
     assert (eval_output / "run_summary.json").exists()
     assert (eval_output / "graph_diagnostics.jsonl").exists()
+    assert (eval_output / "failure_summary.json").exists()
+    assert (eval_output / "reference_routing_summary.json").exists()
     assert (infer_output / "coco_instances_results.json").exists()
     assert (infer_output / "run_summary.json").exists()
     assert (infer_output / "graph_diagnostics.jsonl").exists()
-    assert list((eval_output / "visualizations" / "overlay").glob("*.png"))
-    assert list((infer_output / "visualizations" / "overlay").glob("*.png"))
+    assert (infer_output / "failure_summary.json").exists()
+    assert (infer_output / "reference_routing_summary.json").exists()
+    eval_overlays = list((eval_output / "visualizations" / "overlay").glob("*.png"))
+    infer_overlays = list((infer_output / "visualizations" / "overlay").glob("*.png"))
+    assert eval_overlays
+    assert infer_overlays
+    assert any("_normal_" in path.name or "_tiny_" in path.name or "_full_" in path.name or "_empty_" in path.name for path in eval_overlays)
+    assert any("_normal_" in path.name or "_tiny_" in path.name or "_full_" in path.name or "_empty_" in path.name for path in infer_overlays)
 
     eval_summary = json.loads((eval_output / "run_summary.json").read_text(encoding="utf-8"))
     infer_summary = json.loads((infer_output / "run_summary.json").read_text(encoding="utf-8"))
+    eval_failure_summary = json.loads((eval_output / "failure_summary.json").read_text(encoding="utf-8"))
+    infer_failure_summary = json.loads((infer_output / "failure_summary.json").read_text(encoding="utf-8"))
+    eval_routing_summary = json.loads((eval_output / "reference_routing_summary.json").read_text(encoding="utf-8"))
+    infer_routing_summary = json.loads((infer_output / "reference_routing_summary.json").read_text(encoding="utf-8"))
     assert eval_summary["dataset_root"] == str(dataset_root.resolve())
     assert eval_summary["prototype_root"] == str(prototype_root.resolve())
     assert eval_summary["split"] == "val"
@@ -196,6 +208,15 @@ def test_eval_and_infer_gisec_minibatch(tmp_path: Path) -> None:
     assert infer_summary["split"] == "val"
     assert infer_summary["image_size"] == 64
     assert infer_summary["checkpoint"] == str(checkpoint.resolve())
+    assert eval_failure_summary["total_images"] == 1
+    assert infer_failure_summary["total_images"] == 1
+    assert set(eval_failure_summary["counts"]).issuperset({"normal", "tiny", "full", "empty"})
+    assert set(infer_failure_summary["counts"]).issuperset({"normal", "tiny", "full", "empty"})
+    assert eval_routing_summary["total_images"] == 1
+    assert infer_routing_summary["total_images"] == 1
+    assert "prototype_slot_count" in eval_routing_summary
+    assert "prototype_topk" in eval_routing_summary
+    assert "selected_view_histogram" in eval_routing_summary
     eval_graph_rows = [json.loads(line) for line in (eval_output / "graph_diagnostics.jsonl").read_text(encoding="utf-8").splitlines()]
     infer_graph_rows = [json.loads(line) for line in (infer_output / "graph_diagnostics.jsonl").read_text(encoding="utf-8").splitlines()]
     assert eval_graph_rows

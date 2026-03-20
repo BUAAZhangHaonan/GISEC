@@ -235,6 +235,20 @@ class PrototypeConditionedUNetBackbone(nn.Module):
             )
             x1 = self.prototype_highres_fuse(
                 torch.cat([x1 * gate_h, sim_h, proto_depth_h], dim=1))
+            view_ids = list(prototype_cache.routing_meta.get("view_ids", []))
+            selected_view_ids = [
+                [view_ids[int(index)] for index in row.tolist() if int(index) < len(view_ids)]
+                for row in routing["top_indices"]
+            ]
+            reference_routing = {
+                "prototype_slot_count": int(prototype_cache.routing_meta.get("slot_count", prototype_cache.proto_b.shape[0])),
+                "prototype_topk": int(routing["weights"].shape[1]),
+                "top_indices": routing["top_indices"].detach().cpu(),
+                "weights": routing["weights"].detach().cpu(),
+                "selected_view_ids": selected_view_ids,
+            }
+        else:
+            reference_routing = None
 
         y3 = self.up3(xb, feats["x4"])
         y2 = self.up2(y3, feats["x3"])
@@ -247,4 +261,5 @@ class PrototypeConditionedUNetBackbone(nn.Module):
             "ownership_offsets": ownership_offsets,
             "affinity_logits": ownership_offsets,
             "feature_map": y0,
+            "reference_routing": reference_routing,
         }
