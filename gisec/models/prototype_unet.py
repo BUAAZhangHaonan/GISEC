@@ -63,10 +63,17 @@ class UpBlock(nn.Module):
 
 
 class PrototypeConditionedUNetBackbone(nn.Module):
-    def __init__(self, in_channels: int = 3, base_channels: int = 32, norm_layer: str = "group"):
+    def __init__(
+        self,
+        in_channels: int = 3,
+        base_channels: int = 32,
+        norm_layer: str = "group",
+        prototype_slot_count: int = 6,
+        prototype_topk: int = 2,
+    ):
         super().__init__()
-        self.prototype_slot_count = 6
-        self.prototype_topk = 2
+        self.prototype_slot_count = int(prototype_slot_count)
+        self.prototype_topk = int(prototype_topk)
         self.output_channels = base_channels
         c1, c2, c3, c4 = base_channels, base_channels * \
             2, base_channels * 4, base_channels * 8

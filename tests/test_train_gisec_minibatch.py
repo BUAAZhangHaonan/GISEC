@@ -233,6 +233,10 @@ def test_eval_can_reuse_model_config_saved_by_train_run(tmp_path: Path) -> None:
             "32",
             "--norm-layer",
             "group",
+            "--prototype-slot-count",
+            "4",
+            "--prototype-topk",
+            "1",
         ],
         cwd=str(repo_root),
         check=True,
@@ -272,4 +276,6 @@ def test_eval_can_reuse_model_config_saved_by_train_run(tmp_path: Path) -> None:
     assert model_config["base_channels"] == 8
     assert model_config["graph_hidden_dim"] == 32
     assert model_config["norm_layer"] == "group"
+    assert model_config["prototype_slot_count"] == 4
+    assert model_config["prototype_topk"] == 1
     assert (output_root / "metrics.cocoeval.json").exists()

@@ -156,6 +156,8 @@ def test_parse_train_args_reads_model_defaults(tmp_path: Path) -> None:
                 "base_channels": 12,
                 "graph_hidden_dim": 48,
                 "norm_layer": "group",
+                "prototype_slot_count": 5,
+                "prototype_topk": 1,
             }
         },
     )
@@ -165,6 +167,8 @@ def test_parse_train_args_reads_model_defaults(tmp_path: Path) -> None:
     assert args.base_channels == 12
     assert args.graph_hidden_dim == 48
     assert args.norm_layer == "group"
+    assert args.prototype_slot_count == 5
+    assert args.prototype_topk == 1
 
 
 def test_parse_train_args_reads_fragment_threshold_defaults(tmp_path: Path) -> None:

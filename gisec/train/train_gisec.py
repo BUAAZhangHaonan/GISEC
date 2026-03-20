@@ -34,6 +34,8 @@ MODEL_CONFIG_DEFAULTS = {
     "base_channels": 16,
     "graph_hidden_dim": 64,
     "norm_layer": "group",
+    "prototype_slot_count": 6,
+    "prototype_topk": 2,
 }
 
 
@@ -143,6 +145,8 @@ def _common_parser() -> argparse.ArgumentParser:
     parser.add_argument("--base-channels", type=int, default=16)
     parser.add_argument("--graph-hidden-dim", type=int, default=64)
     parser.add_argument("--norm-layer", choices=["group", "batch"], default="group")
+    parser.add_argument("--prototype-slot-count", type=int, default=6)
+    parser.add_argument("--prototype-topk", type=int, default=2)
     return parser
 
 
@@ -172,6 +176,8 @@ def _model_config_from_args(args: argparse.Namespace) -> dict[str, int | str]:
         "base_channels": int(args.base_channels),
         "graph_hidden_dim": int(args.graph_hidden_dim),
         "norm_layer": str(args.norm_layer),
+        "prototype_slot_count": int(args.prototype_slot_count),
+        "prototype_topk": int(args.prototype_topk),
     }
 
 

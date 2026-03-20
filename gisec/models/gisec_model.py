@@ -20,12 +20,16 @@ class GISECModel(nn.Module):
         base_channels: int = 16,
         graph_hidden_dim: int = 64,
         norm_layer: str = "group",
+        prototype_slot_count: int = 6,
+        prototype_topk: int = 2,
     ):
         super().__init__()
         self.backbone = PrototypeConditionedUNetBackbone(
             in_channels=3,
             base_channels=base_channels,
             norm_layer=norm_layer,
+            prototype_slot_count=prototype_slot_count,
+            prototype_topk=prototype_topk,
         )
         self.output_channels = self.backbone.output_channels
         node_dim = self.output_channels + 6

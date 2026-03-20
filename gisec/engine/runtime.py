@@ -422,11 +422,15 @@ def build_model(
     base_channels: int = 16,
     graph_hidden_dim: int = 64,
     norm_layer: str = "group",
+    prototype_slot_count: int = 6,
+    prototype_topk: int = 2,
 ) -> GISECModel:
     model = GISECModel(
         base_channels=base_channels,
         graph_hidden_dim=graph_hidden_dim,
         norm_layer=norm_layer,
+        prototype_slot_count=prototype_slot_count,
+        prototype_topk=prototype_topk,
     ).to(device)
     if checkpoint is not None:
         state_dict = torch.load(str(checkpoint), map_location=device)

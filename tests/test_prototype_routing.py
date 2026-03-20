@@ -89,3 +89,18 @@ def test_route_prototype_slots_requires_positive_topk() -> None:
 
     with pytest.raises(ValueError):
         route_prototype_slots(query_descriptor, proto_slots, topk=0)
+
+
+def test_build_prototype_cache_honors_configured_slot_count_and_topk(tmp_path: Path) -> None:
+    ref_root = _make_multiview_bank(tmp_path / "refs")
+    _write_view(ref_root, "view_003", color=(200, 200, 40))
+    bank = load_prototype_bank(ref_root, image_size=64)
+    model = GISECModel(base_channels=8, prototype_slot_count=2, prototype_topk=1)
+
+    cache = model.build_prototype_cache(bank, torch.device("cpu"))
+
+    assert cache.proto_b.shape[0] == 2
+    assert cache.proto_h.shape[0] == 2
+    assert cache.proto_d.shape[0] == 2
+    assert cache.routing_meta["slot_count"] == 2
+    assert cache.routing_meta["topk"] == 1
