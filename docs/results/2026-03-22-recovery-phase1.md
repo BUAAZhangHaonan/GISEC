@@ -161,3 +161,32 @@
   - `bbox/AP = 0.0005347`
   - `bbox/APm = 0.0028465`
 - `segm/AP` is still `0.0`, so mask shape quality remains the main blocker.
+
+## Query-Scale Prior Mismatch
+- A deeper check revealed a second scale mismatch:
+  - reference-bank `area_q90` values are typically around `0.05-0.17`
+  - real query-instance `area_q90` is only about `0.0042`
+- That means even synthesized reference quantiles are still on the wrong scale for query-scene merge control.
+- The cache path now supports query-scale per-part priors from the query dataset annotations.
+- Those priors are computed from `instances_train.json` and keyed by the same part prefix routing used for reference packs.
+- Example for `78B04ST`:
+  - cache `area_q90` now becomes `0.00390`, not the reference-view value around `0.23`
+
+## What That Changed
+- Once query-scale priors were confirmed to flow through the cache, it became clear that some oversized outputs were not created by merge at all.
+- They were already oversized fragments before merge.
+- This shifted the main focus back to boundary/fragment formation.
+
+## Current Best Measured Short-Run Setting
+- On the current recovery line, the best measured nonzero metric so far is still:
+  - `Q2`
+  - `64 steps`
+  - `boundary_pos_weight = 10`
+  - `fragment_fg_threshold = 0.22`
+  - `fragment_boundary_threshold = 0.03`
+  - `edge_threshold = 0.60`
+- Under that setting:
+  - `bbox/AP = 0.0005347`
+  - `bbox/APm = 0.0028465`
+- Lowering boundary threshold to `0.02` increased the heuristic `normal` count but reduced measured `bbox/AP`.
+- Lowering it further toward `0.025` over-fragmented badly and collapsed quality.

@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 import pytest
 import torch
+import json
 
 from gisec.engine.runtime import PrototypeCacheSource, prepare_prototype_cache
 from gisec.models.gisec_model import GISECModel
@@ -27,6 +28,28 @@ def _write_part_bank(root: Path, *, color: tuple[int, int, int]) -> Path:
     for stem in ["view_000", "view_001"]:
         _write_view(root, stem, color=color)
     return root
+
+
+def _write_query_annotations(root: Path, file_name: str, bbox: list[float]) -> None:
+    ann_dir = root / "annotations"
+    ann_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "images": [{"id": 1, "file_name": file_name, "width": 64, "height": 64}],
+        "annotations": [
+            {
+                "id": 1,
+                "image_id": 1,
+                "category_id": 1,
+                "bbox": bbox,
+                "area": float(bbox[2] * bbox[3]),
+                "iscrowd": 0,
+                "segmentation": [[bbox[0], bbox[1], bbox[0] + bbox[2], bbox[1], bbox[0] + bbox[2], bbox[1] + bbox[3], bbox[0], bbox[1] + bbox[3]]],
+            }
+        ],
+        "categories": [{"id": 1, "name": "component"}],
+    }
+    for split in ["train", "val"]:
+        (ann_dir / f"instances_{split}.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
 def test_prototype_cache_source_resolves_and_reuses_part_specific_caches(tmp_path: Path) -> None:
@@ -136,3 +159,30 @@ def test_prototype_cache_source_describe_reports_reference_and_routing_policy(tm
     assert description["view_sampler"] == "pose_farthest"
     assert description["prototype_slot_count"] == 4
     assert description["prototype_topk"] == 1
+
+
+def test_prototype_cache_source_overlays_query_scale_shape_priors(tmp_path: Path) -> None:
+    ref_root = tmp_path / "refs"
+    _write_part_bank(ref_root / "A-DF15A_KG-T2S_1", color=(20, 40, 60))
+    dataset_root = tmp_path / "dataset"
+    _write_query_annotations(
+        dataset_root,
+        "A-DF15A_KG-T2S_1_100_scene_000003_000968_v0.png",
+        [10, 12, 8, 10],
+    )
+    model = GISECModel(base_channels=8)
+
+    source = PrototypeCacheSource(
+        model=model,
+        device=torch.device("cpu"),
+        prototype_root=str(ref_root),
+        image_size=64,
+        contract_mode="compat",
+        dataset_root=str(dataset_root),
+        query_stats_split="train",
+    )
+
+    cache, _bank = source.resolve_for_query("A-DF15A_KG-T2S_1_100_scene_000003_000968_v0.png")
+
+    assert cache.shape_stats["area_q50"] == pytest.approx((8 * 10) / (64 * 64))
+    assert cache.shape_stats["aspect_q50"] == pytest.approx(8 / 10)

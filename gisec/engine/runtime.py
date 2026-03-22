@@ -13,7 +13,12 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
 from gisec.config.variants import VariantSpec, get_variant_spec
-from gisec.datasets.prototype_bank import PrototypeBank, PrototypeBankSource, load_prototype_bank
+from gisec.datasets.prototype_bank import (
+    PrototypeBank,
+    PrototypeBankSource,
+    extract_query_part_key,
+    load_prototype_bank,
+)
 from gisec.graph_refiner import GraphRefiner
 from gisec.models.gisec_model import GISECModel
 from gisec.models.prototype_cache import cache_to_device
@@ -73,6 +78,8 @@ class PrototypeCacheSource:
         contract_mode: str,
         max_views: int = 0,
         view_sampler: str = "all",
+        dataset_root: str | None = None,
+        query_stats_split: str = "train",
     ) -> None:
         self.model = model
         self.device = device
@@ -84,6 +91,11 @@ class PrototypeCacheSource:
             view_sampler=view_sampler,
         )
         self._cache_by_root: dict[Path, tuple[object, PrototypeBank]] = {}
+        self._query_shape_priors = load_query_shape_priors(
+            dataset_root=dataset_root,
+            available_parts=self.source.available_parts,
+            split=query_stats_split,
+        )
 
     def clear(self) -> None:
         self._cache_by_root.clear()
@@ -93,6 +105,9 @@ class PrototypeCacheSource:
         cache_key = bank.root.resolve()
         if cache_key not in self._cache_by_root:
             cache = cache_to_device(self.model.build_prototype_cache(bank, self.device), self.device)
+            part_key = None if self.source.is_single_bank else extract_query_part_key(file_name, self.source.available_parts)
+            if part_key is not None and part_key in self._query_shape_priors:
+                cache.shape_stats.update(self._query_shape_priors[part_key])
             self._cache_by_root[cache_key] = (cache, bank)
         return self._cache_by_root[cache_key]
 
@@ -134,6 +149,53 @@ def read_git_revision(repo_root: Path) -> str | None:
     except Exception:
         return None
     return result.stdout.strip() or None
+
+
+def load_query_shape_priors(
+    *,
+    dataset_root: str | None,
+    available_parts: list[str],
+    split: str = "train",
+) -> dict[str, dict[str, float]]:
+    if dataset_root in (None, "") or not available_parts:
+        return {}
+    ann_path = Path(str(dataset_root)).resolve() / "annotations" / f"instances_{split}.json"
+    if not ann_path.exists():
+        return {}
+    payload = json.loads(ann_path.read_text(encoding="utf-8"))
+    images = {int(item["id"]): item for item in payload.get("images", [])}
+    grouped_area: dict[str, list[float]] = {}
+    grouped_aspect: dict[str, list[float]] = {}
+    for ann in payload.get("annotations", []):
+        image = images.get(int(ann["image_id"]))
+        if image is None:
+            continue
+        file_name = str(image.get("file_name", ""))
+        try:
+            part_key = extract_query_part_key(file_name, available_parts)
+        except KeyError:
+            continue
+        width = max(float(image.get("width", 1)), 1.0)
+        height = max(float(image.get("height", 1)), 1.0)
+        bbox = ann.get("bbox", [0.0, 0.0, 0.0, 0.0])
+        bw = float(bbox[2])
+        bh = float(bbox[3])
+        if bw <= 0.0 or bh <= 0.0:
+            continue
+        grouped_area.setdefault(part_key, []).append((bw * bh) / (width * height))
+        grouped_aspect.setdefault(part_key, []).append(bw / max(bh, 1.0))
+    priors: dict[str, dict[str, float]] = {}
+    for part_key, areas in grouped_area.items():
+        aspects = grouped_aspect.get(part_key, [])
+        priors[part_key] = {
+            "area_q10": float(np.quantile(np.asarray(areas, dtype=np.float32), 0.10)),
+            "area_q50": float(np.quantile(np.asarray(areas, dtype=np.float32), 0.50)),
+            "area_q90": float(np.quantile(np.asarray(areas, dtype=np.float32), 0.90)),
+            "aspect_q10": float(np.quantile(np.asarray(aspects, dtype=np.float32), 0.10)),
+            "aspect_q50": float(np.quantile(np.asarray(aspects, dtype=np.float32), 0.50)),
+            "aspect_q90": float(np.quantile(np.asarray(aspects, dtype=np.float32), 0.90)),
+        }
+    return priors
 
 
 def sync_cuda(device: torch.device) -> None:
@@ -915,6 +977,7 @@ def prepare_prototype_source(
     model: GISECModel,
     device: torch.device,
     prototype_root: str,
+    dataset_root: str | None = None,
     image_size: int,
     contract_mode: str,
     max_views: int = 0,
@@ -924,6 +987,7 @@ def prepare_prototype_source(
         model=model,
         device=device,
         prototype_root=prototype_root,
+        dataset_root=dataset_root,
         image_size=image_size,
         contract_mode=contract_mode,
         max_views=max_views,
@@ -936,6 +1000,7 @@ def prepare_prototype_cache(
     model: GISECModel,
     device: torch.device,
     prototype_root: str,
+    dataset_root: str | None = None,
     image_size: int,
     contract_mode: str,
     max_views: int = 0,
@@ -945,6 +1010,7 @@ def prepare_prototype_cache(
         model=model,
         device=device,
         prototype_root=prototype_root,
+        dataset_root=dataset_root,
         image_size=image_size,
         contract_mode=contract_mode,
         max_views=max_views,
