@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import yaml
 
-from gisec.train.train_gisec import parse_eval_args, parse_infer_args, parse_train_args
+from argparse import Namespace
+
+from gisec.train.train_gisec import (
+    parse_eval_args,
+    parse_infer_args,
+    parse_train_args,
+    resolve_model_config,
+)
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:
@@ -181,6 +189,57 @@ def test_parse_train_args_reads_model_defaults(tmp_path: Path) -> None:
     assert args.reference_skip_margin == 0.2
 
 
+def test_parse_train_args_normalizes_unquoted_off_mode(tmp_path: Path) -> None:
+    config_path = tmp_path / "q0.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "common:",
+                "  dataset_root: /tmp/dataset",
+                "  prototype_root: /tmp/prototypes",
+                "  output_dir: /tmp/out",
+                "  reference_conditioning_mode: off",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    args = parse_train_args(["--config", str(config_path)])
+
+    assert args.reference_conditioning_mode == "off"
+
+
+def test_resolve_model_config_normalizes_legacy_false_reference_mode(tmp_path: Path) -> None:
+    output_dir = tmp_path / "run"
+    output_dir.mkdir()
+    (output_dir / "model_config.json").write_text(
+        json.dumps(
+            {
+                "reference_conditioning_mode": "False",
+                "reference_routing_mode": "hard_top1",
+            }
+        ),
+        encoding="utf-8",
+    )
+    args = Namespace(**vars(parse_train_args(
+        [
+            "--dataset-root",
+            "/tmp/dataset",
+            "--prototype-root",
+            "/tmp/prototypes",
+            "--output-dir",
+            "/tmp/out",
+        ]
+    )))
+
+    checkpoint_path = output_dir / "model_best.pth"
+    checkpoint_path.write_text("", encoding="utf-8")
+    config = resolve_model_config(args, checkpoint_path=checkpoint_path, output_dir=output_dir)
+
+    assert config["reference_conditioning_mode"] == "off"
+
+
 def test_parse_train_args_reads_fragment_threshold_defaults(tmp_path: Path) -> None:
     config_path = _write_yaml(
         tmp_path / "thresholds.yaml",
@@ -199,6 +258,26 @@ def test_parse_train_args_reads_fragment_threshold_defaults(tmp_path: Path) -> N
 
     assert args.fragment_fg_threshold == 0.6
     assert args.fragment_boundary_threshold == 0.75
+
+
+def test_parse_train_args_reads_seed_default(tmp_path: Path) -> None:
+    config_path = _write_yaml(
+        tmp_path / "seed.yaml",
+        {
+            "common": {
+                "dataset_root": "/tmp/dataset",
+                "prototype_root": "/tmp/prototypes",
+                "output_dir": "/tmp/out",
+            },
+            "train": {
+                "seed": 123,
+            },
+        },
+    )
+
+    args = parse_train_args(["--config", str(config_path)])
+
+    assert args.seed == 123
 
 
 def test_parse_train_args_allows_smoke_config_to_override_reference_policy(tmp_path: Path) -> None:

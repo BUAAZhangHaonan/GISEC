@@ -381,7 +381,11 @@ def build_graph_batch(
             "offset_y": offset_y,
         }
 
-    pair_map = _contact_fragment_pairs(fragments, boundary_prob)
+    pair_map = _contact_fragment_pairs(
+        fragments,
+        boundary_prob,
+        boundary_threshold=boundary_threshold,
+    )
     if variant_spec.use_bridge_edges:
         bridge_map = _bridge_fragment_pairs(labels, fragment_geometry, boundary_prob, depth_np, ownership_support, fragments)
         for key, payload in bridge_map.items():

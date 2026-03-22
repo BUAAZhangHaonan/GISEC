@@ -1,4 +1,5 @@
 common:
+  seed: 1337
   image_size: 1024
   batch: 1
   num_workers: 2
@@ -7,10 +8,10 @@ common:
   prototype_slot_count: 6
   prototype_topk: 1
   reference_routing_mode: hard_top1
-  reference_skip_margin: 0.15
+  reference_skip_margin: 0.0
   min_area: 256
-  fragment_fg_threshold: 0.55
-  fragment_boundary_threshold: 0.7
+  fragment_fg_threshold: 0.2
+  fragment_boundary_threshold: 0.03
   save_overlays: true
   overlay_limit: 8
   save_graph_diagnostics: true

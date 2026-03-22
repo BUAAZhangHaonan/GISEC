@@ -153,3 +153,36 @@ def test_fragments_from_logits_supports_independent_fg_and_boundary_thresholds()
     merged_labels = sorted(x for x in np.unique(merged).tolist() if x > 0)
     assert len(split_labels) == 2
     assert len(merged_labels) == 1
+
+
+def test_build_graph_batch_passes_runtime_boundary_threshold_to_contact_pairs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    feature_map, fg_logits, boundary_logits, ownership_offsets, depth_map = _make_inputs()
+    fragments = np.zeros((16, 16), dtype=np.int32)
+    fragments[4:12, 2:6] = 1
+    fragments[4:12, 9:13] = 2
+    captured: dict[str, float] = {}
+
+    monkeypatch.setattr(graph_utils, "fragments_from_logits", lambda *args, **kwargs: fragments.copy())
+
+    def fake_contact_pairs(fragments_arg, boundary_prob_arg, boundary_threshold=0.5, radius=1):
+        captured["boundary_threshold"] = float(boundary_threshold)
+        return {}
+
+    monkeypatch.setattr(graph_utils, "_contact_fragment_pairs", fake_contact_pairs)
+
+    build_graph_batch(
+        feature_map=feature_map,
+        fg_logits=fg_logits,
+        boundary_logits=boundary_logits,
+        ownership_offsets=ownership_offsets,
+        depth_map=depth_map,
+        instance_map=None,
+        prototype_cache=_make_prototype_cache(),
+        variant=get_variant_spec("Q2"),
+        boundary_threshold=0.17,
+        min_area=2,
+    )
+
+    assert captured["boundary_threshold"] == pytest.approx(0.17)

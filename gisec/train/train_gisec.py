@@ -3,11 +3,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import random
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.distributed as dist
@@ -42,6 +44,18 @@ MODEL_CONFIG_DEFAULTS = {
     "reference_conditioning_mode": "full",
     "reference_routing_mode": "soft_topk",
     "reference_skip_margin": 0.0,
+}
+
+REFERENCE_CONDITIONING_ALIASES = {
+    "false": "off",
+    "off": "off",
+    "none": "off",
+    "0": "off",
+    "true": "full",
+    "on": "full",
+    "1": "full",
+    "full": "full",
+    "bottleneck_only": "bottleneck_only",
 }
 
 
@@ -166,6 +180,7 @@ def _common_parser() -> argparse.ArgumentParser:
         default="soft_topk",
     )
     parser.add_argument("--reference-skip-margin", type=float, default=0.0)
+    parser.add_argument("--seed", type=int, default=1337)
     return parser
 
 
@@ -199,7 +214,7 @@ def _model_config_from_args(args: argparse.Namespace) -> dict[str, int | str]:
         "prototype_topk": int(args.prototype_topk),
         "fg_prior": float(args.fg_prior),
         "boundary_prior": float(args.boundary_prior),
-        "reference_conditioning_mode": str(args.reference_conditioning_mode),
+        "reference_conditioning_mode": normalize_reference_conditioning_mode(args.reference_conditioning_mode),
         "reference_routing_mode": str(args.reference_routing_mode),
         "reference_skip_margin": float(args.reference_skip_margin),
     }
@@ -213,8 +228,41 @@ def _load_model_config_sidecar(checkpoint_path: Path | None, output_dir: Path | 
         candidates.append(output_dir / "model_config.json")
     for candidate in candidates:
         if candidate.exists():
-            return json.loads(candidate.read_text(encoding="utf-8"))
+            payload = json.loads(candidate.read_text(encoding="utf-8"))
+            if "reference_conditioning_mode" in payload:
+                payload["reference_conditioning_mode"] = normalize_reference_conditioning_mode(
+                    payload["reference_conditioning_mode"]
+                )
+            return payload
     return None
+
+
+def normalize_reference_conditioning_mode(value: object) -> str:
+    if isinstance(value, bool):
+        return "full" if value else "off"
+    text = str(value).strip()
+    normalized = REFERENCE_CONDITIONING_ALIASES.get(text.lower())
+    if normalized is not None:
+        return normalized
+    return text
+
+
+def _normalize_args_in_place(args: argparse.Namespace) -> argparse.Namespace:
+    args.reference_conditioning_mode = normalize_reference_conditioning_mode(
+        getattr(args, "reference_conditioning_mode", "full")
+    )
+    return args
+
+
+def set_random_seed(seed: int, *, use_cuda: bool) -> None:
+    random.seed(int(seed))
+    np.random.seed(int(seed))
+    torch.manual_seed(int(seed))
+    if use_cuda and torch.cuda.is_available():
+        torch.cuda.manual_seed_all(int(seed))
+    if hasattr(torch.backends, "cudnn"):
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
 
 def resolve_model_config(
@@ -248,7 +296,7 @@ def parse_train_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.set_defaults(**defaults)
     args = parser.parse_args(argv)
     _validate_required_args(parser, args, ["dataset_root", "prototype_root", "output_dir"])
-    return args
+    return _normalize_args_in_place(args)
 
 
 def parse_eval_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -262,7 +310,7 @@ def parse_eval_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.set_defaults(**defaults)
     args = parser.parse_args(argv)
     _validate_required_args(parser, args, ["dataset_root", "prototype_root", "output_dir"])
-    return args
+    return _normalize_args_in_place(args)
 
 
 def parse_infer_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -276,7 +324,7 @@ def parse_infer_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.set_defaults(**defaults)
     args = parser.parse_args(argv)
     _validate_required_args(parser, args, ["dataset_root", "prototype_root", "output_dir"])
-    return args
+    return _normalize_args_in_place(args)
 
 
 def relation_target_key(variant: str | object) -> str:
@@ -322,6 +370,7 @@ def forward_with_reference_routing(
     reference_routing_mode: str = "soft_topk",
     reference_skip_margin: float = 0.0,
 ) -> tuple[dict[str, torch.Tensor], list[object]]:
+    reference_conditioning_mode = normalize_reference_conditioning_mode(reference_conditioning_mode)
     outputs_by_sample: list[dict[str, Any]] = []
     prototype_caches: list[object] = []
     for batch_index, file_name in enumerate(file_names):
@@ -364,6 +413,7 @@ def train_main(args: argparse.Namespace) -> None:
     if dist_context.enabled and device.type == "cuda":
         torch.cuda.set_device(device)
     use_cuda = device.type == "cuda"
+    set_random_seed(int(args.seed), use_cuda=use_cuda)
     variant_spec = get_variant_spec(args.variant)
     run_context = RunContext(
         dataset_root=str(Path(args.dataset_root).resolve()),
