@@ -34,6 +34,21 @@ def _mask_to_bbox_aspect(mask: np.ndarray) -> float:
     return float(width) / float(height)
 
 
+def _quantile_stats(values: list[float], prefix: str) -> dict[str, float]:
+    array = np.asarray(values, dtype=np.float32)
+    if array.size == 0:
+        return {
+            f"{prefix}_q10": 0.0,
+            f"{prefix}_q50": 0.0,
+            f"{prefix}_q90": 0.0,
+        }
+    return {
+        f"{prefix}_q10": float(np.quantile(array, 0.10)),
+        f"{prefix}_q50": float(np.quantile(array, 0.50)),
+        f"{prefix}_q90": float(np.quantile(array, 0.90)),
+    }
+
+
 class PrototypeBankContractError(ValueError):
     def __init__(self, root: Path, missing_items: list[str]):
         self.root = root
@@ -244,6 +259,10 @@ def load_prototype_bank(
     shape_stats.setdefault("mean_aspect_ratio", float(np.mean(aspect_ratios)))
     shape_stats.setdefault("mean_bbox_aspect_ratio",
                            float(np.mean(aspect_ratios)))
+    for key, value in _quantile_stats(area_ratios, "area").items():
+        shape_stats.setdefault(key, value)
+    for key, value in _quantile_stats(aspect_ratios, "aspect").items():
+        shape_stats.setdefault(key, value)
 
     meta: Dict[str, Any] = {}
     manifest_path = meta_dir / "manifest.json"

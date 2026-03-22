@@ -139,7 +139,7 @@ def cache_to_device(cache: PrototypeCache, device: torch.device) -> PrototypeCac
 
 
 def bank_shape_stats(bank: PrototypeBank) -> Dict[str, float]:
-    return {
+    stats = {
         "mean_area_ratio": float(bank.shape_stats.get("mean_area_ratio", 0.0)),
         "mean_aspect_ratio": float(
             bank.shape_stats.get("mean_aspect_ratio", bank.shape_stats.get(
@@ -147,3 +147,7 @@ def bank_shape_stats(bank: PrototypeBank) -> Dict[str, float]:
         ),
         "mean_bbox_aspect_ratio": float(bank.shape_stats.get("mean_bbox_aspect_ratio", 1.0)),
     }
+    for key in ["area_q10", "area_q50", "area_q90", "aspect_q10", "aspect_q50", "aspect_q90"]:
+        if key in bank.shape_stats:
+            stats[key] = float(bank.shape_stats[key])
+    return stats

@@ -59,6 +59,9 @@ def test_load_prototype_bank_compat_mode_backfills_missing_shape_stats(tmp_path:
     assert not bank.manifest.has_preview_contact_sheet
     assert bank.shape_stats["mean_area_ratio"] > 0.0
     assert bank.shape_stats["mean_bbox_aspect_ratio"] > 0.0
+    for key in ["area_q10", "area_q50", "area_q90", "aspect_q10", "aspect_q50", "aspect_q90"]:
+        assert key in bank.shape_stats
+        assert isinstance(bank.shape_stats[key], float)
 
 
 def test_load_prototype_bank_strict_mode_reports_missing_contract_artifacts(tmp_path: Path) -> None:

@@ -9,7 +9,7 @@ import pytest
 
 from gisec.datasets.prototype_bank import load_prototype_bank
 from gisec.models.gisec_model import GISECModel
-from gisec.models.prototype_cache import route_prototype_slots
+from gisec.models.prototype_cache import bank_shape_stats, route_prototype_slots
 
 
 def _write_view(root: Path, stem: str, *, color: tuple[int, int, int]) -> None:
@@ -157,6 +157,17 @@ def test_build_prototype_cache_honors_configured_slot_count_and_topk(tmp_path: P
     assert cache.proto_d.shape[0] == 2
     assert cache.routing_meta["slot_count"] == 2
     assert cache.routing_meta["topk"] == 1
+
+
+def test_bank_shape_stats_preserves_quantile_fields(tmp_path: Path) -> None:
+    ref_root = _make_multiview_bank(tmp_path / "refs")
+    bank = load_prototype_bank(ref_root, image_size=64)
+
+    stats = bank_shape_stats(bank)
+
+    for key in ["area_q10", "area_q50", "area_q90", "aspect_q10", "aspect_q50", "aspect_q90"]:
+        assert key in stats
+        assert isinstance(stats[key], float)
 
 
 def test_backbone_initializes_mask_heads_with_priors() -> None:

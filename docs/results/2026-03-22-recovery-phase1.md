@@ -128,3 +128,36 @@
   - keep `boundary_pos_weight = 10`
   - sweep `fg_threshold` around `0.18-0.22`
   - do not assume the `32-step` threshold remains optimal
+
+## Corrected Eval Protocol Notes
+- Some early manual eval sweeps accidentally used the parser default `min_area = 10`, not the recovery protocol `min_area = 256`.
+- After correcting that protocol mismatch:
+  - `64-step + fg=0.20` gave `14 normal / 2 tiny_island`
+  - `64-step + fg=0.22` gave `15 normal / 1 tiny_island`
+- But COCO AP still stayed at `0.0`.
+- Inspecting the exported predictions revealed why:
+  - many images had only `1` predicted instance
+  - GT often had `50` to `100` instances
+  - so the system had moved from under-segmentation-by-fragmentation to over-merging-by-collapse
+
+## Quantile Guard Rails
+- Real reference data under `datasets/20260318_1K_13440` contains `0` `meta/shape_stats.json` files.
+- Before this fix, that meant the merge code never received:
+  - `area_q10/q50/q90`
+  - `aspect_q10/q50/q90`
+- So constrained merge only had depth and mean-shape hints, not true quantile guard rails.
+- The loader now synthesizes those quantiles directly from the reference masks when metadata is missing.
+- `bank_shape_stats(...)` now preserves those quantiles into the prototype cache so merge can actually use them.
+
+## Over-Merge Debug Result
+- With quantile stats flowing through, `fg=0.22` eval no longer collapsed to about `1` instance per image.
+- The merge became more conservative:
+  - component count increased from `1.06` to `2.56`
+  - `normal` images dropped from `15` to `5`
+- That sounds worse under the old heuristic, but it exposed the real tradeoff:
+  - previous `normal` labels were often just giant wrong blobs
+  - a stricter merge reduced chain-merging damage
+- A more conservative edge threshold (`0.60`) produced the first nonzero measured metric on this recovery line:
+  - `bbox/AP = 0.0005347`
+  - `bbox/APm = 0.0028465`
+- `segm/AP` is still `0.0`, so mask shape quality remains the main blocker.
