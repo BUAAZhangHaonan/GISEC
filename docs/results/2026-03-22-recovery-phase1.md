@@ -90,3 +90,41 @@
 - So the current recommendation is:
   - keep `0.12`, do not raise the foreground threshold further for recovery smoke
   - keep the lower boundary positive weight for the next round
+
+## Follow-Up After Promoting `bp10`
+- `Q2 + 32 steps + bp10 + fg=0.12` became the first short-run setting where:
+  - training-time graph edges appeared consistently in late steps
+  - graph loss became nonzero after warmup
+  - evaluation-time graph readiness reached:
+    - `num_edges_mean = 23.0625`
+    - `num_bridge_edges_mean = 12.125`
+    - `zero_edge_ratio = 0.0`
+  - failure mix improved to `3 normal / 13 tiny_island`
+- Lowering `graph_warmup_steps` from `16` to `8` did not change this behavior in a meaningful way.
+  - graph loss still only started once useful edges existed
+  - so warmup was not the first bottleneck
+
+## 64-Step Pilot
+- Extending the same `Q2 + bp10` recipe to `64` steps changed the score distribution a lot:
+  - `fg_prob_p90 ~= 0.313`
+  - `fg_prob_p95 ~= 0.525`
+  - `boundary_prob_p90 ~= 0.026`
+- Under the old `fg=0.12` threshold, this checkpoint still looked over-fragmented.
+- Re-evaluating the same checkpoint with `fg_threshold = 0.20` improved the failure mix to:
+  - `7 normal / 9 tiny_island / 0 empty`
+- This is the clearest sign so far that:
+  - the model is starting to learn usable mask structure
+  - the best export threshold drifts upward as training gets longer
+  - short-run recovery should not keep a fixed threshold across all training lengths
+
+## Updated Practical Recommendation
+- For `8-step` recovery smoke:
+  - keep the promoted default config in `configs/train/recovery_smoke_1024.yaml`
+- For `32-step` short pilots:
+  - use `Q2`
+  - keep `boundary_pos_weight = 10`
+  - start with `fg_threshold = 0.12`
+- For `64-step` short pilots:
+  - keep `boundary_pos_weight = 10`
+  - sweep `fg_threshold` around `0.18-0.22`
+  - do not assume the `32-step` threshold remains optimal
