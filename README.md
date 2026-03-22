@@ -15,7 +15,8 @@ This repository is intentionally independent from the `magformer` training stack
 ## Current Scope
 
 - independent Python package: `gisec`
-- explicit variant interface: `B0/G1/G2/G3/G4/G5`
+- explicit variant interface: `A0/A1/B0/G1/G2/G3/G4/G5`
+- recovery debug interface: `Q0/Q1/Q2`
 - prototype bank contract with `compat` and `strict` validation modes
 - `train`, `eval`, and `infer` CLI entrypoints
 - experiment runners with configurable Python / conda execution
@@ -117,6 +118,28 @@ python -m gisec.cli.train \
 - `G3`: `G1 + RGB prototype similarity`
 - `G4`: `G1 + RGB-D prototype similarity`
 - `G5`: `G1 + RGB-D prototype similarity + shape_stats`
+- `Q0`: query-mask-only recovery debug variant
+- `Q1`: query-mask + reference routing recovery debug variant
+- `Q2`: query-mask + reference routing + graph rescue recovery debug variant
+
+## Recovery Smoke
+
+Use the recovery stack when the goal is to debug mask calibration, routing sharpness, and graph readiness before any larger run:
+
+```bash
+bash scripts/experiments/run_0831_gisec_recovery_smoke.sh \
+  --output-root output/experiments/gisec_recovery_smoke \
+  --dry-run
+```
+
+The recovery stack defaults to:
+
+- `reference_max_views = 6`
+- `reference_view_sampler = pose_farthest`
+- `prototype_topk = 1`
+- `reference_routing_mode = hard_top1`
+- `reference_skip_margin = 0.15`
+- `graph_warmup_steps = 16`
 
 ## Outputs
 

@@ -1,0 +1,3 @@
+common:
+  variant: Q0
+  reference_conditioning_mode: off
