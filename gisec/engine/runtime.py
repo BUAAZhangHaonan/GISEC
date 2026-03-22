@@ -265,6 +265,15 @@ def _mask_geometry(mask: np.ndarray, *, image_shape: tuple[int, int]) -> Dict[st
     }
 
 
+def _mask_bbox(mask: np.ndarray) -> tuple[int, int, int, int]:
+    ys, xs = np.nonzero(mask.astype(bool))
+    if xs.size == 0 or ys.size == 0:
+        return (0, 0, 0, 0)
+    x0, x1 = int(xs.min()), int(xs.max())
+    y0, y1 = int(ys.min()), int(ys.max())
+    return (x0, y0, x1 - x0 + 1, y1 - y0 + 1)
+
+
 def _classify_single_mask_pathology(
     mask: np.ndarray,
     *,
@@ -389,6 +398,63 @@ def _summarize_component_pathology(rows: list[Dict[str, Any]]) -> Dict[str, Any]
         "num_components_after_filter_mean": float(np.mean([float(row["num_components_after_filter"]) for row in rows])),
     }
     return payload
+
+
+def _bbox_iou(box_a: list[int] | tuple[int, int, int, int], box_b: list[int] | tuple[int, int, int, int]) -> float:
+    ax, ay, aw, ah = [float(v) for v in box_a]
+    bx, by, bw, bh = [float(v) for v in box_b]
+    ax2, ay2 = ax + aw, ay + ah
+    bx2, by2 = bx + bw, by + bh
+    ix1, iy1 = max(ax, bx), max(ay, by)
+    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+    iw, ih = max(0.0, ix2 - ix1), max(0.0, iy2 - iy1)
+    inter = iw * ih
+    union = aw * ah + bw * bh - inter
+    return 0.0 if union <= 0.0 else float(inter / union)
+
+
+def _mask_iou(mask_a: np.ndarray, mask_b: np.ndarray) -> float:
+    a = mask_a.astype(bool)
+    b = mask_b.astype(bool)
+    inter = float(np.logical_and(a, b).sum())
+    union = float(np.logical_or(a, b).sum())
+    return 0.0 if union <= 0.0 else float(inter / union)
+
+
+def _instance_masks_from_map(instance_map: torch.Tensor | np.ndarray) -> list[np.ndarray]:
+    array = instance_map.detach().cpu().numpy() if isinstance(instance_map, torch.Tensor) else np.asarray(instance_map)
+    labels = [int(x) for x in np.unique(array).tolist() if int(x) > 0]
+    return [(array == label).astype(np.uint8) for label in labels]
+
+
+def _summarize_instance_matching(
+    *,
+    image_id: int,
+    file_name: str,
+    gt_masks: list[np.ndarray],
+    pred_masks: list[np.ndarray],
+) -> Dict[str, Any]:
+    gt_bboxes = [_mask_bbox(mask.astype(bool)) for mask in gt_masks]
+    pred_bboxes = [_mask_bbox(mask.astype(bool)) for mask in pred_masks]
+    best_bbox_ious: list[float] = []
+    best_mask_ious: list[float] = []
+    for pred_mask, pred_bbox in zip(pred_masks, pred_bboxes):
+        if not gt_masks:
+            best_bbox_ious.append(0.0)
+            best_mask_ious.append(0.0)
+            continue
+        best_bbox_ious.append(max(_bbox_iou(pred_bbox, gt_bbox) for gt_bbox in gt_bboxes))
+        best_mask_ious.append(max(_mask_iou(pred_mask, gt_mask) for gt_mask in gt_masks))
+    return {
+        "image_id": int(image_id),
+        "file_name": file_name,
+        "gt_count": len(gt_masks),
+        "pred_count": len(pred_masks),
+        "best_bbox_iou_mean": 0.0 if not best_bbox_ious else float(np.mean(best_bbox_ious)),
+        "best_mask_iou_mean": 0.0 if not best_mask_ious else float(np.mean(best_mask_ious)),
+        "best_bbox_iou_max": 0.0 if not best_bbox_ious else float(np.max(best_bbox_ious)),
+        "best_mask_iou_max": 0.0 if not best_mask_ious else float(np.max(best_mask_ious)),
+    }
 
 
 def _summarize_graph_readiness(rows: list[Dict[str, Any]]) -> Dict[str, Any]:
@@ -737,6 +803,8 @@ def evaluate_and_export(
     component_summary_path = None if artifact_dir is None else artifact_dir / "component_pathology_summary.json"
     component_rows_path = None if artifact_dir is None else artifact_dir / "component_pathology.jsonl"
     graph_readiness_path = None if artifact_dir is None else artifact_dir / "graph_readiness_summary.json"
+    match_summary_path = None if artifact_dir is None else artifact_dir / "match_diagnostics_summary.json"
+    match_rows_path = None if artifact_dir is None else artifact_dir / "match_diagnostics.jsonl"
     routing_confidence_path = None if artifact_dir is None else artifact_dir / "routing_confidence_summary.json"
     routing_summary_path = None if artifact_dir is None else artifact_dir / "reference_routing_summary.json"
     routing_rows_path = None if artifact_dir is None else artifact_dir / "reference_routing.jsonl"
@@ -760,12 +828,13 @@ def evaluate_and_export(
     mask_calibration_rows: list[Dict[str, Any]] = []
     component_rows: list[Dict[str, Any]] = []
     graph_rows: list[Dict[str, Any]] = []
+    match_rows: list[Dict[str, Any]] = []
     prototype_source.clear()
     if save_graph_diagnostics and diagnostics_path is not None and diagnostics_path.exists():
         diagnostics_path.unlink()
     if routing_rows_path is not None and routing_rows_path.exists():
         routing_rows_path.unlink()
-    for path in [mask_calibration_rows_path, component_rows_path]:
+    for path in [mask_calibration_rows_path, component_rows_path, match_rows_path]:
         if path is not None and path.exists():
             path.unlink()
     if save_overlays and overlay_dir is not None:
@@ -891,6 +960,17 @@ def evaluate_and_export(
                 component_rows_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(component_rows_path, "a", encoding="utf-8") as handle:
                     handle.write(json.dumps(component_row, ensure_ascii=False) + "\n")
+            match_row = _summarize_instance_matching(
+                image_id=int(batch["image_ids"][0]),
+                file_name=batch["file_names"][0],
+                gt_masks=_instance_masks_from_map(batch["instance_maps"][0]),
+                pred_masks=masks,
+            )
+            match_rows.append(match_row)
+            if match_rows_path is not None:
+                match_rows_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(match_rows_path, "a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(match_row, ensure_ascii=False) + "\n")
             routing_row = _extract_reference_routing_row(
                 outputs.get("reference_routing"),
                 image_id=int(batch["image_ids"][0]),
@@ -957,6 +1037,19 @@ def evaluate_and_export(
         write_json(component_summary_path, _summarize_component_pathology(component_rows))
     if graph_readiness_path is not None:
         write_json(graph_readiness_path, _summarize_graph_readiness(graph_rows))
+    if match_summary_path is not None:
+        write_json(
+            match_summary_path,
+            {
+                "total_images": len(match_rows),
+                "gt_count_mean": 0.0 if not match_rows else float(np.mean([row["gt_count"] for row in match_rows])),
+                "pred_count_mean": 0.0 if not match_rows else float(np.mean([row["pred_count"] for row in match_rows])),
+                "best_bbox_iou_mean": 0.0 if not match_rows else float(np.mean([row["best_bbox_iou_mean"] for row in match_rows])),
+                "best_mask_iou_mean": 0.0 if not match_rows else float(np.mean([row["best_mask_iou_mean"] for row in match_rows])),
+                "best_bbox_iou_max_mean": 0.0 if not match_rows else float(np.mean([row["best_bbox_iou_max"] for row in match_rows])),
+                "best_mask_iou_max_mean": 0.0 if not match_rows else float(np.mean([row["best_mask_iou_max"] for row in match_rows])),
+            },
+        )
     if routing_summary_path is not None:
         write_json(routing_summary_path, _summarize_reference_routing(routing_rows))
     if routing_confidence_path is not None:

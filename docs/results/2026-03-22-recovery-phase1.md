@@ -129,6 +129,21 @@
   - sweep `fg_threshold` around `0.18-0.22`
   - do not assume the `32-step` threshold remains optimal
 
+## GT Match Diagnostics
+- A formal `match_diagnostics.jsonl` / `match_diagnostics_summary.json` output is now available during eval/export.
+- On the current best measured recovery eval (`64-step`, `fg=0.22`, `edge=0.60`):
+  - `gt_count_mean = 65.125`
+  - `pred_count_mean = 2.5625`
+  - `best_bbox_iou_mean = 0.1764`
+  - `best_mask_iou_mean = 0.0822`
+  - `best_bbox_iou_max_mean = 0.3140`
+  - `best_mask_iou_max_mean = 0.1469`
+- This confirms the core issue is not mask encoding corruption.
+- The real problem is:
+  - too few predicted instances
+  - many predictions still over-merge or land on the wrong extent
+  - mask contours are worse than their boxes, so `segm/AP` stays at `0.0` even when `bbox/AP` starts to move
+
 ## Corrected Eval Protocol Notes
 - Some early manual eval sweeps accidentally used the parser default `min_area = 10`, not the recovery protocol `min_area = 256`.
 - After correcting that protocol mismatch:

@@ -5,6 +5,7 @@ import numpy as np
 from gisec.engine.runtime import (
     _component_merge_score,
     _classify_mask_failure,
+    _summarize_instance_matching,
     _prepare_overlay_dir,
     _summarize_reference_routing,
     masks_to_results,
@@ -123,3 +124,25 @@ def test_summarize_reference_routing_counts_selected_views() -> None:
     assert summary["top1_weight_mean"] == 0.85
     assert summary["skip_conditioning_ratio"] == 0.5
     assert summary["selected_view_histogram"]["view_003"] == 2
+
+
+def test_summarize_instance_matching_reports_gt_pred_count_and_iou() -> None:
+    gt_a = np.zeros((16, 16), dtype=np.uint8)
+    gt_a[2:8, 2:8] = 1
+    gt_b = np.zeros((16, 16), dtype=np.uint8)
+    gt_b[8:14, 8:14] = 1
+    pred = np.zeros((16, 16), dtype=np.uint8)
+    pred[2:8, 2:8] = 1
+
+    row = _summarize_instance_matching(
+        image_id=3,
+        file_name="toy.png",
+        gt_masks=[gt_a, gt_b],
+        pred_masks=[pred],
+    )
+
+    assert row["image_id"] == 3
+    assert row["gt_count"] == 2
+    assert row["pred_count"] == 1
+    assert row["best_bbox_iou_mean"] == 1.0
+    assert row["best_mask_iou_mean"] == 1.0
