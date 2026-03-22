@@ -44,6 +44,23 @@
   - Those fragments are still too broken for useful segmentation AP.
 - The graph branch is still mostly starved by weak fragments and weak contact structure.
 
+## Graph Recall Follow-Up
+- A second pass on `graph_utils.py` removed two early ownership-based hard gates:
+  - bridge candidates are no longer discarded only because `ownership_support` is weak
+  - candidate edges are no longer dropped before scoring only because `ownership_value < 0.5`
+- Contact-pair generation was also relaxed so boundary pixels can still seed contact candidates even if they were already assigned to a fragment label.
+- Re-evaluating the existing `Q2` 32-step checkpoint after these fixes changed graph readiness from:
+  - `num_edges_mean = 0.0`
+  - `num_bridge_edges_mean = 0.0`
+  - `zero_edge_ratio = 1.0`
+  to:
+  - `num_edges_mean = 1.375`
+  - `num_bridge_edges_mean = 0.3125`
+  - `zero_edge_ratio = 0.75`
+- This confirms the graph branch was being blocked too early.
+- However, `segm/AP` is still `0.0`, so the graph branch is no longer the only blocker.
+- The remaining main problem is still fragment quality: the model is now producing edges between tiny fragments, not yet producing good instance pieces.
+
 ## Next Recommended Step
 - Keep the deterministic recovery setup.
 - Promote the 32-step pilot path as the main short-run gate.

@@ -131,8 +131,6 @@ def _contact_fragment_pairs(
     boundary_mask = boundary_prob >= float(boundary_threshold)
     height, width = fragments.shape
     for y, x in np.argwhere(boundary_mask):
-        if int(fragments[int(y), int(x)]) > 0:
-            continue
         y0 = max(0, int(y) - int(radius))
         y1 = min(height, int(y) + int(radius) + 1)
         left = sorted(int(v) for v in np.unique(fragments[y0:y1, max(0, int(x) - int(radius)):int(x)]).tolist() if int(v) > 0)
@@ -181,10 +179,10 @@ def _bridge_fragment_pairs(
                 continue
             boundary_mean = float(boundary_prob[corridor].mean()) if corridor.any() else 0.0
             depth_delta = abs(float(fragment_geometry[a]["depth_mean"]) - float(fragment_geometry[b]["depth_mean"]))
-            ownership_mean = float(ownership_support[corridor].mean()) if ownership_support is not None and corridor.any() else 1.0
-            if boundary_mean > 0.55 or depth_delta > 0.3 or ownership_mean <= 0.5:
+            ownership_mean = float(ownership_support[corridor].mean()) if ownership_support is not None and corridor.any() else 0.0
+            if boundary_mean > 0.55 or depth_delta > 0.3:
                 continue
-            score = float(max_gap - bbox_gap) - depth_delta - boundary_mean + ownership_mean
+            score = float(max_gap - bbox_gap) - depth_delta - boundary_mean + 0.25 * ownership_mean
             candidate_scores[a].append((score, (a, b), corridor))
             candidate_scores[b].append((score, (a, b), corridor))
 
@@ -430,8 +428,6 @@ def build_graph_batch(
             affinity_prob,
             support_mask,
         )
-        if ownership_value < 0.5 and (edge_kind == EDGE_TYPE_BRIDGE or boundary_crossing < 0.5):
-            continue
 
         depth_delta = abs(float(fragment_geometry[a]["depth_mean"]) - float(fragment_geometry[b]["depth_mean"]))
         area_delta = abs(float(fragment_geometry[a]["area_ratio"]) - float(fragment_geometry[b]["area_ratio"]))

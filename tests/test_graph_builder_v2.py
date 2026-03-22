@@ -72,6 +72,86 @@ def test_build_graph_batch_emits_bridge_edges_for_short_supported_gaps(
     assert graph_batch.diagnostics["num_bridge_edges"] == 1
 
 
+def test_build_graph_batch_keeps_contact_edges_when_ownership_is_weak(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    feature_map, fg_logits, boundary_logits, ownership_offsets, depth_map = _make_inputs()
+    fragments = np.zeros((16, 16), dtype=np.int32)
+    fragments[4:12, 3:7] = 1
+    fragments[4:12, 8:12] = 2
+    boundary_logits[:, :, 4:12, 7] = 4.0
+    ownership_offsets[:, 0, 4:12, 3:12] = -6.0
+    ownership_offsets[:, 1, 4:12, 3:12] = 6.0
+    monkeypatch.setattr(graph_utils, "fragments_from_logits", lambda *args, **kwargs: fragments.copy())
+
+    graph_batch = build_graph_batch(
+        feature_map=feature_map,
+        fg_logits=fg_logits,
+        boundary_logits=boundary_logits,
+        ownership_offsets=ownership_offsets,
+        depth_map=depth_map,
+        instance_map=None,
+        prototype_cache=_make_prototype_cache(),
+        variant=get_variant_spec("Q2"),
+        min_area=2,
+    )
+
+    assert graph_batch.edge_index.shape[1] == 1
+    assert graph_batch.diagnostics["num_contact_edges"] == 1
+
+
+def test_build_graph_batch_detects_contact_edges_when_boundary_pixel_is_already_labeled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    feature_map, fg_logits, boundary_logits, ownership_offsets, depth_map = _make_inputs()
+    fragments = np.zeros((16, 16), dtype=np.int32)
+    fragments[4:12, 3:8] = 1
+    fragments[4:12, 8:12] = 2
+    boundary_logits[:, :, 4:12, 7] = 4.0
+    monkeypatch.setattr(graph_utils, "fragments_from_logits", lambda *args, **kwargs: fragments.copy())
+
+    graph_batch = build_graph_batch(
+        feature_map=feature_map,
+        fg_logits=fg_logits,
+        boundary_logits=boundary_logits,
+        ownership_offsets=ownership_offsets,
+        depth_map=depth_map,
+        instance_map=None,
+        prototype_cache=_make_prototype_cache(),
+        variant=get_variant_spec("Q1"),
+        min_area=2,
+    )
+
+    assert graph_batch.edge_index.shape[1] == 1
+    assert graph_batch.diagnostics["num_contact_edges"] == 1
+
+
+def test_build_graph_batch_does_not_drop_bridge_candidates_only_for_low_ownership_support(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    feature_map, fg_logits, boundary_logits, ownership_offsets, depth_map = _make_inputs()
+    fragments = np.zeros((16, 16), dtype=np.int32)
+    fragments[4:12, 2:6] = 1
+    fragments[4:12, 9:13] = 2
+    ownership_offsets[:, :, 4:12, 2:13] = -4.0
+    monkeypatch.setattr(graph_utils, "fragments_from_logits", lambda *args, **kwargs: fragments.copy())
+
+    graph_batch = build_graph_batch(
+        feature_map=feature_map,
+        fg_logits=fg_logits,
+        boundary_logits=boundary_logits,
+        ownership_offsets=ownership_offsets,
+        depth_map=depth_map,
+        instance_map=None,
+        prototype_cache=_make_prototype_cache(),
+        variant=get_variant_spec("Q2"),
+        min_area=2,
+    )
+
+    assert graph_batch.edge_index.shape[1] == 1
+    assert graph_batch.edge_type.tolist() == [1]
+
+
 def test_build_graph_batch_marks_low_purity_edges_as_ignored(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
