@@ -158,6 +158,11 @@ def test_parse_train_args_reads_model_defaults(tmp_path: Path) -> None:
                 "norm_layer": "group",
                 "prototype_slot_count": 5,
                 "prototype_topk": 1,
+                "fg_prior": 0.1,
+                "boundary_prior": 0.02,
+                "reference_conditioning_mode": "bottleneck_only",
+                "reference_routing_mode": "hard_top1",
+                "reference_skip_margin": 0.2,
             }
         },
     )
@@ -169,6 +174,11 @@ def test_parse_train_args_reads_model_defaults(tmp_path: Path) -> None:
     assert args.norm_layer == "group"
     assert args.prototype_slot_count == 5
     assert args.prototype_topk == 1
+    assert args.fg_prior == 0.1
+    assert args.boundary_prior == 0.02
+    assert args.reference_conditioning_mode == "bottleneck_only"
+    assert args.reference_routing_mode == "hard_top1"
+    assert args.reference_skip_margin == 0.2
 
 
 def test_parse_train_args_reads_fragment_threshold_defaults(tmp_path: Path) -> None:
@@ -203,6 +213,9 @@ def test_parse_train_args_allows_smoke_config_to_override_reference_policy(tmp_p
                 "reference_view_sampler": "pose_farthest",
                 "prototype_slot_count": 6,
                 "prototype_topk": 2,
+                "reference_conditioning_mode": "full",
+                "reference_routing_mode": "soft_topk",
+                "reference_skip_margin": 0.05,
             }
         },
     )
@@ -213,6 +226,9 @@ def test_parse_train_args_allows_smoke_config_to_override_reference_policy(tmp_p
                 "reference_max_views": 6,
                 "prototype_slot_count": 4,
                 "prototype_topk": 1,
+                "reference_conditioning_mode": "bottleneck_only",
+                "reference_routing_mode": "hard_top1",
+                "reference_skip_margin": 0.15,
             }
         },
     )
@@ -230,3 +246,62 @@ def test_parse_train_args_allows_smoke_config_to_override_reference_policy(tmp_p
     assert args.reference_view_sampler == "pose_farthest"
     assert args.prototype_slot_count == 4
     assert args.prototype_topk == 1
+    assert args.reference_conditioning_mode == "bottleneck_only"
+    assert args.reference_routing_mode == "hard_top1"
+    assert args.reference_skip_margin == 0.15
+
+
+def test_parse_train_args_reads_graph_warmup_and_reweighted_boundary_defaults(tmp_path: Path) -> None:
+    config_path = _write_yaml(
+        tmp_path / "train.yaml",
+        {
+            "common": {
+                "dataset_root": "/tmp/dataset",
+                "prototype_root": "/tmp/prototypes",
+                "output_dir": "/tmp/out",
+            },
+            "train": {
+                "graph_warmup_steps": 24,
+                "fg_pos_weight": 11.0,
+                "boundary_pos_weight": 12.0,
+            },
+        },
+    )
+
+    args = parse_train_args(["--config", str(config_path)])
+
+    assert args.graph_warmup_steps == 24
+    assert args.fg_pos_weight == 11.0
+    assert args.boundary_pos_weight == 12.0
+
+
+def test_parse_train_args_accepts_new_recovery_cli_flags() -> None:
+    args = parse_train_args(
+        [
+            "--dataset-root",
+            "/tmp/dataset",
+            "--prototype-root",
+            "/tmp/prototypes",
+            "--output-dir",
+            "/tmp/out",
+            "--fg-prior",
+            "0.11",
+            "--boundary-prior",
+            "0.03",
+            "--graph-warmup-steps",
+            "12",
+            "--reference-conditioning-mode",
+            "bottleneck_only",
+            "--reference-routing-mode",
+            "hard_top1",
+            "--reference-skip-margin",
+            "0.2",
+        ]
+    )
+
+    assert args.fg_prior == 0.11
+    assert args.boundary_prior == 0.03
+    assert args.graph_warmup_steps == 12
+    assert args.reference_conditioning_mode == "bottleneck_only"
+    assert args.reference_routing_mode == "hard_top1"
+    assert args.reference_skip_margin == 0.2

@@ -91,6 +91,59 @@ def test_route_prototype_slots_requires_positive_topk() -> None:
         route_prototype_slots(query_descriptor, proto_slots, topk=0)
 
 
+def test_route_prototype_slots_supports_hard_top1_with_margin_and_skip_flag() -> None:
+    query_descriptor = torch.tensor([[1.0, 0.0]], dtype=torch.float32)
+    proto_slots = torch.tensor(
+        [
+            [[[1.0]], [[0.0]]],
+            [[[0.2]], [[0.8]]],
+            [[[0.0]], [[1.0]]],
+        ],
+        dtype=torch.float32,
+    )
+
+    mixed_proto, routing = route_prototype_slots(
+        query_descriptor,
+        proto_slots,
+        topk=1,
+        routing_mode="hard_top1",
+        skip_margin=0.15,
+    )
+
+    assert mixed_proto.shape == (1, 2, 1, 1)
+    assert routing["top_indices"].shape == (1, 1)
+    assert routing["weights"].shape == (1, 1)
+    assert routing["top1_weight"].shape == (1,)
+    assert routing["top2_weight"].shape == (1,)
+    assert routing["top1_top2_margin"].shape == (1,)
+    assert routing["routing_entropy"].shape == (1,)
+    assert routing["top_indices"][0, 0].item() == 0
+    assert routing["weights"][0, 0].item() == pytest.approx(1.0)
+    assert routing["skip_conditioning"].tolist() == [False]
+
+
+def test_route_prototype_slots_marks_low_margin_as_skip_conditioning() -> None:
+    query_descriptor = torch.tensor([[1.0, 0.0]], dtype=torch.float32)
+    proto_slots = torch.tensor(
+        [
+            [[[1.0]], [[0.0]]],
+            [[[0.999]], [[0.001]]],
+        ],
+        dtype=torch.float32,
+    )
+
+    _mixed_proto, routing = route_prototype_slots(
+        query_descriptor,
+        proto_slots,
+        topk=1,
+        routing_mode="hard_top1",
+        skip_margin=0.15,
+    )
+
+    assert routing["skip_conditioning"].tolist() == [True]
+    assert routing["top1_top2_margin"][0].item() < 0.15
+
+
 def test_build_prototype_cache_honors_configured_slot_count_and_topk(tmp_path: Path) -> None:
     ref_root = _make_multiview_bank(tmp_path / "refs")
     _write_view(ref_root, "view_003", color=(200, 200, 40))
@@ -104,3 +157,17 @@ def test_build_prototype_cache_honors_configured_slot_count_and_topk(tmp_path: P
     assert cache.proto_d.shape[0] == 2
     assert cache.routing_meta["slot_count"] == 2
     assert cache.routing_meta["topk"] == 1
+
+
+def test_backbone_initializes_mask_heads_with_priors() -> None:
+    model = GISECModel(
+        base_channels=8,
+        fg_prior=0.093,
+        boundary_prior=0.024,
+    )
+
+    fg_bias = float(model.backbone.fg_head.bias.detach().item())
+    boundary_bias = float(model.backbone.boundary_head.bias.detach().item())
+
+    assert fg_bias == pytest.approx(-2.277543, rel=1e-4, abs=1e-4)
+    assert boundary_bias == pytest.approx(-3.705409, rel=1e-4, abs=1e-4)

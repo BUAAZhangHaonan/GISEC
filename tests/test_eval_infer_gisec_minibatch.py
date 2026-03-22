@@ -179,23 +179,41 @@ def test_eval_and_infer_gisec_minibatch(tmp_path: Path) -> None:
     assert (eval_output / "run_summary.json").exists()
     assert (eval_output / "graph_diagnostics.jsonl").exists()
     assert (eval_output / "failure_summary.json").exists()
+    assert (eval_output / "mask_calibration_summary.json").exists()
+    assert (eval_output / "component_pathology_summary.json").exists()
+    assert (eval_output / "graph_readiness_summary.json").exists()
+    assert (eval_output / "routing_confidence_summary.json").exists()
     assert (eval_output / "reference_routing_summary.json").exists()
     assert (infer_output / "coco_instances_results.json").exists()
+    assert (infer_output / "coco_instances_results.raw.json").exists()
     assert (infer_output / "run_summary.json").exists()
     assert (infer_output / "graph_diagnostics.jsonl").exists()
     assert (infer_output / "failure_summary.json").exists()
+    assert (infer_output / "mask_calibration_summary.json").exists()
+    assert (infer_output / "component_pathology_summary.json").exists()
+    assert (infer_output / "graph_readiness_summary.json").exists()
+    assert (infer_output / "routing_confidence_summary.json").exists()
     assert (infer_output / "reference_routing_summary.json").exists()
     eval_overlays = list((eval_output / "visualizations" / "overlay").glob("*.png"))
     infer_overlays = list((infer_output / "visualizations" / "overlay").glob("*.png"))
     assert eval_overlays
     assert infer_overlays
-    assert any("_normal_" in path.name or "_tiny_" in path.name or "_full_" in path.name or "_empty_" in path.name for path in eval_overlays)
-    assert any("_normal_" in path.name or "_tiny_" in path.name or "_full_" in path.name or "_empty_" in path.name for path in infer_overlays)
+    labels = ["_normal_", "_tiny_island_", "_full_frame_", "_empty_", "_border_strip_", "_oversized_blob_", "_mixed_"]
+    assert any(any(label in path.name for label in labels) for path in eval_overlays)
+    assert any(any(label in path.name for label in labels) for path in infer_overlays)
 
     eval_summary = json.loads((eval_output / "run_summary.json").read_text(encoding="utf-8"))
     infer_summary = json.loads((infer_output / "run_summary.json").read_text(encoding="utf-8"))
     eval_failure_summary = json.loads((eval_output / "failure_summary.json").read_text(encoding="utf-8"))
     infer_failure_summary = json.loads((infer_output / "failure_summary.json").read_text(encoding="utf-8"))
+    eval_mask_summary = json.loads((eval_output / "mask_calibration_summary.json").read_text(encoding="utf-8"))
+    infer_mask_summary = json.loads((infer_output / "mask_calibration_summary.json").read_text(encoding="utf-8"))
+    eval_component_summary = json.loads((eval_output / "component_pathology_summary.json").read_text(encoding="utf-8"))
+    infer_component_summary = json.loads((infer_output / "component_pathology_summary.json").read_text(encoding="utf-8"))
+    eval_graph_readiness = json.loads((eval_output / "graph_readiness_summary.json").read_text(encoding="utf-8"))
+    infer_graph_readiness = json.loads((infer_output / "graph_readiness_summary.json").read_text(encoding="utf-8"))
+    eval_routing_confidence = json.loads((eval_output / "routing_confidence_summary.json").read_text(encoding="utf-8"))
+    infer_routing_confidence = json.loads((infer_output / "routing_confidence_summary.json").read_text(encoding="utf-8"))
     eval_routing_summary = json.loads((eval_output / "reference_routing_summary.json").read_text(encoding="utf-8"))
     infer_routing_summary = json.loads((infer_output / "reference_routing_summary.json").read_text(encoding="utf-8"))
     assert eval_summary["dataset_root"] == str(dataset_root.resolve())
@@ -210,8 +228,21 @@ def test_eval_and_infer_gisec_minibatch(tmp_path: Path) -> None:
     assert infer_summary["checkpoint"] == str(checkpoint.resolve())
     assert eval_failure_summary["total_images"] == 1
     assert infer_failure_summary["total_images"] == 1
-    assert set(eval_failure_summary["counts"]).issuperset({"normal", "tiny", "full", "empty"})
-    assert set(infer_failure_summary["counts"]).issuperset({"normal", "tiny", "full", "empty"})
+    assert set(eval_failure_summary["counts"]).issuperset({"normal", "tiny_island", "full_frame", "empty"})
+    assert set(infer_failure_summary["counts"]).issuperset({"normal", "tiny_island", "full_frame", "empty"})
+    assert eval_mask_summary["total_images"] == 1
+    assert infer_mask_summary["total_images"] == 1
+    assert "pred_fg_rate_mean" in eval_mask_summary
+    assert "pred_boundary_rate_mean" in eval_mask_summary
+    assert eval_component_summary["total_images"] == 1
+    assert infer_component_summary["total_images"] == 1
+    assert "largest_component_ratio_mean" in eval_component_summary
+    assert eval_graph_readiness["total_images"] == 1
+    assert infer_graph_readiness["total_images"] == 1
+    assert "zero_edge_ratio" in eval_graph_readiness
+    assert eval_routing_confidence["total_images"] == 1
+    assert infer_routing_confidence["total_images"] == 1
+    assert "top1_top2_margin_mean" in eval_routing_confidence
     assert eval_routing_summary["total_images"] == 1
     assert infer_routing_summary["total_images"] == 1
     assert "prototype_slot_count" in eval_routing_summary

@@ -37,6 +37,11 @@ MODEL_CONFIG_DEFAULTS = {
     "norm_layer": "group",
     "prototype_slot_count": 6,
     "prototype_topk": 2,
+    "fg_prior": 0.093,
+    "boundary_prior": 0.024,
+    "reference_conditioning_mode": "full",
+    "reference_routing_mode": "soft_topk",
+    "reference_skip_margin": 0.0,
 }
 
 
@@ -148,6 +153,19 @@ def _common_parser() -> argparse.ArgumentParser:
     parser.add_argument("--norm-layer", choices=["group", "batch"], default="group")
     parser.add_argument("--prototype-slot-count", type=int, default=6)
     parser.add_argument("--prototype-topk", type=int, default=2)
+    parser.add_argument("--fg-prior", type=float, default=0.093)
+    parser.add_argument("--boundary-prior", type=float, default=0.024)
+    parser.add_argument(
+        "--reference-conditioning-mode",
+        choices=["full", "bottleneck_only", "off"],
+        default="full",
+    )
+    parser.add_argument(
+        "--reference-routing-mode",
+        choices=["soft_topk", "hard_top1"],
+        default="soft_topk",
+    )
+    parser.add_argument("--reference-skip-margin", type=float, default=0.0)
     return parser
 
 
@@ -179,6 +197,11 @@ def _model_config_from_args(args: argparse.Namespace) -> dict[str, int | str]:
         "norm_layer": str(args.norm_layer),
         "prototype_slot_count": int(args.prototype_slot_count),
         "prototype_topk": int(args.prototype_topk),
+        "fg_prior": float(args.fg_prior),
+        "boundary_prior": float(args.boundary_prior),
+        "reference_conditioning_mode": str(args.reference_conditioning_mode),
+        "reference_routing_mode": str(args.reference_routing_mode),
+        "reference_skip_margin": float(args.reference_skip_margin),
     }
 
 
@@ -216,8 +239,10 @@ def parse_train_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(parents=[_common_parser()])
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--fg-pos-weight", type=float, default=9.0)
     parser.add_argument("--fg-dice-weight", type=float, default=0.5)
-    parser.add_argument("--boundary-pos-weight", type=float, default=4.0)
+    parser.add_argument("--boundary-pos-weight", type=float, default=40.0)
+    parser.add_argument("--graph-warmup-steps", type=int, default=16)
     parser.add_argument("--max-train-steps", type=int, default=0)
     parser.add_argument("--max-val-images", type=int, default=0)
     parser.set_defaults(**defaults)
@@ -289,19 +314,26 @@ def forward_with_reference_routing(
     depths: torch.Tensor,
     file_names: list[str],
     prototype_source: PrototypeCacheSource,
+    reference_conditioning_mode: str = "full",
+    reference_routing_mode: str = "soft_topk",
+    reference_skip_margin: float = 0.0,
 ) -> tuple[dict[str, torch.Tensor], list[object]]:
     outputs_by_sample: list[dict[str, Any]] = []
     prototype_caches: list[object] = []
     for batch_index, file_name in enumerate(file_names):
         prototype_cache, _bank = prototype_source.resolve_for_query(file_name)
+        active_cache = None if str(reference_conditioning_mode) == "off" else prototype_cache
         outputs_by_sample.append(
             model(
                 images[batch_index: batch_index + 1],
                 query_depth=depths[batch_index: batch_index + 1],
-                prototype_cache=prototype_cache,
+                prototype_cache=active_cache,
+                reference_conditioning_mode=reference_conditioning_mode,
+                reference_routing_mode=reference_routing_mode,
+                reference_skip_margin=reference_skip_margin,
             )
         )
-        prototype_caches.append(prototype_cache)
+        prototype_caches.append(active_cache)
     merged_outputs: dict[str, Any] = {}
     for key in outputs_by_sample[0]:
         values = [sample[key] for sample in outputs_by_sample]
@@ -432,8 +464,15 @@ def train_main(args: argparse.Namespace) -> None:
                         depths=depths,
                         file_names=file_names,
                         prototype_source=prototype_source,
+                        reference_conditioning_mode=str(args.reference_conditioning_mode),
+                        reference_routing_mode=str(args.reference_routing_mode),
+                        reference_skip_margin=float(args.reference_skip_margin),
                     )
-                    loss_fg_bce = F.binary_cross_entropy_with_logits(outputs["fg_logits"], fg_target)
+                    loss_fg_bce = balanced_bce_with_logits(
+                        outputs["fg_logits"],
+                        fg_target,
+                        positive_weight=float(args.fg_pos_weight),
+                    )
                     loss_fg_dice = dice_loss_with_logits(outputs["fg_logits"], fg_target)
                     loss_fg = loss_fg_bce + float(args.fg_dice_weight) * loss_fg_dice
                     loss_boundary = balanced_bce_with_logits(
@@ -442,6 +481,8 @@ def train_main(args: argparse.Namespace) -> None:
                         positive_weight=float(args.boundary_pos_weight),
                     )
                     relation_pred = outputs["ownership_offsets"]
+                    fg_probs = torch.sigmoid(outputs["fg_logits"].detach())
+                    boundary_probs = torch.sigmoid(outputs["boundary_logits"].detach())
                     if variant_spec.use_ownership_supervision:
                         fg_mask = fg_target.expand_as(relation_target) > 0.5
                         if fg_mask.any():
@@ -501,8 +542,9 @@ def train_main(args: argparse.Namespace) -> None:
                             )
                         if graph_losses:
                             graph_loss = torch.stack(graph_losses).mean()
-                            graph_loss_value = float(graph_loss.detach().cpu())
-                            loss = loss + 0.5 * graph_loss
+                            graph_loss_weight = 0.0 if step <= int(args.graph_warmup_steps) else 0.5
+                            graph_loss_value = float((graph_loss * graph_loss_weight).detach().cpu())
+                            loss = loss + graph_loss_weight * graph_loss
 
                 optimizer.zero_grad(set_to_none=True)
                 scaler.scale(loss).backward()
@@ -519,6 +561,16 @@ def train_main(args: argparse.Namespace) -> None:
                     "loss_fg_dice": float(loss_fg_dice.detach().cpu()),
                     "loss_boundary": float(loss_boundary.detach().cpu()),
                     "loss_relation": float(loss_relation.detach().cpu()),
+                    "pred_fg_rate": float((fg_probs >= 0.5).float().mean().cpu()),
+                    "pred_boundary_rate": float((boundary_probs >= 0.5).float().mean().cpu()),
+                    "target_fg_rate": float(fg_target.mean().cpu()),
+                    "target_boundary_rate": float(boundary_target.mean().cpu()),
+                    "fg_prob_p50": float(torch.quantile(fg_probs.flatten(), 0.50).cpu()),
+                    "fg_prob_p90": float(torch.quantile(fg_probs.flatten(), 0.90).cpu()),
+                    "fg_prob_p95": float(torch.quantile(fg_probs.flatten(), 0.95).cpu()),
+                    "boundary_prob_p50": float(torch.quantile(boundary_probs.flatten(), 0.50).cpu()),
+                    "boundary_prob_p90": float(torch.quantile(boundary_probs.flatten(), 0.90).cpu()),
+                    "boundary_prob_p95": float(torch.quantile(boundary_probs.flatten(), 0.95).cpu()),
                     "relation_target": relation_target_key(variant_spec),
                     "graph_has_edges": int(graph_has_edges),
                     "graph_edge_count": int(graph_edge_count),

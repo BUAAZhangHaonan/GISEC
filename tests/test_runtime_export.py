@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from gisec.engine.runtime import (
+    _component_merge_score,
     _classify_mask_failure,
     _prepare_overlay_dir,
     _summarize_reference_routing,
@@ -42,12 +43,16 @@ def test_prepare_overlay_dir_removes_stale_pngs(tmp_path) -> None:
     assert list(overlay_dir.glob("*.png")) == []
 
 
-def test_classify_mask_failure_detects_empty_tiny_full_and_normal() -> None:
+def test_classify_mask_failure_detects_empty_tiny_border_strip_full_frame_and_normal() -> None:
     empty = _classify_mask_failure([], image_shape=(16, 16), min_area=4)
 
     tiny_mask = np.zeros((16, 16), dtype=np.uint8)
     tiny_mask[0:2, 0:2] = 1
     tiny = _classify_mask_failure([tiny_mask], image_shape=(16, 16), min_area=16)
+
+    border_strip_mask = np.zeros((16, 16), dtype=np.uint8)
+    border_strip_mask[:, 0:2] = 1
+    border_strip = _classify_mask_failure([border_strip_mask], image_shape=(16, 16), min_area=4)
 
     full_mask = np.ones((16, 16), dtype=np.uint8)
     full = _classify_mask_failure([full_mask], image_shape=(16, 16), min_area=4)
@@ -57,28 +62,64 @@ def test_classify_mask_failure_detects_empty_tiny_full_and_normal() -> None:
     normal = _classify_mask_failure([normal_mask], image_shape=(16, 16), min_area=4)
 
     assert empty == "empty"
-    assert tiny == "tiny"
-    assert full == "full"
+    assert tiny == "tiny_island"
+    assert border_strip == "border_strip"
+    assert full == "full_frame"
     assert normal == "normal"
+
+
+def test_component_merge_score_returns_zero_for_components_without_accepted_edges() -> None:
+    merged_mask = np.zeros((8, 8), dtype=bool)
+    merged_mask[2:6, 2:6] = True
+    fragments = np.zeros((8, 8), dtype=np.int32)
+    fragments[2:6, 2:6] = 1
+
+    score = _component_merge_score(
+        merged_mask=merged_mask,
+        fragments=fragments,
+        edge_index=np.zeros((2, 0), dtype=np.int64),
+        edge_scores=np.zeros((0,), dtype=np.float32),
+        threshold=0.5,
+    )
+
+    assert score == 0.0
 
 
 def test_summarize_reference_routing_counts_selected_views() -> None:
     summary = _summarize_reference_routing(
         [
             {
+                "reference_conditioning_mode": "full",
+                "reference_routing_mode": "hard_top1",
                 "prototype_slot_count": 6,
                 "prototype_topk": 2,
+                "top1_weight": [0.9],
+                "top2_weight": [0.1],
+                "top1_top2_margin": [0.8],
+                "routing_entropy": [0.2],
+                "skip_conditioning": [False],
                 "selected_view_ids": ["view_001", "view_003"],
             },
             {
+                "reference_conditioning_mode": "full",
+                "reference_routing_mode": "hard_top1",
                 "prototype_slot_count": 6,
                 "prototype_topk": 2,
+                "top1_weight": [0.8],
+                "top2_weight": [0.2],
+                "top1_top2_margin": [0.6],
+                "routing_entropy": [0.3],
+                "skip_conditioning": [True],
                 "selected_view_ids": ["view_003", "view_005"],
             },
         ]
     )
 
     assert summary["total_images"] == 2
+    assert summary["reference_conditioning_mode"] == "full"
+    assert summary["reference_routing_mode"] == "hard_top1"
     assert summary["prototype_slot_count"] == 6
     assert summary["prototype_topk"] == 2
+    assert summary["top1_weight_mean"] == 0.85
+    assert summary["skip_conditioning_ratio"] == 0.5
     assert summary["selected_view_histogram"]["view_003"] == 2

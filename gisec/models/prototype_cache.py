@@ -35,6 +35,8 @@ def route_prototype_slots(
     proto_slots: torch.Tensor,
     *,
     topk: int = 2,
+    routing_mode: str = "soft_topk",
+    skip_margin: float = 0.0,
 ) -> tuple[torch.Tensor, Dict[str, torch.Tensor]]:
     if query_descriptor.ndim != 2:
         raise ValueError(
@@ -52,13 +54,30 @@ def route_prototype_slots(
         )
     if int(topk) < 1:
         raise ValueError(f"Expected topk >= 1, got {topk}")
+    if routing_mode not in {"soft_topk", "hard_top1"}:
+        raise ValueError(f"Unsupported routing_mode: {routing_mode}")
     slot_descriptors = proto_slots.mean(dim=(-1, -2))
     query_n = F.normalize(query_descriptor, dim=1)
     slot_n = F.normalize(slot_descriptors, dim=1)
     scores = torch.matmul(query_n, slot_n.t())
-    actual_topk = min(int(topk), int(proto_slots.shape[0]))
+    margin_topk = min(2, int(proto_slots.shape[0]))
+    margin_scores, margin_indices = torch.topk(scores, k=margin_topk, dim=1)
+    margin_weights = torch.softmax(margin_scores, dim=1)
+    top1_weight = margin_weights[:, 0]
+    top2_weight = (
+        margin_weights[:, 1]
+        if margin_weights.shape[1] > 1
+        else torch.zeros_like(top1_weight)
+    )
+    routing_entropy = -(margin_weights * (margin_weights.clamp_min(1e-8)).log()).sum(dim=1)
+    top1_top2_margin = top1_weight - top2_weight
+    skip_conditioning = top1_top2_margin < float(skip_margin)
+    actual_topk = 1 if routing_mode == "hard_top1" else min(int(topk), int(proto_slots.shape[0]))
     top_scores, top_indices = torch.topk(scores, k=actual_topk, dim=1)
-    weights = torch.softmax(top_scores, dim=1)
+    if routing_mode == "hard_top1":
+        weights = torch.ones_like(top_scores)
+    else:
+        weights = torch.softmax(top_scores, dim=1)
     selected_slots = proto_slots[top_indices.reshape(-1)].reshape(
         query_descriptor.shape[0],
         actual_topk,
@@ -71,6 +90,13 @@ def route_prototype_slots(
         "scores": scores,
         "top_indices": top_indices,
         "weights": weights,
+        "top1_indices": margin_indices[:, 0],
+        "top1_weight": top1_weight,
+        "top2_weight": top2_weight,
+        "top1_top2_margin": top1_top2_margin,
+        "routing_entropy": routing_entropy,
+        "skip_conditioning": skip_conditioning,
+        "routing_mode": torch.full_like(top1_weight, 1.0 if routing_mode == "hard_top1" else 0.0),
     }
     return mixed_proto, routing
 

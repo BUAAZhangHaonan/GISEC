@@ -5,7 +5,9 @@ import pytest
 
 import gisec.models.graph_utils as graph_utils
 from gisec.config.variants import get_variant_spec
-from gisec.models.graph_utils import build_graph_batch
+from gisec.graph_refiner import GraphRefiner
+from gisec.models.gisec_model import GISECModel
+from gisec.models.graph_utils import GraphBatch, build_graph_batch
 from gisec.models.prototype_cache import PrototypeCache
 from gisec.train.train_gisec import parse_train_args, relation_target_from_batch
 
@@ -32,6 +34,9 @@ def _make_prototype_cache() -> PrototypeCache:
 def test_variant_spec_defines_b0_and_prototype_feature_semantics() -> None:
     a0 = get_variant_spec("A0")
     a1 = get_variant_spec("A1")
+    q0 = get_variant_spec("Q0")
+    q1 = get_variant_spec("Q1")
+    q2 = get_variant_spec("Q2")
     b0 = get_variant_spec("B0")
     g1 = get_variant_spec("G1")
     g2 = get_variant_spec("G2")
@@ -53,6 +58,18 @@ def test_variant_spec_defines_b0_and_prototype_feature_semantics() -> None:
     assert not a1.use_constrained_merge
     assert a0.use_rgb_prototype_similarity
     assert a0.use_depth_prototype_similarity
+    assert not q0.use_rgb_prototype_similarity
+    assert not q0.use_depth_prototype_similarity
+    assert not q0.use_learned_edge_scorer
+    assert q1.use_rgb_prototype_similarity
+    assert q1.use_depth_prototype_similarity
+    assert not q1.use_learned_edge_scorer
+    assert q2.use_rgb_prototype_similarity
+    assert q2.use_depth_prototype_similarity
+    assert q2.use_learned_edge_scorer
+    assert q2.use_bridge_edges
+    assert q2.use_purity_filtering
+    assert q2.use_constrained_merge
     assert not b0.use_learned_edge_scorer
     assert not b0.use_shape_stats
     assert not b0.use_rgb_prototype_similarity
@@ -135,6 +152,39 @@ def test_build_graph_batch_only_enables_shape_feature_for_variants_that_request_
     assert b0_batch.edge_features.shape[1] == 6
     assert torch.allclose(b0_batch.edge_features[:, 5], torch.zeros_like(b0_batch.edge_features[:, 5]))
     assert torch.any(g2_batch.edge_features[:, 5] > 0.0)
+
+
+def test_graph_refiner_merge_is_noop_for_q0() -> None:
+    model = GISECModel(base_channels=8)
+    refiner = GraphRefiner(model)
+    fragments = torch.tensor(
+        [
+            [0, 1, 1, 0],
+            [0, 1, 1, 0],
+            [0, 2, 2, 0],
+            [0, 2, 2, 0],
+        ],
+        dtype=torch.int32,
+    ).numpy()
+    graph_batch = GraphBatch(
+        node_features=torch.zeros((2, 14), dtype=torch.float32),
+        edge_index=torch.tensor([[0], [1]], dtype=torch.long),
+        edge_features=torch.zeros((1, 6), dtype=torch.float32),
+        edge_targets=torch.tensor([1.0], dtype=torch.float32),
+        fragments=fragments,
+        diagnostics={"num_fragments": 2, "num_edges": 1, "num_contact_edges": 1, "num_bridge_edges": 0, "num_ignored_edges": 0, "num_merged": 0},
+        edge_type=torch.tensor([0], dtype=torch.long),
+        edge_ignore_mask=torch.tensor([False], dtype=torch.bool),
+    )
+
+    merged = refiner.merge(
+        graph_batch=graph_batch,
+        edge_logits=torch.tensor([12.0], dtype=torch.float32),
+        threshold=0.5,
+        variant="Q0",
+    )
+
+    assert torch.equal(merged, torch.from_numpy(fragments))
 
 
 def test_build_graph_batch_connects_fragments_across_boundary_gap_and_tracks_diagnostics(

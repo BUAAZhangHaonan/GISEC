@@ -89,6 +89,8 @@ def test_train_gisec_minibatch(tmp_path: Path) -> None:
             "0",
             "--max-train-steps",
             "1",
+            "--graph-warmup-steps",
+            "16",
             "--max-val-images",
             "1",
             "--min-area",
@@ -136,6 +138,15 @@ def test_train_gisec_minibatch(tmp_path: Path) -> None:
     assert "graph_has_edges" in train_rows[0]
     assert "graph_edge_count" in train_rows[0]
     assert "graph_positive_edge_targets" in train_rows[0]
+    assert train_rows[0]["graph_loss"] == 0.0
+    assert "pred_fg_rate" in train_rows[0]
+    assert "pred_boundary_rate" in train_rows[0]
+    assert "target_fg_rate" in train_rows[0]
+    assert "target_boundary_rate" in train_rows[0]
+    assert "fg_prob_p50" in train_rows[0]
+    assert "fg_prob_p95" in train_rows[0]
+    assert "boundary_prob_p50" in train_rows[0]
+    assert "boundary_prob_p95" in train_rows[0]
 
 
 def test_train_gisec_minibatch_accepts_multi_part_reference_root(tmp_path: Path) -> None:

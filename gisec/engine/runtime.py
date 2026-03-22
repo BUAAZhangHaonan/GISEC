@@ -178,6 +178,52 @@ def _compose_instance_score(*, fg_score: float, boundary_score: float, merge_sco
     return _clamp_unit(0.5 * fg_score + 0.35 * merge_score + 0.15 * (1.0 - boundary_score))
 
 
+def _mask_geometry(mask: np.ndarray, *, image_shape: tuple[int, int]) -> Dict[str, float | int | bool]:
+    mask_bool = mask.astype(bool)
+    if not mask_bool.any():
+        return {
+            "area": 0,
+            "area_ratio": 0.0,
+            "width": 0,
+            "height": 0,
+            "touches_border": False,
+        }
+    ys, xs = np.nonzero(mask_bool)
+    x0, x1 = int(xs.min()), int(xs.max())
+    y0, y1 = int(ys.min()), int(ys.max())
+    width = int(x1 - x0 + 1)
+    height = int(y1 - y0 + 1)
+    image_h, image_w = int(image_shape[0]), int(image_shape[1])
+    return {
+        "area": int(mask_bool.sum()),
+        "area_ratio": float(mask_bool.mean()),
+        "width": width,
+        "height": height,
+        "touches_border": bool(x0 == 0 or y0 == 0 or x1 == image_w - 1 or y1 == image_h - 1),
+    }
+
+
+def _classify_single_mask_pathology(
+    mask: np.ndarray,
+    *,
+    image_shape: tuple[int, int],
+    min_area: int,
+) -> str:
+    geometry = _mask_geometry(mask, image_shape=image_shape)
+    if int(geometry["area"]) <= 0:
+        return "empty"
+    tiny_floor = max(int(min_area), int(round(0.02 * int(image_shape[0]) * int(image_shape[1]))))
+    if int(geometry["area"]) < tiny_floor:
+        return "tiny_island"
+    if float(geometry["area_ratio"]) >= 0.95:
+        return "full_frame"
+    if bool(geometry["touches_border"]) and min(int(geometry["width"]), int(geometry["height"])) <= 8:
+        return "border_strip"
+    if float(geometry["area_ratio"]) >= 0.40:
+        return "oversized_blob"
+    return "normal"
+
+
 def _classify_mask_failure(
     masks: List[np.ndarray],
     *,
@@ -186,14 +232,16 @@ def _classify_mask_failure(
 ) -> str:
     if not masks:
         return "empty"
-    image_area = max(1, int(image_shape[0]) * int(image_shape[1]))
-    total_area = int(sum(int(mask.sum()) for mask in masks))
-    if float(total_area) / float(image_area) >= 0.95:
-        return "full"
-    tiny_floor = max(int(min_area), int(round(0.02 * image_area)))
-    if total_area < tiny_floor:
-        return "tiny"
-    return "normal"
+    labels = {
+        _classify_single_mask_pathology(mask, image_shape=image_shape, min_area=min_area)
+        for mask in masks
+    }
+    labels.discard("normal")
+    if not labels:
+        return "normal"
+    if len(labels) > 1:
+        return "mixed"
+    return next(iter(labels))
 
 
 def _extract_reference_routing_row(
@@ -210,10 +258,17 @@ def _extract_reference_routing_row(
     return {
         "image_id": int(image_id),
         "file_name": file_name,
+        "reference_conditioning_mode": str(routing.get("reference_conditioning_mode", "full")),
+        "reference_routing_mode": str(routing.get("reference_routing_mode", "soft_topk")),
         "prototype_slot_count": int(routing.get("prototype_slot_count", 0)),
         "prototype_topk": int(routing.get("prototype_topk", 0)),
         "top_indices": [] if top_indices is None else [[int(item) for item in row] for row in top_indices.tolist()],
         "weights": [] if weights is None else [[float(item) for item in row] for row in weights.tolist()],
+        "top1_weight": [] if routing.get("top1_weight") is None else [float(item) for item in routing["top1_weight"].tolist()],
+        "top2_weight": [] if routing.get("top2_weight") is None else [float(item) for item in routing["top2_weight"].tolist()],
+        "top1_top2_margin": [] if routing.get("top1_top2_margin") is None else [float(item) for item in routing["top1_top2_margin"].tolist()],
+        "routing_entropy": [] if routing.get("routing_entropy") is None else [float(item) for item in routing["routing_entropy"].tolist()],
+        "skip_conditioning": [] if routing.get("skip_conditioning") is None else [bool(item) for item in routing["skip_conditioning"].tolist()],
         "selected_view_ids": list(selected_view_ids[0]) if selected_view_ids else [],
     }
 
@@ -226,9 +281,66 @@ def _summarize_reference_routing(rows: list[Dict[str, Any]]) -> Dict[str, Any]:
     first = rows[0] if rows else {}
     return {
         "total_images": len(rows),
+        "reference_conditioning_mode": str(first.get("reference_conditioning_mode", "full")) if rows else "full",
+        "reference_routing_mode": str(first.get("reference_routing_mode", "soft_topk")) if rows else "soft_topk",
         "prototype_slot_count": int(first.get("prototype_slot_count", 0)) if rows else 0,
         "prototype_topk": int(first.get("prototype_topk", 0)) if rows else 0,
+        "top1_weight_mean": round(float(np.mean([row.get("top1_weight", [0.0])[0] for row in rows])), 6) if rows else 0.0,
+        "top2_weight_mean": round(float(np.mean([row.get("top2_weight", [0.0])[0] for row in rows])), 6) if rows else 0.0,
+        "top1_top2_margin_mean": round(float(np.mean([row.get("top1_top2_margin", [0.0])[0] for row in rows])), 6) if rows else 0.0,
+        "routing_entropy_mean": round(float(np.mean([row.get("routing_entropy", [0.0])[0] for row in rows])), 6) if rows else 0.0,
+        "skip_conditioning_ratio": round(float(np.mean([1.0 if row.get("skip_conditioning", [False])[0] else 0.0 for row in rows])), 6) if rows else 0.0,
         "selected_view_histogram": dict(sorted(histogram.items())),
+    }
+
+
+def _summarize_mask_calibration(rows: list[Dict[str, Any]]) -> Dict[str, Any]:
+    if not rows:
+        return {"total_images": 0}
+    fields = [
+        "pred_fg_rate",
+        "pred_boundary_rate",
+        "target_fg_rate",
+        "target_boundary_rate",
+        "fg_prob_p50",
+        "fg_prob_p90",
+        "fg_prob_p95",
+        "boundary_prob_p50",
+        "boundary_prob_p90",
+        "boundary_prob_p95",
+    ]
+    payload = {"total_images": len(rows)}
+    for field in fields:
+        payload[f"{field}_mean"] = float(np.mean([float(row[field]) for row in rows]))
+    return payload
+
+
+def _summarize_component_pathology(rows: list[Dict[str, Any]]) -> Dict[str, Any]:
+    if not rows:
+        return {"total_images": 0}
+    payload = {
+        "total_images": len(rows),
+        "largest_component_ratio_mean": float(np.mean([float(row["largest_component_ratio"]) for row in rows])),
+        "border_touch_component_count_mean": float(np.mean([float(row["border_touch_component_count"]) for row in rows])),
+        "border_strip_count_mean": float(np.mean([float(row["border_strip_count"]) for row in rows])),
+        "num_components_before_filter_mean": float(np.mean([float(row["num_components_before_filter"]) for row in rows])),
+        "num_components_after_filter_mean": float(np.mean([float(row["num_components_after_filter"]) for row in rows])),
+    }
+    return payload
+
+
+def _summarize_graph_readiness(rows: list[Dict[str, Any]]) -> Dict[str, Any]:
+    if not rows:
+        return {"total_images": 0}
+    return {
+        "total_images": len(rows),
+        "num_fragments_mean": float(np.mean([float(row["num_fragments"]) for row in rows])),
+        "num_edges_mean": float(np.mean([float(row["num_edges"]) for row in rows])),
+        "num_contact_edges_mean": float(np.mean([float(row["num_contact_edges"]) for row in rows])),
+        "num_bridge_edges_mean": float(np.mean([float(row["num_bridge_edges"]) for row in rows])),
+        "num_merged_mean": float(np.mean([float(row["num_merged"]) for row in rows])),
+        "zero_edge_ratio": float(np.mean([1.0 if int(row["num_edges"]) == 0 else 0.0 for row in rows])),
+        "positive_edge_target_ratio": float(np.mean([1.0 if float(row["graph_positive_edge_targets"]) > 0.0 else 0.0 for row in rows])),
     }
 
 
@@ -289,7 +401,7 @@ def _component_merge_score(
     source_labels = {int(x) for x in np.unique(
         fragments[merged_mask]).tolist() if int(x) > 0}
     if len(source_labels) <= 1 or edge_index.numel() == 0:
-        return 0.5
+        return 0.0
     label_order = [int(x) for x in np.unique(fragments).tolist() if int(x) > 0]
     accepted_scores: list[float] = []
     fallback_scores: list[float] = []
@@ -306,7 +418,7 @@ def _component_merge_score(
         return float(np.mean(accepted_scores))
     if fallback_scores:
         return float(np.mean(fallback_scores))
-    return 0.5
+    return 0.0
 
 
 def _build_export_records(
@@ -344,6 +456,26 @@ def _build_export_records(
             )
         )
     return masks, fg_scores, boundary_scores, merge_scores
+
+
+def _filter_component_for_export(
+    *,
+    mask: np.ndarray,
+    score: float,
+    image_shape: tuple[int, int],
+    min_area: int,
+) -> tuple[str, float | None]:
+    label = _classify_single_mask_pathology(mask, image_shape=image_shape, min_area=min_area)
+    geometry = _mask_geometry(mask, image_shape=image_shape)
+    if label in {"full_frame", "border_strip"}:
+        return label, None
+    if (
+        bool(geometry["touches_border"])
+        and min(int(geometry["width"]), int(geometry["height"])) <= 16
+        and float(geometry["area_ratio"]) <= 0.03
+    ):
+        return "border_slab", _clamp_unit(float(score) * 0.2)
+    return label, float(score)
 
 
 def _image_tensor_to_rgb(image_tensor: torch.Tensor) -> np.ndarray:
@@ -480,6 +612,11 @@ def build_model(
     norm_layer: str = "group",
     prototype_slot_count: int = 6,
     prototype_topk: int = 2,
+    fg_prior: float = 0.093,
+    boundary_prior: float = 0.024,
+    reference_conditioning_mode: str = "full",
+    reference_routing_mode: str = "soft_topk",
+    reference_skip_margin: float = 0.0,
 ) -> GISECModel:
     model = GISECModel(
         base_channels=base_channels,
@@ -487,6 +624,11 @@ def build_model(
         norm_layer=norm_layer,
         prototype_slot_count=prototype_slot_count,
         prototype_topk=prototype_topk,
+        fg_prior=fg_prior,
+        boundary_prior=boundary_prior,
+        reference_conditioning_mode=reference_conditioning_mode,
+        reference_routing_mode=reference_routing_mode,
+        reference_skip_margin=reference_skip_margin,
     ).to(device)
     if checkpoint is not None:
         state_dict = torch.load(str(checkpoint), map_location=device)
@@ -523,10 +665,17 @@ def evaluate_and_export(
     variant_spec = get_variant_spec(variant)
     refiner = GraphRefiner(model)
     results: list[Dict[str, Any]] = []
+    results_raw: list[Dict[str, Any]] = []
     latencies_ms: list[float] = []
     diagnostics_path = None if artifact_dir is None else artifact_dir / \
         "graph_diagnostics.jsonl"
     failure_summary_path = None if artifact_dir is None else artifact_dir / "failure_summary.json"
+    mask_calibration_path = None if artifact_dir is None else artifact_dir / "mask_calibration_summary.json"
+    mask_calibration_rows_path = None if artifact_dir is None else artifact_dir / "mask_calibration.jsonl"
+    component_summary_path = None if artifact_dir is None else artifact_dir / "component_pathology_summary.json"
+    component_rows_path = None if artifact_dir is None else artifact_dir / "component_pathology.jsonl"
+    graph_readiness_path = None if artifact_dir is None else artifact_dir / "graph_readiness_summary.json"
+    routing_confidence_path = None if artifact_dir is None else artifact_dir / "routing_confidence_summary.json"
     routing_summary_path = None if artifact_dir is None else artifact_dir / "reference_routing_summary.json"
     routing_rows_path = None if artifact_dir is None else artifact_dir / "reference_routing.jsonl"
     overlay_dir = None if artifact_dir is None else artifact_dir / \
@@ -536,13 +685,27 @@ def evaluate_and_export(
         diagnostics_limit) <= 0 else int(diagnostics_limit)
     overlays_written = 0
     diagnostics_written = 0
-    failure_counts = {"empty": 0, "tiny": 0, "full": 0, "normal": 0}
+    failure_counts = {
+        "empty": 0,
+        "tiny_island": 0,
+        "border_strip": 0,
+        "full_frame": 0,
+        "oversized_blob": 0,
+        "mixed": 0,
+        "normal": 0,
+    }
     routing_rows: list[Dict[str, Any]] = []
+    mask_calibration_rows: list[Dict[str, Any]] = []
+    component_rows: list[Dict[str, Any]] = []
+    graph_rows: list[Dict[str, Any]] = []
     prototype_source.clear()
     if save_graph_diagnostics and diagnostics_path is not None and diagnostics_path.exists():
         diagnostics_path.unlink()
     if routing_rows_path is not None and routing_rows_path.exists():
         routing_rows_path.unlink()
+    for path in [mask_calibration_rows_path, component_rows_path]:
+        if path is not None and path.exists():
+            path.unlink()
     if save_overlays and overlay_dir is not None:
         _prepare_overlay_dir(overlay_dir)
     model.eval()
@@ -592,21 +755,80 @@ def evaluate_and_export(
                 min_area=min_area,
                 threshold=edge_threshold,
             )
-            results.extend(
-                masks_to_results(
-                    int(batch["image_ids"][0]),
-                    masks,
-                    fg_scores=fg_scores,
-                    boundary_scores=boundary_scores,
-                    merge_scores=merge_scores,
-                )
+            raw_results = masks_to_results(
+                int(batch["image_ids"][0]),
+                masks,
+                fg_scores=fg_scores,
+                boundary_scores=boundary_scores,
+                merge_scores=merge_scores,
             )
+            results_raw.extend(raw_results)
+            filtered_results: list[Dict[str, Any]] = []
+            component_labels: list[str] = []
+            border_touch_count = 0
+            border_strip_count = 0
+            largest_component_ratio = 0.0
+            image_shape = merged.shape
+            for mask, result in zip(masks, raw_results):
+                geometry = _mask_geometry(mask, image_shape=image_shape)
+                border_touch_count += 1 if bool(geometry["touches_border"]) else 0
+                largest_component_ratio = max(largest_component_ratio, float(geometry["area_ratio"]))
+                component_label, adjusted_score = _filter_component_for_export(
+                    mask=mask,
+                    score=float(result["score"]),
+                    image_shape=image_shape,
+                    min_area=int(min_area),
+                )
+                component_labels.append(component_label)
+                if component_label == "border_strip":
+                    border_strip_count += 1
+                if adjusted_score is None:
+                    continue
+                updated = dict(result)
+                updated["score"] = float(adjusted_score)
+                filtered_results.append(updated)
+            results.extend(filtered_results)
             failure_bucket = _classify_mask_failure(
                 masks,
                 image_shape=merged.shape,
                 min_area=int(min_area),
             )
             failure_counts[failure_bucket] = int(failure_counts.get(failure_bucket, 0)) + 1
+            mask_row = {
+                "image_id": int(batch["image_ids"][0]),
+                "file_name": batch["file_names"][0],
+                "pred_fg_rate": float((fg_prob >= float(fragment_fg_threshold)).mean()),
+                "pred_boundary_rate": float((boundary_prob >= float(fragment_boundary_threshold)).mean()),
+                "target_fg_rate": float(batch["fg_target"][0, 0].float().mean().item()),
+                "target_boundary_rate": float(batch["boundary_target"][0, 0].float().mean().item()),
+                "fg_prob_p50": float(np.percentile(fg_prob, 50)),
+                "fg_prob_p90": float(np.percentile(fg_prob, 90)),
+                "fg_prob_p95": float(np.percentile(fg_prob, 95)),
+                "boundary_prob_p50": float(np.percentile(boundary_prob, 50)),
+                "boundary_prob_p90": float(np.percentile(boundary_prob, 90)),
+                "boundary_prob_p95": float(np.percentile(boundary_prob, 95)),
+            }
+            mask_calibration_rows.append(mask_row)
+            if mask_calibration_rows_path is not None:
+                mask_calibration_rows_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(mask_calibration_rows_path, "a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(mask_row, ensure_ascii=False) + "\n")
+            component_row = {
+                "image_id": int(batch["image_ids"][0]),
+                "file_name": batch["file_names"][0],
+                "num_components_before_filter": len(masks),
+                "num_components_after_filter": len(filtered_results),
+                "largest_component_ratio": largest_component_ratio,
+                "border_touch_component_count": border_touch_count,
+                "border_strip_count": border_strip_count,
+                "failure_bucket": failure_bucket,
+                "component_labels": component_labels,
+            }
+            component_rows.append(component_row)
+            if component_rows_path is not None:
+                component_rows_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(component_rows_path, "a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(component_row, ensure_ascii=False) + "\n")
             routing_row = _extract_reference_routing_row(
                 outputs.get("reference_routing"),
                 image_id=int(batch["image_ids"][0]),
@@ -640,6 +862,7 @@ def evaluate_and_export(
                     handle.write(json.dumps(diagnostic_row,
                                  ensure_ascii=False) + "\n")
                 diagnostics_written += 1
+                graph_rows.append(diagnostic_row)
             if save_overlays and overlay_dir is not None and (overlay_budget is None or overlays_written < overlay_budget):
                 image_rgb = _image_tensor_to_rgb(batch["images"][0])
                 stem = Path(batch["file_names"][0]).stem
@@ -658,10 +881,27 @@ def evaluate_and_export(
             {
                 "total_images": int(sum(failure_counts.values())),
                 "counts": failure_counts,
+                "legacy_counts": {
+                    "empty": int(failure_counts["empty"]),
+                    "tiny": int(failure_counts["tiny_island"]),
+                    "full": int(failure_counts["full_frame"]),
+                    "normal": int(failure_counts["normal"]),
+                },
             },
         )
+    if mask_calibration_path is not None:
+        write_json(mask_calibration_path, _summarize_mask_calibration(mask_calibration_rows))
+    if component_summary_path is not None:
+        write_json(component_summary_path, _summarize_component_pathology(component_rows))
+    if graph_readiness_path is not None:
+        write_json(graph_readiness_path, _summarize_graph_readiness(graph_rows))
     if routing_summary_path is not None:
         write_json(routing_summary_path, _summarize_reference_routing(routing_rows))
+    if routing_confidence_path is not None:
+        write_json(routing_confidence_path, _summarize_reference_routing(routing_rows))
+    raw_results_path = results_json.with_name("coco_instances_results.raw.json")
+    raw_results_path.parent.mkdir(parents=True, exist_ok=True)
+    raw_results_path.write_text(json.dumps(results_raw, ensure_ascii=False) + "\n", encoding="utf-8")
     results_json.parent.mkdir(parents=True, exist_ok=True)
     results_json.write_text(json.dumps(
         results, ensure_ascii=False) + "\n", encoding="utf-8")

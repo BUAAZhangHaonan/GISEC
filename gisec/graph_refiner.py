@@ -86,6 +86,8 @@ class GraphRefiner:
         variant: str | VariantSpec = "G5",
     ) -> torch.Tensor:
         variant_spec = get_variant_spec(variant)
+        if not variant_spec.use_graph_merge:
+            return torch.from_numpy(graph_batch.fragments.copy())
         merged = merge_instances_from_edge_scores(
             fragments=graph_batch.fragments,
             edge_index=graph_batch.edge_index,

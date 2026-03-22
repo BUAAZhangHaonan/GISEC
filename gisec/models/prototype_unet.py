@@ -31,6 +31,11 @@ def make_norm2d(channels: int, norm_layer: str) -> nn.Module:
     raise ValueError(f"Unsupported norm_layer: {norm_layer}")
 
 
+def _prior_logit(prior: float) -> float:
+    clipped = min(max(float(prior), 1e-6), 1.0 - 1e-6)
+    return float(torch.logit(torch.tensor(clipped)).item())
+
+
 class ConvBlock(nn.Module):
     def __init__(self, in_channels: int, out_channels: int, norm_layer: str):
         super().__init__()
@@ -70,10 +75,20 @@ class PrototypeConditionedUNetBackbone(nn.Module):
         norm_layer: str = "group",
         prototype_slot_count: int = 6,
         prototype_topk: int = 2,
+        fg_prior: float = 0.093,
+        boundary_prior: float = 0.024,
+        reference_conditioning_mode: str = "full",
+        reference_routing_mode: str = "soft_topk",
+        reference_skip_margin: float = 0.0,
     ):
         super().__init__()
         self.prototype_slot_count = int(prototype_slot_count)
         self.prototype_topk = int(prototype_topk)
+        self.fg_prior = float(fg_prior)
+        self.boundary_prior = float(boundary_prior)
+        self.reference_conditioning_mode = str(reference_conditioning_mode)
+        self.reference_routing_mode = str(reference_routing_mode)
+        self.reference_skip_margin = float(reference_skip_margin)
         self.output_channels = base_channels
         c1, c2, c3, c4 = base_channels, base_channels * \
             2, base_channels * 4, base_channels * 8
@@ -101,6 +116,8 @@ class PrototypeConditionedUNetBackbone(nn.Module):
         self.fg_head = nn.Conv2d(c1, 1, kernel_size=1)
         self.boundary_head = nn.Conv2d(c1, 1, kernel_size=1)
         self.ownership_head = nn.Conv2d(c1, 2, kernel_size=1)
+        nn.init.constant_(self.fg_head.bias, _prior_logit(self.fg_prior))
+        nn.init.constant_(self.boundary_head.bias, _prior_logit(self.boundary_prior))
 
     def _depth_to_geometry(self, depth: torch.Tensor) -> torch.Tensor:
         if depth.ndim != 4 or depth.shape[1] != 1:
@@ -179,7 +196,25 @@ class PrototypeConditionedUNetBackbone(nn.Module):
         images: torch.Tensor,
         query_depth: torch.Tensor | None = None,
         prototype_cache: PrototypeCache | None = None,
+        reference_conditioning_mode: str | None = None,
+        reference_routing_mode: str | None = None,
+        reference_skip_margin: float | None = None,
     ) -> Dict[str, torch.Tensor]:
+        conditioning_mode = (
+            self.reference_conditioning_mode
+            if reference_conditioning_mode is None
+            else str(reference_conditioning_mode)
+        )
+        routing_mode = (
+            self.reference_routing_mode
+            if reference_routing_mode is None
+            else str(reference_routing_mode)
+        )
+        skip_margin = (
+            self.reference_skip_margin
+            if reference_skip_margin is None
+            else float(reference_skip_margin)
+        )
         feats = self._encode_query(images)
         xb = feats["xb"]
         x1 = feats["x1"]
@@ -203,48 +238,59 @@ class PrototypeConditionedUNetBackbone(nn.Module):
                 query_descriptor_b,
                 prototype_cache.proto_b.to(xb.device),
                 topk=topk,
+                routing_mode=routing_mode,
+                skip_margin=skip_margin,
             )
-            routed_proto_h = mix_prototype_slots(
-                prototype_cache.proto_h.to(x1.device),
-                routing["top_indices"],
-                routing["weights"],
-            )
-            routed_proto_d = mix_prototype_slots(
-                prototype_cache.proto_d.to(xb.device),
-                routing["top_indices"],
-                routing["weights"],
-            )
-            sim_b = cosine_similarity_map(xb, routed_proto_b)
-            gate_b = torch.sigmoid(routed_proto_b)
-            proto_depth_b = F.interpolate(
-                routed_proto_d.mean(dim=1, keepdim=True),
-                size=xb.shape[-2:],
-                mode="bilinear",
-                align_corners=False,
-            )
-            xb = self.prototype_bottleneck_fuse(
-                torch.cat([xb * gate_b, sim_b, proto_depth_b], dim=1))
+            if not bool(routing["skip_conditioning"].all()):
+                routed_proto_d = mix_prototype_slots(
+                    prototype_cache.proto_d.to(xb.device),
+                    routing["top_indices"],
+                    routing["weights"],
+                )
+                sim_b = cosine_similarity_map(xb, routed_proto_b)
+                gate_b = torch.sigmoid(routed_proto_b)
+                proto_depth_b = F.interpolate(
+                    routed_proto_d.mean(dim=1, keepdim=True),
+                    size=xb.shape[-2:],
+                    mode="bilinear",
+                    align_corners=False,
+                )
+                xb = self.prototype_bottleneck_fuse(
+                    torch.cat([xb * gate_b, sim_b, proto_depth_b], dim=1))
 
-            sim_h = cosine_similarity_map(x1, routed_proto_h)
-            gate_h = torch.sigmoid(routed_proto_h)
-            proto_depth_h = F.interpolate(
-                routed_proto_d.mean(dim=1, keepdim=True).to(x1.device),
-                size=x1.shape[-2:],
-                mode="bilinear",
-                align_corners=False,
-            )
-            x1 = self.prototype_highres_fuse(
-                torch.cat([x1 * gate_h, sim_h, proto_depth_h], dim=1))
+                if conditioning_mode == "full":
+                    routed_proto_h = mix_prototype_slots(
+                        prototype_cache.proto_h.to(x1.device),
+                        routing["top_indices"],
+                        routing["weights"],
+                    )
+                    sim_h = cosine_similarity_map(x1, routed_proto_h)
+                    gate_h = torch.sigmoid(routed_proto_h)
+                    proto_depth_h = F.interpolate(
+                        routed_proto_d.mean(dim=1, keepdim=True).to(x1.device),
+                        size=x1.shape[-2:],
+                        mode="bilinear",
+                        align_corners=False,
+                    )
+                    x1 = self.prototype_highres_fuse(
+                        torch.cat([x1 * gate_h, sim_h, proto_depth_h], dim=1))
             view_ids = list(prototype_cache.routing_meta.get("view_ids", []))
             selected_view_ids = [
                 [view_ids[int(index)] for index in row.tolist() if int(index) < len(view_ids)]
                 for row in routing["top_indices"]
             ]
             reference_routing = {
+                "reference_conditioning_mode": conditioning_mode,
+                "reference_routing_mode": routing_mode,
                 "prototype_slot_count": int(prototype_cache.routing_meta.get("slot_count", prototype_cache.proto_b.shape[0])),
                 "prototype_topk": int(routing["weights"].shape[1]),
                 "top_indices": routing["top_indices"].detach().cpu(),
                 "weights": routing["weights"].detach().cpu(),
+                "top1_weight": routing["top1_weight"].detach().cpu(),
+                "top2_weight": routing["top2_weight"].detach().cpu(),
+                "top1_top2_margin": routing["top1_top2_margin"].detach().cpu(),
+                "routing_entropy": routing["routing_entropy"].detach().cpu(),
+                "skip_conditioning": routing["skip_conditioning"].detach().cpu(),
                 "selected_view_ids": selected_view_ids,
             }
         else:
