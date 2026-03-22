@@ -10,7 +10,7 @@ common:
   reference_routing_mode: hard_top1
   reference_skip_margin: 0.0
   min_area: 256
-  fragment_fg_threshold: 0.2
+  fragment_fg_threshold: 0.12
   fragment_boundary_threshold: 0.03
   save_overlays: true
   overlay_limit: 8
@@ -19,7 +19,7 @@ common:
 train:
   epochs: 1
   fg_dice_weight: 0.5
-  boundary_pos_weight: 40.0
+  boundary_pos_weight: 10.0
   graph_warmup_steps: 16
   max_train_steps: 8
   max_val_images: 16

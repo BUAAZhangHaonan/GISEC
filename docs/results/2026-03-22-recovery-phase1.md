@@ -69,3 +69,24 @@
   - boundary calibration
   - fragment quality
 - Only push harder on graph rescue after training-time graph edges appear consistently.
+
+## Best Current Short-Run Recovery Setting
+- The strongest short-run setting observed so far is:
+  - `boundary_pos_weight = 10`
+  - `fragment_fg_threshold = 0.12`
+  - `fragment_boundary_threshold = 0.03`
+- Under `Q2 + 32 steps`, this setting produced:
+  - `failure_summary`: `3 normal / 13 tiny_island / 0 empty`
+  - `graph_readiness`:
+    - `num_fragments_mean = 17.125`
+    - `num_edges_mean = 23.0625`
+    - `num_bridge_edges_mean = 12.125`
+    - `zero_edge_ratio = 0.0`
+- Training logs also showed graph loss activating after warmup, with nonzero edge counts in late steps.
+- A follow-up partial probe with `fg_threshold = 0.14` became worse, not better:
+  - more fragments
+  - more tiny islands
+  - no sign of cleaner recovery
+- So the current recommendation is:
+  - keep `0.12`, do not raise the foreground threshold further for recovery smoke
+  - keep the lower boundary positive weight for the next round
