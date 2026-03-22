@@ -307,6 +307,10 @@ def balanced_bce_with_logits(
     return F.binary_cross_entropy_with_logits(logits, target, pos_weight=pos_weight)
 
 
+def _prob_quantile(probs: torch.Tensor, q: float) -> float:
+    return float(torch.quantile(probs.float().flatten(), float(q)).cpu())
+
+
 def forward_with_reference_routing(
     *,
     model: torch.nn.Module,
@@ -565,12 +569,12 @@ def train_main(args: argparse.Namespace) -> None:
                     "pred_boundary_rate": float((boundary_probs >= 0.5).float().mean().cpu()),
                     "target_fg_rate": float(fg_target.mean().cpu()),
                     "target_boundary_rate": float(boundary_target.mean().cpu()),
-                    "fg_prob_p50": float(torch.quantile(fg_probs.flatten(), 0.50).cpu()),
-                    "fg_prob_p90": float(torch.quantile(fg_probs.flatten(), 0.90).cpu()),
-                    "fg_prob_p95": float(torch.quantile(fg_probs.flatten(), 0.95).cpu()),
-                    "boundary_prob_p50": float(torch.quantile(boundary_probs.flatten(), 0.50).cpu()),
-                    "boundary_prob_p90": float(torch.quantile(boundary_probs.flatten(), 0.90).cpu()),
-                    "boundary_prob_p95": float(torch.quantile(boundary_probs.flatten(), 0.95).cpu()),
+                    "fg_prob_p50": _prob_quantile(fg_probs, 0.50),
+                    "fg_prob_p90": _prob_quantile(fg_probs, 0.90),
+                    "fg_prob_p95": _prob_quantile(fg_probs, 0.95),
+                    "boundary_prob_p50": _prob_quantile(boundary_probs, 0.50),
+                    "boundary_prob_p90": _prob_quantile(boundary_probs, 0.90),
+                    "boundary_prob_p95": _prob_quantile(boundary_probs, 0.95),
                     "relation_target": relation_target_key(variant_spec),
                     "graph_has_edges": int(graph_has_edges),
                     "graph_edge_count": int(graph_edge_count),

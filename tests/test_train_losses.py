@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import torch
 
-from gisec.train.train_gisec import balanced_bce_with_logits, dice_loss_with_logits
+from gisec.train.train_gisec import (
+    _prob_quantile,
+    balanced_bce_with_logits,
+    dice_loss_with_logits,
+)
 
 
 def test_dice_loss_with_logits_rewards_better_foreground_overlap() -> None:
@@ -27,3 +31,12 @@ def test_balanced_bce_with_logits_upweights_boundary_positives() -> None:
     weighted = balanced_bce_with_logits(logits, target, positive_weight=4.0)
 
     assert weighted > base
+
+
+def test_prob_quantile_casts_half_precision_probabilities() -> None:
+    probs = torch.tensor([0.1, 0.2, 0.8, 0.9], dtype=torch.float16)
+
+    q = _prob_quantile(probs, 0.5)
+
+    assert isinstance(q, float)
+    assert 0.19 <= q <= 0.81
