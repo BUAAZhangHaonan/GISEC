@@ -44,6 +44,12 @@ This repository is intentionally independent from the `magformer` training stack
 - [docs/experiments/README.md](docs/experiments/README.md)
 - [docs/results/README.md](docs/results/README.md)
 - [docs/method/README.md](docs/method/README.md)
+- [docs/plans/2026-03-23-gisec-v3-alpha-master-plan.md](docs/plans/2026-03-23-gisec-v3-alpha-master-plan.md)
+- [docs/plans/2026-03-23-01-gisec-v3-alpha-freeze-and-separation.md](docs/plans/2026-03-23-01-gisec-v3-alpha-freeze-and-separation.md)
+- [docs/plans/2026-03-23-02-gisec-v3-alpha-uq-backbone.md](docs/plans/2026-03-23-02-gisec-v3-alpha-uq-backbone.md)
+- [docs/plans/2026-03-23-03-gisec-v3-alpha-object-proposal-and-training.md](docs/plans/2026-03-23-03-gisec-v3-alpha-object-proposal-and-training.md)
+- [docs/plans/2026-03-23-04-gisec-v3-alpha-eval-ladder.md](docs/plans/2026-03-23-04-gisec-v3-alpha-eval-ladder.md)
+- [docs/plans/2026-03-23-05-gisec-v3-alpha-reference-graph-reentry.md](docs/plans/2026-03-23-05-gisec-v3-alpha-reference-graph-reentry.md)
 - [docs/method/gisec-v2-method.md](docs/method/gisec-v2-method.md)
 - [docs/plans/2026-03-19-gisec-v2-master-plan.md](docs/plans/2026-03-19-gisec-v2-master-plan.md)
 - [docs/release-checklist.md](docs/release-checklist.md)
@@ -105,7 +111,7 @@ Use `GISEC_CONDA_ENV=gisec` or `GISEC_PYTHON=/path/to/python` to control how the
 
 ### Configs
 
-The repository now supports layered YAML defaults under [configs/README.md](/home/k100/.config/superpowers/worktrees/gisec/gisec-v2-phase1/configs/README.md). CLI flags still win over YAML, so you can keep using the current commands while gradually moving experiment settings out of shell scripts.
+The repository now supports layered YAML defaults under [configs/README.md](configs/README.md). CLI flags still win over YAML, so you can keep using the current commands while gradually moving experiment settings out of shell scripts.
 
 ```bash
 python -m gisec.cli.train \
@@ -116,8 +122,9 @@ python -m gisec.cli.train \
   --output-dir output/experiments/gisec_v2_smoke/A1
 ```
 
-## Variant Semantics
+## Legacy Variant Semantics
 
+The following names are `historical/debug-only` and belong to the `v1.5 legacy` fragment-first line:
 - `B0`: heuristic merge baseline without prototype priors
 - `G1`: learned graph edge scorer with boundary + affinity
 - `G2`: `G1 + shape_stats`
@@ -127,6 +134,8 @@ python -m gisec.cli.train \
 - `Q0`: query-mask-only recovery debug variant
 - `Q1`: query-mask + reference routing recovery debug variant
 - `Q2`: query-mask + reference routing + graph rescue recovery debug variant
+
+`GISEC v3-alpha` does not reuse these names as its active model family.
 
 ## Recovery Smoke
 
