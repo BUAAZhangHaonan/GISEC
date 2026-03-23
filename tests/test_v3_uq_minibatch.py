@@ -10,7 +10,14 @@ import torch
 from gisec.datasets.ecc_query_dataset import build_ownership_target as build_legacy_ownership_target
 from gisec_v3.train.targets import build_ownership_target as build_v3_ownership_target
 from gisec_v3.train.train_uq import run_uq_minibatch
-from gisec_v3.train.train_uq import _build_alpha_targets_from_instance_maps, _classify_failure, _compute_alpha_losses
+from gisec_v3.train.train_uq import (
+    _build_alpha_optimizer,
+    _build_alpha_targets_from_instance_maps,
+    _classify_failure,
+    _compute_alpha_losses,
+    _reduce_alpha_losses,
+)
+from gisec_v3.engine.factory import build_v3_model
 
 
 def _write_dataset(root: Path, *, file_name: str = "000001.png") -> None:
@@ -144,7 +151,7 @@ def test_v3_alpha_losses_reward_better_predictions() -> None:
     assert good_losses["ownership"] <= bad_losses["ownership"]
 
 
-def test_v3_alpha_fg_loss_matches_plain_bce_plus_dice_contract() -> None:
+def test_v3_alpha_fg_loss_matches_balanced_bce_plus_dice_contract() -> None:
     instance_maps = torch.zeros((1, 32, 32), dtype=torch.long)
     instance_maps[0, 8:24, 8:24] = 1
     targets = _build_alpha_targets_from_instance_maps(instance_maps)
@@ -156,7 +163,11 @@ def test_v3_alpha_fg_loss_matches_plain_bce_plus_dice_contract() -> None:
     }
 
     losses = _compute_alpha_losses(outputs, targets)
-    expected_bce = torch.nn.functional.binary_cross_entropy_with_logits(outputs["fg_logits"], targets["fg"])
+    pos = float(targets["fg"].sum().item())
+    total = float(targets["fg"].numel())
+    neg = max(total - pos, 0.0)
+    pos_weight = torch.tensor(min(max(neg / pos, 1.0), 64.0), dtype=targets["fg"].dtype)
+    expected_bce = torch.nn.functional.binary_cross_entropy_with_logits(outputs["fg_logits"], targets["fg"], pos_weight=pos_weight)
     probs = torch.sigmoid(outputs["fg_logits"])
     intersection = (probs * targets["fg"]).sum(dim=(1, 2, 3))
     denominator = probs.sum(dim=(1, 2, 3)) + targets["fg"].sum(dim=(1, 2, 3))
@@ -173,3 +184,33 @@ def test_v3_failure_classifier_keeps_oversized_blob_separate_from_under_count() 
     pred_map[1:15, 1:15] = 1
 
     assert _classify_failure(gt_map, pred_map) == "oversized_blob"
+
+
+def test_v3_alpha_loss_reduction_uses_ownership_warmup_and_weighted_terms() -> None:
+    losses = {
+        "fg": torch.tensor(1.0),
+        "boundary": torch.tensor(2.0),
+        "core": torch.tensor(3.0),
+        "ownership": torch.tensor(4.0),
+    }
+    loss_weights = {
+        "fg": 1.0,
+        "boundary": 0.5,
+        "core": 4.0,
+        "ownership": 0.25,
+    }
+
+    warm = _reduce_alpha_losses(losses, step_index=1, ownership_warmup_steps=8, loss_weights=loss_weights)
+    late = _reduce_alpha_losses(losses, step_index=8, ownership_warmup_steps=8, loss_weights=loss_weights)
+
+    assert torch.isclose(warm, torch.tensor(14.0))
+    assert torch.isclose(late, torch.tensor(15.0))
+
+
+def test_v3_alpha_optimizer_uses_higher_lr_for_prediction_heads() -> None:
+    model = build_v3_model("UQ-s")
+
+    optimizer = _build_alpha_optimizer(model, lr=1.0e-4, head_lr_multiplier=10.0)
+
+    lrs = sorted({group["lr"] for group in optimizer.param_groups})
+    assert lrs == [1.0e-4, 1.0e-3]

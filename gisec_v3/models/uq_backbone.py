@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -7,6 +9,11 @@ from torchvision.models import resnet18, resnet34
 
 from gisec_v3.config.model_registry import V3ModelSpec
 from gisec_v3.models.depth_geometry import depth_to_geometry
+
+
+FG_PRIOR = 0.10
+BOUNDARY_PRIOR = 0.024
+CORE_PRIOR = 0.0015
 
 
 def _resolve_group_count(channels: int, max_groups: int = 8) -> int:
@@ -18,6 +25,11 @@ def _resolve_group_count(channels: int, max_groups: int = 8) -> int:
 
 def _make_group_norm(channels: int) -> nn.GroupNorm:
     return nn.GroupNorm(_resolve_group_count(channels), channels)
+
+
+def _logit(probability: float) -> float:
+    p = min(max(float(probability), 1.0e-6), 1.0 - 1.0e-6)
+    return math.log(p / (1.0 - p))
 
 
 class ConvBlock(nn.Module):
@@ -79,6 +91,19 @@ class UQBackbone(nn.Module):
         self.boundary_head = nn.Conv2d(decoder_channels, 1, kernel_size=1)
         self.core_head = nn.Conv2d(decoder_channels, 1, kernel_size=1)
         self.ownership_head = nn.Conv2d(decoder_channels, 2, kernel_size=1)
+        self._init_prediction_heads()
+
+    def _init_prediction_heads(self) -> None:
+        # Start the dense heads from realistic sparse priors instead of random 0.5-style maps.
+        for head, prior in (
+            (self.fg_head, FG_PRIOR),
+            (self.boundary_head, BOUNDARY_PRIOR),
+            (self.core_head, CORE_PRIOR),
+        ):
+            nn.init.zeros_(head.weight)
+            nn.init.constant_(head.bias, _logit(prior))
+        nn.init.zeros_(self.ownership_head.weight)
+        nn.init.zeros_(self.ownership_head.bias)
 
     def forward(self, images: torch.Tensor, depth: torch.Tensor) -> dict[str, torch.Tensor]:
         x = torch.cat([images, depth_to_geometry(depth)], dim=1)

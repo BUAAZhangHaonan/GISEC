@@ -35,9 +35,16 @@ def build_parser(argv: list[str] | None = None, *, mode: str = "train") -> argpa
     parser.add_argument("--image-size", type=int, default=64)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--num-workers", type=int, default=0)
+    parser.add_argument("--lr", type=float, default=1.0e-4)
+    parser.add_argument("--head-lr-multiplier", type=float, default=10.0)
     parser.add_argument("--max-train-steps", type=int, default=1)
     parser.add_argument("--max-val-images", type=int, default=1)
     parser.add_argument("--min-area", type=int, default=8)
+    parser.add_argument("--fg-loss-weight", type=float, default=1.0)
+    parser.add_argument("--boundary-loss-weight", type=float, default=0.5)
+    parser.add_argument("--core-loss-weight", type=float, default=4.0)
+    parser.add_argument("--ownership-loss-weight", type=float, default=0.25)
+    parser.add_argument("--ownership-warmup-steps", type=int, default=16)
     parser.add_argument("--checkpoint", default="")
     parser.add_argument("--dry-run", action="store_true")
     parser.set_defaults(**defaults)
@@ -54,9 +61,16 @@ def _print_payload(args: argparse.Namespace, *, mode: str) -> None:
         "image_size": int(args.image_size),
         "batch_size": int(args.batch_size),
         "num_workers": int(args.num_workers),
+        "lr": float(args.lr),
+        "head_lr_multiplier": float(args.head_lr_multiplier),
         "max_train_steps": int(args.max_train_steps),
         "max_val_images": int(args.max_val_images),
         "min_area": int(args.min_area),
+        "fg_loss_weight": float(args.fg_loss_weight),
+        "boundary_loss_weight": float(args.boundary_loss_weight),
+        "core_loss_weight": float(args.core_loss_weight),
+        "ownership_loss_weight": float(args.ownership_loss_weight),
+        "ownership_warmup_steps": int(args.ownership_warmup_steps),
         "checkpoint": args.checkpoint,
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -88,9 +102,16 @@ def main(argv: list[str] | None = None) -> None:
         image_size=int(args.image_size),
         batch_size=int(args.batch_size),
         num_workers=int(args.num_workers),
+        lr=float(args.lr),
+        head_lr_multiplier=float(args.head_lr_multiplier),
         max_train_steps=int(args.max_train_steps),
         max_val_images=int(args.max_val_images),
         min_area=int(args.min_area),
+        fg_loss_weight=float(args.fg_loss_weight),
+        boundary_loss_weight=float(args.boundary_loss_weight),
+        core_loss_weight=float(args.core_loss_weight),
+        ownership_loss_weight=float(args.ownership_loss_weight),
+        ownership_warmup_steps=int(args.ownership_warmup_steps),
     )
 
 

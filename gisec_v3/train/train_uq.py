@@ -85,7 +85,7 @@ def _focal_heatmap_loss(
 
 
 def _compute_alpha_losses(outputs: dict[str, torch.Tensor], targets: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-    fg_bce = F.binary_cross_entropy_with_logits(outputs["fg_logits"], targets["fg"])
+    fg_bce = _balanced_bce_with_logits(outputs["fg_logits"], targets["fg"])
     fg_dice = _dice_loss_from_logits(outputs["fg_logits"], targets["fg"])
     loss_fg = fg_bce + fg_dice
     loss_boundary = _balanced_bce_with_logits(outputs["boundary_logits"], targets["boundary"])
@@ -101,6 +101,39 @@ def _compute_alpha_losses(outputs: dict[str, torch.Tensor], targets: dict[str, t
         "core": loss_core,
         "ownership": loss_ownership,
     }
+
+
+def _reduce_alpha_losses(
+    losses: dict[str, torch.Tensor],
+    *,
+    step_index: int,
+    ownership_warmup_steps: int,
+    loss_weights: dict[str, float],
+) -> torch.Tensor:
+    total = losses["fg"] * float(loss_weights["fg"])
+    total = total + losses["boundary"] * float(loss_weights["boundary"])
+    total = total + losses["core"] * float(loss_weights["core"])
+    ownership_weight = 0.0 if int(step_index) < int(ownership_warmup_steps) else float(loss_weights["ownership"])
+    total = total + losses["ownership"] * ownership_weight
+    return total
+
+
+def _build_alpha_optimizer(model: torch.nn.Module, *, lr: float, head_lr_multiplier: float) -> torch.optim.Optimizer:
+    head_params = []
+    base_params = []
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+        if any(token in name for token in ("fg_head", "boundary_head", "core_head", "ownership_head")):
+            head_params.append(param)
+        else:
+            base_params.append(param)
+    return torch.optim.Adam(
+        [
+            {"params": base_params, "lr": float(lr)},
+            {"params": head_params, "lr": float(lr) * float(head_lr_multiplier)},
+        ]
+    )
 
 
 def _append_jsonl(path: Path, payload: dict) -> None:
@@ -167,6 +200,13 @@ def run_uq_minibatch(
     max_train_steps: int = 1,
     max_val_images: int = 1,
     min_area: int = 8,
+    lr: float = 1.0e-4,
+    head_lr_multiplier: float = 10.0,
+    fg_loss_weight: float = 1.0,
+    boundary_loss_weight: float = 0.5,
+    core_loss_weight: float = 4.0,
+    ownership_loss_weight: float = 0.25,
+    ownership_warmup_steps: int = 16,
 ) -> None:
     start_time = time.perf_counter()
     dataset_root = Path(dataset_root).resolve()
@@ -183,7 +223,13 @@ def run_uq_minibatch(
     if checkpoint is not None and Path(checkpoint).exists():
         state = torch.load(Path(checkpoint), map_location=device_obj)
         model.load_state_dict(state["model"] if isinstance(state, dict) and "model" in state else state)
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    optimizer = _build_alpha_optimizer(model, lr=lr, head_lr_multiplier=head_lr_multiplier)
+    loss_weights = {
+        "fg": float(fg_loss_weight),
+        "boundary": float(boundary_loss_weight),
+        "core": float(core_loss_weight),
+        "ownership": float(ownership_loss_weight),
+    }
     metrics_log_path = output_dir / "metrics_log.jsonl"
     if metrics_log_path.exists():
         metrics_log_path.unlink()
@@ -204,7 +250,12 @@ def run_uq_minibatch(
         loss_boundary = losses["boundary"]
         loss_core = losses["core"]
         loss_ownership = losses["ownership"]
-        loss = loss_fg + loss_boundary + loss_core + loss_ownership
+        loss = _reduce_alpha_losses(
+            losses,
+            step_index=train_steps + 1,
+            ownership_warmup_steps=ownership_warmup_steps,
+            loss_weights=loss_weights,
+        )
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()

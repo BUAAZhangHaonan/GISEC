@@ -32,9 +32,16 @@ def main(argv: list[str] | None = None) -> None:
         image_size=int(args.image_size),
         batch_size=int(args.batch_size),
         num_workers=int(args.num_workers),
+        lr=float(args.lr),
+        head_lr_multiplier=float(args.head_lr_multiplier),
         max_train_steps=0,
         max_val_images=int(args.max_val_images),
         min_area=int(args.min_area),
+        fg_loss_weight=float(args.fg_loss_weight),
+        boundary_loss_weight=float(args.boundary_loss_weight),
+        core_loss_weight=float(args.core_loss_weight),
+        ownership_loss_weight=float(args.ownership_loss_weight),
+        ownership_warmup_steps=int(args.ownership_warmup_steps),
     )
 
 
