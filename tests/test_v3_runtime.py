@@ -65,3 +65,32 @@ def test_v3_predict_instance_map_splits_supported_two_core_object() -> None:
     assert kept == [1, 2]
     assert stats["object_count"] == 1.0
     assert stats["split_count"] == 1.0
+
+
+def test_v3_predict_instance_map_can_split_one_coarse_blob_into_three_instances() -> None:
+    fg_logits = torch.full((20, 20), -4.0, dtype=torch.float32)
+    fg_logits[3:17, 3:17] = 4.0
+    boundary_logits = torch.full((20, 20), -4.0, dtype=torch.float32)
+    boundary_logits[3:17, 7:9] = 4.0
+    boundary_logits[3:17, 12:14] = 4.0
+    core_logits = torch.full((20, 20), -4.0, dtype=torch.float32)
+    core_logits[10, 5] = 0.5
+    core_logits[10, 10] = 0.45
+    core_logits[10, 15] = 0.4
+    ownership_offsets = torch.zeros((2, 20, 20), dtype=torch.float32)
+    ownership_offsets[0, 3:17, 3:8] = -2.0
+    ownership_offsets[0, 3:17, 8:13] = 0.0
+    ownership_offsets[0, 3:17, 13:17] = 2.0
+
+    pred_map, stats = predict_instance_map(
+        fg_logits=fg_logits,
+        boundary_logits=boundary_logits,
+        core_heatmap=core_logits,
+        ownership_offsets=ownership_offsets,
+        min_area=8,
+    )
+
+    kept = sorted(int(x) for x in torch.unique(pred_map).tolist() if int(x) > 0)
+    assert kept == [1, 2, 3]
+    assert stats["object_count"] == 1.0
+    assert stats["split_count"] == 2.0

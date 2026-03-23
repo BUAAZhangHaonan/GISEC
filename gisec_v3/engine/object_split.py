@@ -41,6 +41,27 @@ def _corridor_mask(a: tuple[int, int], b: tuple[int, int], shape: tuple[int, int
     return mask.astype(bool)
 
 
+def _select_diverse_peaks(
+    peaks: list[tuple[int, int, float]],
+    *,
+    min_distance: float = 4.0,
+    max_peaks: int = 8,
+) -> list[tuple[int, int, float]]:
+    selected: list[tuple[int, int, float]] = []
+    for peak in peaks:
+        py, px, _ = peak
+        keep = True
+        for sy, sx, _ in selected:
+            if float((py - sy) ** 2 + (px - sx) ** 2) < float(min_distance) ** 2:
+                keep = False
+                break
+        if keep:
+            selected.append(peak)
+        if len(selected) >= int(max_peaks):
+            break
+    return selected
+
+
 def _boundary_line_cost(
     boundary_prob: np.ndarray,
     object_mask: np.ndarray,
@@ -81,15 +102,23 @@ def _assign_pixels_with_local_cues(
             )
 
     combined_score = dist_sq + 0.25 * ownership_sq + 12.0 * boundary_cost
-    assigned = combined_score.argmin(axis=1)
-    counts = np.bincount(assigned, minlength=peak_array.shape[0])
-    if int(counts.min()) < int(min_area):
-        fallback = np.zeros_like(object_mask, dtype=np.int64)
-        fallback[object_mask] = 1
-        return fallback
+    active = np.arange(peak_array.shape[0], dtype=np.int64)
+    while True:
+        assigned_local = combined_score[:, active].argmin(axis=1)
+        assigned = active[assigned_local]
+        counts = np.bincount(assigned, minlength=peak_array.shape[0])
+        keep = np.asarray([idx for idx in active.tolist() if int(counts[idx]) >= int(min_area)], dtype=np.int64)
+        if keep.size == active.size:
+            break
+        if keep.size < 2:
+            fallback = np.zeros_like(object_mask, dtype=np.int64)
+            fallback[object_mask] = 1
+            return fallback
+        active = keep
 
     refined = np.zeros_like(object_mask, dtype=np.int64)
-    refined[object_mask] = assigned.astype(np.int64) + 1
+    relabel = {int(label): idx + 1 for idx, label in enumerate(active.tolist())}
+    refined[object_mask] = np.asarray([relabel[int(label)] for label in assigned], dtype=np.int64)
     return refined
 
 
@@ -113,55 +142,56 @@ def split_coarse_object(
         boundary_np = boundary_np[0]
     ownership_np = ownership_offsets.detach().cpu().numpy().astype(np.float32)
 
-    peaks = _peak_points(core_np, object_np)
+    peaks = _select_diverse_peaks(_peak_points(core_np, object_np))
     if len(peaks) < 2:
         out = np.zeros_like(object_np, dtype=np.int64)
         out[object_np] = 1
         return torch.from_numpy(out)
 
-    peak_a = (peaks[0][0], peaks[0][1])
-    peak_b = (peaks[1][0], peaks[1][1])
     yy, xx = np.indices(object_np.shape, dtype=np.float32)
-    coords = np.stack([yy[object_np], xx[object_np]], axis=1)
-    peak_array = np.asarray([peak_a, peak_b], dtype=np.float32)
-    dist_sq = ((coords[:, None, :] - peak_array[None, :, :]) ** 2).sum(axis=2)
-    assigned = dist_sq.argmin(axis=1)
-
-    counts = np.bincount(assigned, minlength=2)
-    if int(counts.min()) < int(min_area):
-        out = np.zeros_like(object_np, dtype=np.int64)
-        out[object_np] = 1
-        return torch.from_numpy(out)
-
-    region_a = np.zeros_like(object_np, dtype=bool)
-    region_b = np.zeros_like(object_np, dtype=bool)
-    region_a[object_np] = assigned == 0
-    region_b[object_np] = assigned == 1
-
-    corridor = _corridor_mask(peak_a, peak_b, object_np.shape) & object_np
-    boundary_support = False
-    if corridor.any():
-        corridor_values = boundary_np[corridor]
-        boundary_support = bool(
-            float(corridor_values.max()) >= 0.9 or float(corridor_values.mean()) >= 0.25
-        )
-
     landing_y = np.clip(yy + ownership_np[1], 0.0, float(object_np.shape[0] - 1))
     landing_x = np.clip(xx + ownership_np[0], 0.0, float(object_np.shape[1] - 1))
-    landing_a = np.stack([landing_y[region_a], landing_x[region_a]], axis=1)
-    landing_b = np.stack([landing_y[region_b], landing_x[region_b]], axis=1)
-    peak_a_vec = np.asarray(peak_a, dtype=np.float32)
-    peak_b_vec = np.asarray(peak_b, dtype=np.float32)
-    own_a = np.linalg.norm(landing_a - peak_a_vec[None, :], axis=1).mean() if landing_a.size else 0.0
-    other_a = np.linalg.norm(landing_a - peak_b_vec[None, :], axis=1).mean() if landing_a.size else 0.0
-    own_b = np.linalg.norm(landing_b - peak_b_vec[None, :], axis=1).mean() if landing_b.size else 0.0
-    other_b = np.linalg.norm(landing_b - peak_a_vec[None, :], axis=1).mean() if landing_b.size else 0.0
-    ownership_support = own_a + 0.5 < other_a and own_b + 0.5 < other_b
+    peak_array = np.asarray([(peak[0], peak[1]) for peak in peaks], dtype=np.float32)
+    if peak_array.shape[0] == 2:
+        peak_a = (int(peak_array[0, 0]), int(peak_array[0, 1]))
+        peak_b = (int(peak_array[1, 0]), int(peak_array[1, 1]))
+        coords = np.stack([yy[object_np], xx[object_np]], axis=1)
+        dist_sq = ((coords[:, None, :] - peak_array[None, :, :]) ** 2).sum(axis=2)
+        assigned = dist_sq.argmin(axis=1)
 
-    out = np.zeros_like(object_np, dtype=np.int64)
-    if not (boundary_support and ownership_support):
-        out[object_np] = 1
-        return torch.from_numpy(out)
+        counts = np.bincount(assigned, minlength=2)
+        if int(counts.min()) < int(min_area):
+            out = np.zeros_like(object_np, dtype=np.int64)
+            out[object_np] = 1
+            return torch.from_numpy(out)
+
+        region_a = np.zeros_like(object_np, dtype=bool)
+        region_b = np.zeros_like(object_np, dtype=bool)
+        region_a[object_np] = assigned == 0
+        region_b[object_np] = assigned == 1
+
+        corridor = _corridor_mask(peak_a, peak_b, object_np.shape) & object_np
+        boundary_support = False
+        if corridor.any():
+            corridor_values = boundary_np[corridor]
+            boundary_support = bool(
+                float(corridor_values.max()) >= 0.9 or float(corridor_values.mean()) >= 0.25
+            )
+
+        landing_a = np.stack([landing_y[region_a], landing_x[region_a]], axis=1)
+        landing_b = np.stack([landing_y[region_b], landing_x[region_b]], axis=1)
+        peak_a_vec = np.asarray(peak_a, dtype=np.float32)
+        peak_b_vec = np.asarray(peak_b, dtype=np.float32)
+        own_a = np.linalg.norm(landing_a - peak_a_vec[None, :], axis=1).mean() if landing_a.size else 0.0
+        other_a = np.linalg.norm(landing_a - peak_b_vec[None, :], axis=1).mean() if landing_a.size else 0.0
+        own_b = np.linalg.norm(landing_b - peak_b_vec[None, :], axis=1).mean() if landing_b.size else 0.0
+        other_b = np.linalg.norm(landing_b - peak_a_vec[None, :], axis=1).mean() if landing_b.size else 0.0
+        ownership_support = own_a + 0.5 < other_a and own_b + 0.5 < other_b
+
+        out = np.zeros_like(object_np, dtype=np.int64)
+        if not (boundary_support and ownership_support):
+            out[object_np] = 1
+            return torch.from_numpy(out)
 
     out = _assign_pixels_with_local_cues(
         object_mask=object_np,
