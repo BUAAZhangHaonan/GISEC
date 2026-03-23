@@ -19,6 +19,14 @@ def test_v3_count_core_peaks_consolidates_plateau_into_single_peak() -> None:
     assert count_core_peaks(core_prob) == 1
 
 
+def test_v3_count_core_peaks_can_use_low_confidence_local_maxima_when_signal_is_consistent() -> None:
+    core_prob = torch.zeros((17, 17), dtype=torch.float32)
+    core_prob[8, 5] = 0.041
+    core_prob[8, 11] = 0.039
+
+    assert count_core_peaks(core_prob) == 2
+
+
 def test_v3_predict_instance_map_keeps_single_object_whole() -> None:
     fg_logits = torch.full((16, 16), -4.0, dtype=torch.float32)
     fg_logits[3:13, 3:13] = 4.0

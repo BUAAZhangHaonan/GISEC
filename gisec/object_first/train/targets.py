@@ -42,17 +42,23 @@ def _core_point(mask: np.ndarray) -> tuple[int, int]:
     return int(ys[nearest]), int(xs[nearest])
 
 
-def build_core_heatmap_target(instance_map: np.ndarray, sigma: float = 2.0) -> np.ndarray:
+def _core_sigma(instance_map: np.ndarray, base_sigma: float = 2.0, reference_size: int = 256) -> float:
+    scale = max(float(max(instance_map.shape)) / float(reference_size), 1.0)
+    return float(base_sigma) * scale
+
+
+def build_core_heatmap_target(instance_map: np.ndarray, sigma: float | None = None) -> np.ndarray:
     height, width = instance_map.shape
     yy, xx = np.indices((height, width), dtype=np.float32)
     heatmap = np.zeros((height, width), dtype=np.float32)
+    sigma_value = _core_sigma(instance_map) if sigma is None else float(sigma)
     for inst_id in np.unique(instance_map):
         if int(inst_id) <= 0:
             continue
         mask = instance_map == int(inst_id)
         cy, cx = _core_point(mask)
         dist_sq = (yy - float(cy)) ** 2 + (xx - float(cx)) ** 2
-        gaussian = np.exp(-dist_sq / (2.0 * float(sigma) ** 2)).astype(np.float32)
+        gaussian = np.exp(-dist_sq / (2.0 * sigma_value ** 2)).astype(np.float32)
         gaussian *= mask.astype(np.float32)
         heatmap = np.maximum(heatmap, gaussian)
     return heatmap

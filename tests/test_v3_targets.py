@@ -50,3 +50,22 @@ def test_v3_core_heatmap_target_prefers_center_of_elongated_plateau_not_plateau_
 
     assert peak_y == 7
     assert 6 <= peak_x <= 8
+
+
+def test_v3_core_heatmap_target_scales_support_with_image_resolution() -> None:
+    base = np.zeros((256, 256), dtype=np.int32)
+    base[80:176, 96:160] = 1
+    base[96:152, 176:224] = 2
+
+    scaled = np.zeros((1024, 1024), dtype=np.int32)
+    scaled[320:704, 384:640] = 1
+    scaled[384:608, 704:896] = 2
+
+    base_core = build_core_heatmap_target(base)
+    scaled_core = build_core_heatmap_target(scaled)
+    base_ratio = float((base_core >= 0.5).mean())
+    scaled_ratio = float((scaled_core >= 0.5).mean())
+
+    assert base_ratio > 0.0
+    assert scaled_ratio > 0.0
+    assert 0.5 <= scaled_ratio / base_ratio <= 2.0

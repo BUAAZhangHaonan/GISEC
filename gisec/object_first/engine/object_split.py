@@ -11,6 +11,23 @@ def _sigmoid_tensor(x: torch.Tensor) -> torch.Tensor:
     return torch.sigmoid(x.float())
 
 
+def _resolve_peak_threshold(
+    core_heatmap: np.ndarray,
+    object_mask: np.ndarray | None = None,
+    *,
+    base_threshold: float = 0.5,
+    relative_ratio: float = 0.75,
+    min_threshold: float = 0.03,
+) -> float:
+    masked = core_heatmap if object_mask is None else core_heatmap[object_mask]
+    if masked.size == 0:
+        return float(base_threshold)
+    local_max = float(masked.max())
+    if local_max < float(min_threshold):
+        return float(base_threshold)
+    return min(float(base_threshold), max(float(min_threshold), local_max * float(relative_ratio)))
+
+
 def _peak_points(core_heatmap: np.ndarray, object_mask: np.ndarray, min_score: float = 0.5) -> list[tuple[int, int, float]]:
     masked = core_heatmap.copy()
     masked[~object_mask] = 0.0
@@ -142,7 +159,8 @@ def split_coarse_object(
         boundary_np = boundary_np[0]
     ownership_np = ownership_offsets.detach().cpu().numpy().astype(np.float32)
 
-    peaks = _select_diverse_peaks(_peak_points(core_np, object_np))
+    peak_threshold = _resolve_peak_threshold(core_np, object_np)
+    peaks = _select_diverse_peaks(_peak_points(core_np, object_np, min_score=peak_threshold))
     if len(peaks) < 2:
         out = np.zeros_like(object_np, dtype=np.int64)
         out[object_np] = 1

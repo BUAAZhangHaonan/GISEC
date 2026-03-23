@@ -10,7 +10,7 @@ import torch
 import torch.nn.functional as F
 
 from gisec.object_first.engine.coarse_objects import build_coarse_objects
-from gisec.object_first.engine.object_split import split_coarse_object
+from gisec.object_first.engine.object_split import _resolve_peak_threshold, split_coarse_object
 
 
 def _sigmoid_tensor(x: torch.Tensor) -> torch.Tensor:
@@ -46,9 +46,10 @@ def write_json(path: Path, payload: dict) -> None:
 
 def count_core_peaks(core_heatmap: torch.Tensor, *, threshold: float = 0.5) -> int:
     core_prob = _sigmoid_tensor(core_heatmap)
+    effective_threshold = _resolve_peak_threshold(core_prob.detach().cpu().numpy(), base_threshold=threshold)
     heat = core_prob.unsqueeze(0).unsqueeze(0)
     pooled = F.max_pool2d(heat, kernel_size=3, stride=1, padding=1)[0, 0]
-    peaks = (core_prob >= float(threshold)) & (core_prob >= pooled)
+    peaks = (core_prob >= float(effective_threshold)) & (core_prob >= pooled)
     peak_mask = peaks.detach().cpu().numpy().astype(np.uint8)
     num_labels, _ = cv2.connectedComponents(peak_mask, connectivity=8)
     return max(int(num_labels) - 1, 0)
