@@ -9,12 +9,14 @@ MODE="dry-run"
 OUTPUT_ROOT="${REPO_ROOT}/output/experiments/gisec_v3_alpha"
 PRESET="alpha-short-run"
 DATASET_ROOT=""
+CHECKPOINT=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --model-scale) MODEL_SCALE="$2"; shift 2 ;;
     --output-root) OUTPUT_ROOT="$2"; shift 2 ;;
     --dataset-root) DATASET_ROOT="$2"; shift 2 ;;
+    --checkpoint) CHECKPOINT="$2"; shift 2 ;;
     --preset) PRESET="$2"; shift 2 ;;
     --run) MODE="run"; shift ;;
     --dry-run) MODE="dry-run"; shift ;;
@@ -32,6 +34,9 @@ fi
 CMD="python -m ${CLI_MODULE} --config '${TRAIN_CONFIG_PATH}' --config '${CONFIG_PATH}' --output-dir '${OUTPUT_ROOT}/UQ-${MODEL_SCALE}' --model-family UQ --model-scale '${MODEL_SCALE}'"
 if [[ -n "${DATASET_ROOT}" ]]; then
   CMD="${CMD} --dataset-root '${DATASET_ROOT}'"
+fi
+if [[ -n "${CHECKPOINT}" ]]; then
+  CMD="${CMD} --checkpoint '${CHECKPOINT}'"
 fi
 
 echo "[gisec-v3-alpha-uq] mode=${MODE}"
