@@ -11,6 +11,7 @@ from gisec.datasets.ecc_query_dataset import build_ownership_target as build_leg
 from gisec.train.query_targets import build_ownership_target as build_query_ownership_target
 from gisec.train.train_query import run_uq_minibatch
 from gisec.train.train_query import (
+    _build_alpha_targets_from_batch,
     _build_alpha_optimizer,
     _build_alpha_targets_from_instance_maps,
     _classify_failure,
@@ -118,6 +119,26 @@ def test_query_alpha_targets_are_built_from_query_semantics_not_legacy_scaled_of
 
     assert torch.allclose(targets["ownership"], expected_v3)
     assert not torch.allclose(targets["ownership"], legacy)
+
+
+def test_query_alpha_targets_prefer_precomputed_batch_targets_when_available() -> None:
+    instance_maps = torch.zeros((1, 32, 32), dtype=torch.long)
+    instance_maps[0, 8:24, 8:24] = 1
+    batch = {
+        "instance_maps": instance_maps,
+        "fg_target": torch.full((1, 1, 32, 32), 0.25),
+        "boundary_target": torch.full((1, 1, 32, 32), 0.5),
+        "core_target": torch.full((1, 1, 32, 32), 0.75),
+        "query_ownership_target": torch.full((1, 2, 32, 32), 1.25),
+        "ownership_target": torch.full((1, 2, 32, 32), 9.25),
+    }
+
+    targets = _build_alpha_targets_from_batch(batch)
+
+    assert torch.equal(targets["fg"], batch["fg_target"])
+    assert torch.equal(targets["boundary"], batch["boundary_target"])
+    assert torch.equal(targets["core"], batch["core_target"])
+    assert torch.equal(targets["ownership"], batch["query_ownership_target"])
 
 
 def test_query_alpha_losses_reward_better_predictions() -> None:

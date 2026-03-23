@@ -30,14 +30,18 @@ def test_collate_graph_batch_emits_ownership_target() -> None:
         depth = torch.zeros(1, 8, 8)
         fg_target = torch.zeros(1, 8, 8)
         boundary_target = torch.zeros(1, 8, 8)
+        core_target = torch.zeros(1, 8, 8)
         affinity_target = torch.zeros(2, 8, 8)
         ownership_target = torch.zeros(2, 8, 8)
+        query_ownership_target = torch.zeros(2, 8, 8)
         instance_map = torch.zeros(8, 8, dtype=torch.long)
 
     batch = collate_graph_batch([_Sample()])
 
     assert "ownership_target" in batch
     assert batch["ownership_target"].shape == (1, 2, 8, 8)
+    assert "core_target" in batch
+    assert "query_ownership_target" in batch
 
 
 def test_gisec_model_exposes_ownership_offsets() -> None:

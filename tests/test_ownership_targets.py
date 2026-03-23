@@ -10,6 +10,7 @@ from gisec.datasets.ecc_query_dataset import (
     collate_graph_batch,
     ownership_offset_scale,
 )
+from gisec.train.query_targets import build_core_heatmap_target
 
 
 def test_build_ownership_target_points_pixels_to_instance_core_centroid() -> None:
@@ -35,8 +36,10 @@ def test_collate_graph_batch_stacks_ownership_targets() -> None:
         depth=torch.zeros((1, 4, 4), dtype=torch.float32),
         fg_target=torch.ones((1, 4, 4), dtype=torch.float32),
         boundary_target=torch.zeros((1, 4, 4), dtype=torch.float32),
+        core_target=torch.from_numpy(build_core_heatmap_target(np.ones((4, 4), dtype=np.int32))[None, ...]).float(),
         affinity_target=torch.zeros((2, 4, 4), dtype=torch.float32),
         ownership_target=torch.ones((2, 4, 4), dtype=torch.float32),
+        query_ownership_target=torch.full((2, 4, 4), 2.0, dtype=torch.float32),
         instance_map=torch.ones((4, 4), dtype=torch.long),
     )
 
@@ -44,6 +47,7 @@ def test_collate_graph_batch_stacks_ownership_targets() -> None:
 
     assert batch["affinity_target"].shape == (2, 2, 4, 4)
     assert batch["ownership_target"].shape == (2, 2, 4, 4)
+    assert batch["query_ownership_target"].shape == (2, 2, 4, 4)
 
 
 def test_build_affinity_target_keeps_local_right_and_down_semantics() -> None:

@@ -49,6 +49,18 @@ def _build_alpha_targets_from_instance_maps(instance_maps: torch.Tensor) -> dict
     }
 
 
+def _build_alpha_targets_from_batch(batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    target_keys = {
+        "fg": "fg_target",
+        "boundary": "boundary_target",
+        "core": "core_target",
+        "ownership": "query_ownership_target",
+    }
+    if all(key in batch for key in target_keys.values()):
+        return {name: batch[key] for name, key in target_keys.items()}
+    return _build_alpha_targets_from_instance_maps(batch["instance_maps"])
+
+
 def _dice_loss_from_logits(logits: torch.Tensor, targets: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
     probs = torch.sigmoid(logits)
     dims = tuple(range(1, probs.ndim))
@@ -241,7 +253,7 @@ def run_uq_minibatch(
         depths = batch["depths"].to(device_obj)
         alpha_targets = {
             key: value.to(device_obj)
-            for key, value in _build_alpha_targets_from_instance_maps(batch["instance_maps"]).items()
+            for key, value in _build_alpha_targets_from_batch(batch).items()
         }
 
         outputs = model(images, depths)
@@ -315,7 +327,7 @@ def run_uq_minibatch(
         depths = batch["depths"].to(device_obj)
         with torch.no_grad():
             outputs = model(images, depths)
-        alpha_targets = _build_alpha_targets_from_instance_maps(batch["instance_maps"])
+        alpha_targets = _build_alpha_targets_from_batch(batch)
         pred_map, stats = predict_instance_map(
             fg_logits=outputs["fg_logits"][0, 0].detach().cpu(),
             boundary_logits=outputs["boundary_logits"][0, 0].detach().cpu(),

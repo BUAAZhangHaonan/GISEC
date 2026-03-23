@@ -123,8 +123,10 @@ class QuerySample:
     depth: torch.Tensor
     fg_target: torch.Tensor
     boundary_target: torch.Tensor
+    core_target: torch.Tensor
     affinity_target: torch.Tensor
     ownership_target: torch.Tensor
+    query_ownership_target: torch.Tensor
     instance_map: torch.Tensor
 
 
@@ -177,6 +179,9 @@ class ECCGraphDataset(Dataset):
         return len(self.image_ids)
 
     def __getitem__(self, index: int) -> QuerySample:
+        from gisec.train.query_targets import build_core_heatmap_target
+        from gisec.train.query_targets import build_ownership_target as build_query_ownership_target
+
         image_id = int(self.image_ids[index])
         info = self.coco.loadImgs([image_id])[0]
         image = cv2.imread(
@@ -233,9 +238,12 @@ class ECCGraphDataset(Dataset):
             else torch.zeros((1, self.image_size, self.image_size), dtype=torch.float32),
             fg_target=torch.from_numpy(fg_mask[None, ...]).float(),
             boundary_target=torch.from_numpy(boundary[None, ...]).float(),
+            core_target=torch.from_numpy(build_core_heatmap_target(instance_map)[None, ...]).float(),
             affinity_target=torch.from_numpy(build_affinity_target(instance_map)).float(),
             ownership_target=torch.from_numpy(
                 build_ownership_target(instance_map)).float(),
+            query_ownership_target=torch.from_numpy(
+                build_query_ownership_target(instance_map)).float(),
             instance_map=torch.from_numpy(instance_map).long(),
         )
 
@@ -249,7 +257,9 @@ def collate_graph_batch(batch: List[QuerySample]) -> Dict[str, Any]:
         "depths": torch.stack([item.depth for item in batch], dim=0),
         "fg_target": torch.stack([item.fg_target for item in batch], dim=0),
         "boundary_target": torch.stack([item.boundary_target for item in batch], dim=0),
+        "core_target": torch.stack([item.core_target for item in batch], dim=0),
         "ownership_target": torch.stack([item.ownership_target for item in batch], dim=0),
+        "query_ownership_target": torch.stack([item.query_ownership_target for item in batch], dim=0),
         "affinity_target": torch.stack([item.affinity_target for item in batch], dim=0),
         "instance_maps": torch.stack([item.instance_map for item in batch], dim=0),
     }
