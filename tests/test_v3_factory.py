@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from gisec_v3.engine.factory import build_v3_model
+from gisec.object_first.engine.factory import build_v3_model
 
 
 def test_v3_factory_builds_uq_scales_and_rejects_later_families() -> None:
@@ -22,6 +22,6 @@ def test_v3_factory_builds_uq_scales_and_rejects_later_families() -> None:
 
 
 def test_v3_factory_module_does_not_depend_on_legacy_graph_refiner() -> None:
-    source = Path("gisec_v3/engine/factory.py").read_text(encoding="utf-8")
+    source = Path("gisec/object_first/engine/factory.py").read_text(encoding="utf-8")
     assert "GraphRefiner" not in source
     assert "gisec.config.variants" not in source

@@ -6,7 +6,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 MODEL_SCALE="s"
 MODE="dry-run"
-OUTPUT_ROOT="${REPO_ROOT}/output/experiments/gisec_v3_alpha"
+OUTPUT_ROOT="${REPO_ROOT}/output/experiments/gisec_object_first_alpha"
 PRESET="alpha-short-run"
 DATASET_ROOT=""
 CHECKPOINT=""
@@ -26,10 +26,10 @@ done
 
 CONFIG_PATH="${REPO_ROOT}/configs/v3/model/uq_${MODEL_SCALE}.yaml"
 TRAIN_CONFIG_PATH="${REPO_ROOT}/configs/v3/train/${PRESET//-/_}.yaml"
-CLI_MODULE="gisec_v3.cli.train"
+CLI_MODULE="gisec.object_first.cli.train"
 if [[ "${PRESET}" == "alpha-full-eval" ]]; then
   TRAIN_CONFIG_PATH="${REPO_ROOT}/configs/v3/eval/alpha_full_eval.yaml"
-  CLI_MODULE="gisec_v3.cli.eval"
+  CLI_MODULE="gisec.object_first.cli.eval"
 fi
 CMD="python -m ${CLI_MODULE} --config '${TRAIN_CONFIG_PATH}' --config '${CONFIG_PATH}' --output-dir '${OUTPUT_ROOT}/UQ-${MODEL_SCALE}' --model-family UQ --model-scale '${MODEL_SCALE}'"
 if [[ -n "${DATASET_ROOT}" ]]; then
@@ -39,12 +39,12 @@ if [[ -n "${CHECKPOINT}" ]]; then
   CMD="${CMD} --checkpoint '${CHECKPOINT}'"
 fi
 
-echo "[gisec-v3-alpha-uq] mode=${MODE}"
-echo "[gisec-v3-alpha-uq] preset=${PRESET}"
-echo "[gisec-v3-alpha-uq] config=${CONFIG_PATH}"
-echo "[gisec-v3-alpha-uq] train_config=${TRAIN_CONFIG_PATH}"
-echo "[gisec-v3-alpha-uq] output_root=${OUTPUT_ROOT}"
-echo "[gisec-v3-alpha-uq] command=${CMD}"
+echo "[gisec-object-first-alpha-uq] mode=${MODE}"
+echo "[gisec-object-first-alpha-uq] preset=${PRESET}"
+echo "[gisec-object-first-alpha-uq] config=${CONFIG_PATH}"
+echo "[gisec-object-first-alpha-uq] train_config=${TRAIN_CONFIG_PATH}"
+echo "[gisec-object-first-alpha-uq] output_root=${OUTPUT_ROOT}"
+echo "[gisec-object-first-alpha-uq] command=${CMD}"
 
 if [[ "${MODE}" == "run" ]]; then
   cd "${REPO_ROOT}"

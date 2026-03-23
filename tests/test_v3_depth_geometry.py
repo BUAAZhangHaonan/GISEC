@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from gisec_v3.models.depth_geometry import depth_to_geometry
+from gisec.object_first.models.depth_geometry import depth_to_geometry
 
 
 def test_depth_to_geometry_emits_three_query_only_channels() -> None:

@@ -6,7 +6,7 @@ from pathlib import Path
 
 def test_v3_alpha_runner_dry_run_uses_short_run_preset(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    script = repo_root / "scripts" / "experiments" / "run_gisec_v3_alpha_uq.sh"
+    script = repo_root / "scripts" / "experiments" / "run_gisec_object_first_alpha_uq.sh"
 
     result = subprocess.run(
         [
@@ -33,7 +33,7 @@ def test_v3_alpha_runner_dry_run_uses_short_run_preset(tmp_path: Path) -> None:
 
 def test_v3_alpha_runner_dry_run_uses_full_eval_preset(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    script = repo_root / "scripts" / "experiments" / "run_gisec_v3_alpha_uq.sh"
+    script = repo_root / "scripts" / "experiments" / "run_gisec_object_first_alpha_uq.sh"
 
     result = subprocess.run(
         [
@@ -55,12 +55,12 @@ def test_v3_alpha_runner_dry_run_uses_full_eval_preset(tmp_path: Path) -> None:
 
     assert "configs/v3/eval/alpha_full_eval.yaml" in result.stdout
     assert "configs/v3/model/uq_s.yaml" in result.stdout
-    assert "python -m gisec_v3.cli.eval" in result.stdout
+    assert "python -m gisec.object_first.cli.eval" in result.stdout
 
 
 def test_v3_alpha_runner_dry_run_forwards_checkpoint_for_full_eval(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    script = repo_root / "scripts" / "experiments" / "run_gisec_v3_alpha_uq.sh"
+    script = repo_root / "scripts" / "experiments" / "run_gisec_object_first_alpha_uq.sh"
     checkpoint = tmp_path / "uq_s.pth"
 
     result = subprocess.run(

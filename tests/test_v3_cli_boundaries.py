@@ -11,7 +11,7 @@ def test_v3_train_cli_rejects_future_family_even_in_dry_run() -> None:
         [
             sys.executable,
             "-m",
-            "gisec_v3.cli.train",
+            "gisec.object_first.cli.train",
             "--model-family",
             "UR",
             "--model-scale",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from gisec_v3.train.targets import (
+from gisec.object_first.train.targets import (
     build_boundary_target,
     build_core_heatmap_target,
     build_fg_target,

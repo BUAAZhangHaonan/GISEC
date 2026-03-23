@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Freeze the current `fragment-first` system as `v1.5 legacy` and create a hard-isolated `gisec_v3` path so the new object-first work cannot silently reuse the wrong semantics.
+**Goal:** Freeze the current `fragment-first` system as `v1.5 legacy` and create a hard-isolated `gisec.object_first` path so the new object-first work cannot silently reuse the wrong semantics.
 
 **Architecture:** The implementation must separate semantics before it changes algorithms. Legacy classes remain runnable for historical comparison, while new `v3` code, configs, runners, and tests live under explicit `v3-alpha` paths. Shared utilities may remain shared only if their semantics are identical.
 
@@ -16,7 +16,7 @@
   - `docs/method/gisec-v2-method.md`
 - Create new `v3` doc references only after code path names are fixed.
 - Create new package/config path roots:
-  - `gisec_v3/`
+  - `gisec/object_first/`
   - `configs/v3/`
   - `tests/v3/`
 
@@ -27,8 +27,8 @@
 - Do not rename legacy code symbols yet; only freeze document semantics.
 
 ### Task 2: Create hard package separation
-- Introduce `gisec_v3` as a sibling package, not a patch layer inside current `gisec.models.*`.
-- Prevent direct imports from new `gisec_v3` core modules back into legacy fragment-first modules.
+- Introduce `gisec.object_first` as a dedicated package surface inside `gisec/`, not a patch layer inside current `gisec.models.*`.
+- Prevent direct imports from new `gisec.object_first` core modules back into legacy fragment-first modules.
 - Allow shared reuse only for:
   - dataset readers
   - shared metric/export helpers
@@ -54,7 +54,7 @@
 ## Verification
 - Run targeted tests for package separation and config routing.
 - Run CLI `--help` on new `v3` entrypoints or config-backed invocation.
-- Grep for forbidden direct dependencies from `gisec_v3` core into legacy graph/proposal modules.
+- Grep for forbidden direct dependencies from `gisec.object_first` core into legacy graph/proposal modules.
 
 ## Assumptions
 - The first separation pass does not delete legacy code.

@@ -83,7 +83,7 @@ def test_v3_train_cli_runs_alpha_short_config_and_writes_artifacts(tmp_path: Pat
         [
             sys.executable,
             "-m",
-            "gisec_v3.cli.train",
+            "gisec.object_first.cli.train",
             "--config",
             str(config_path),
         ],

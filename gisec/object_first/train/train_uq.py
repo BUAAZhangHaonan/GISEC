@@ -11,8 +11,8 @@ from torch.utils.data import DataLoader
 from baseline.common.coco_export import masks_to_coco_results
 from gisec.datasets.ecc_query_dataset import ECCGraphDataset, collate_graph_batch
 from gisec.engine.runtime import evaluate_json
-from gisec_v3.engine.factory import build_v3_model
-from gisec_v3.engine.runtime import (
+from gisec.object_first.engine.factory import build_v3_model
+from gisec.object_first.engine.runtime import (
     UQRunSummary,
     predict_instance_map,
     save_run_summary,
@@ -22,7 +22,7 @@ from gisec_v3.engine.runtime import (
     summarize_matches,
     write_json,
 )
-from gisec_v3.train.targets import (
+from gisec.object_first.train.targets import (
     build_core_heatmap_target,
     build_fg_target,
     build_instance_boundary_target,

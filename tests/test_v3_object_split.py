@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from gisec_v3.engine.object_split import split_coarse_object
+from gisec.object_first.engine.object_split import split_coarse_object
 
 
 def test_v3_object_split_keeps_single_core_object_whole() -> None:

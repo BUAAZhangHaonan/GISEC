@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from gisec_v3.engine.coarse_objects import build_coarse_objects
+from gisec.object_first.engine.coarse_objects import build_coarse_objects
 
 
 def test_v3_coarse_objects_follow_connected_foreground_without_early_fragmentation() -> None:

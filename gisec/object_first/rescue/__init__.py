@@ -1,4 +1,4 @@
-from gisec_v3.rescue.contracts import (
+from gisec.object_first.rescue.contracts import (
     GraphRescueContract,
     GraphRescueInput,
     GraphRescueOutput,

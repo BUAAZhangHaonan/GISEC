@@ -81,7 +81,7 @@ def test_v3_eval_cli_runs_official_eval_protocol(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     subprocess.run(
-        [sys.executable, "-m", "gisec_v3.cli.train", "--config", str(train_config)],
+        [sys.executable, "-m", "gisec.object_first.cli.train", "--config", str(train_config)],
         cwd=str(repo_root),
         check=True,
         capture_output=True,
@@ -113,7 +113,7 @@ def test_v3_eval_cli_runs_official_eval_protocol(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     subprocess.run(
-        [sys.executable, "-m", "gisec_v3.cli.eval", "--config", str(eval_config)],
+        [sys.executable, "-m", "gisec.object_first.cli.eval", "--config", str(eval_config)],
         cwd=str(repo_root),
         check=True,
         capture_output=True,
@@ -135,7 +135,7 @@ def test_v3_eval_cli_rejects_missing_checkpoint_file(tmp_path: Path) -> None:
         [
             sys.executable,
             "-m",
-            "gisec_v3.cli.eval",
+            "gisec.object_first.cli.eval",
             "--dataset-root",
             str(dataset_root),
             "--output-dir",

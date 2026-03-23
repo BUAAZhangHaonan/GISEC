@@ -3,8 +3,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from gisec_v3.cli.train import _print_payload, _validate_alpha_execution_surface, build_parser
-from gisec_v3.train.train_uq import run_uq_minibatch
+from gisec.object_first.cli.train import _print_payload, _validate_alpha_execution_surface, build_parser
+from gisec.object_first.train.train_uq import run_uq_minibatch
 
 
 def main(argv: list[str] | None = None) -> None:
