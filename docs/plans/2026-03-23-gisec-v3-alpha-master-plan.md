@@ -13,6 +13,7 @@
 ## Summary
 - Freeze the current implementation as `GISEC v1.5 legacy`.
 - Build `v3-alpha` in a hard-isolated code path, not by incrementally mutating the current fragment-first core classes.
+- `gisec_v3` must not import legacy `VariantSpec`, legacy `graph_utils.py`, or the old fragment-first runtime as the default v3 core.
 - Limit `alpha` to `UQ-s` and `UQ-m` only:
   - `ResNet18/34 + U-Net decoder`
   - six-channel early fusion: `RGB + depth geometry`
