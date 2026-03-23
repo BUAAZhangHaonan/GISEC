@@ -1,103 +1,125 @@
-# GISEC v3-alpha Master Plan
+# GISEC v3-alpha Master Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Rebuild `GISEC` around a minimal `object-first` query-only mainline, while explicitly reserving `reference` and `graph rescue` as the two later modules that must ultimately complete the full paper system.
+**Goal:** Rebuild `GISEC` around a minimal `object-first` query-only mainline that can later absorb `reference` enhancement and `graph rescue` as formal paper modules without repeating the current `fragment-first` failure mode.
 
-**Architecture:** This phase does not attempt to land the whole paper method at once. It first proves that a clean `query-only object-first` backbone can form complete electronic-component instances better than the current `fragment-first` line. Once that base is stable, `reference` is added only as a rescue-side enhancement, and `graph` is added only as a local structure repair stage for uncertain objects. The three phases therefore become `UQ -> UR -> UG/UA`, not a single monolithic rewrite.
+**Architecture:** `v3-alpha` is intentionally narrow. It freezes the current repository as `v1.5 legacy`, creates a hard-isolated `gisec_v3` path, and proves one minimal hypothesis first: `UQ-s/UQ-m` query-only object-first segmentation is stronger and more stable than the current fragment-first pipeline. Only after that mainline is validated do `reference` and `graph` re-enter as separate later phases, because they remain mandatory paper modules but cannot be allowed to define the backbone before the backbone itself is strong.
 
-**Tech Stack:** Python 3.13, PyTorch 2.10, existing `gisec` CLI/config stack, COCO evaluation/export contract, current ECC RGB-D dataset protocol, existing diagnostics artifacts.
+**Tech Stack:** Python 3.13, PyTorch 2.10, current YAML config stack, COCO evaluation, existing logging/export contract, new `gisec_v3` package for hard semantic isolation.
 
 ---
 
 ## Summary
-- Freeze the current `master` method semantics as `GISEC v1.5 historical baseline`.
-- Create a hard-isolated `gisec_v3/` implementation tree for the new `object-first` line; do not reuse `graph_utils.py`, `VariantSpec`, or the old fragment-first runtime as live core dependencies.
-- Phase 1 only proves the minimal mainline:
-  - `UQ-s`: `ResNet18 + U-Net decoder`
-  - `UQ-m`: `ResNet34 + U-Net decoder`
-  - fixed six-channel early fusion: `RGB + depth geometry`
-  - fixed heads: `fg`, `boundary`, `core`, `ownership_offsets`
-  - no `reference`, no `graph`, no `uncertainty`, no confidence head
-- Phase 2 adds `reference` as a single rescue-only enhancement.
-- Phase 3 adds `graph` as a minimal local rescue module.
-- The full paper claim is not “query-only is enough”; the full paper claim is “query-only object-first base + reference rescue + graph rescue”. But the project only moves forward if each layer earns its place.
+- Freeze the current implementation as `GISEC v1.5 legacy`.
+- Build `v3-alpha` in a hard-isolated code path, not by incrementally mutating the current fragment-first core classes.
+- Limit `alpha` to `UQ-s` and `UQ-m` only:
+  - `ResNet18/34 + U-Net decoder`
+  - six-channel early fusion: `RGB + depth geometry`
+  - outputs limited to `fg / boundary / core / ownership_offsets`
+  - no `reference`, no `graph rescue`, no `uncertainty`, no staged ROI-backprop logic
+- Keep `reference` and `graph` as required later phases in the master plan, but explicitly block them from the first execution phase until the query-only mainline is proven.
 
-## Default Decisions
-- Keep one repo, but split the codebase by directory:
-  - `gisec_legacy/` for the current fragment-first line
-  - `gisec_v3/` for the new object-first line
-- Do not create new branches or worktrees.
-- Do not introduce encoder-family search in `alpha`; fix one family first.
-- Do not tie scale changes to architecture changes.
-- Do not let `core_heatmap` define instances by itself; it is only one cue inside object proposal.
-- Do not train derived pseudo-label heads in `alpha`; that includes `ownership_confidence` and `uncertainty`.
-- Do not let `reference` enter the coarse object backbone in the next stage.
-- Do not let `graph` re-expand into a second large subsystem before the query-only base is strong.
+## Phase Structure
+### Phase 0: Freeze Legacy and Create Hard Isolation
+- Mark current `gisec` mainline as `v1.5 legacy fragment-first`.
+- Introduce `gisec_v3` as a separate package path with separate configs, runners, and tests where needed.
+- Keep shared infra only where semantics are identical:
+  - dataset protocol
+  - COCO export contract
+  - run-summary artifact naming
 
-## Phase Order
+### Phase 1: v3-alpha Query-Only Mainline
+- Implement only:
+  - `UQ-s`
+  - `UQ-m`
+- Fix one encoder family for the entire alpha:
+  - `ResNet18` for `UQ-s`
+  - `ResNet34` for `UQ-m`
+- Fix one depth fusion strategy for the entire alpha:
+  - six-channel early fusion
+- Fix one proposal strategy for the entire alpha:
+  - connected foreground first
+  - `core_heatmap` only as a split cue
+  - local assignment inside coarse foreground objects
 
-### Phase A: UQ Object-First Base
-- Build `UQ-s` and `UQ-m` under `gisec_v3/`.
-- Keep the following fixed across both scales:
-  - encoder family: `ResNet`
-  - fusion strategy: six-channel early fusion
-  - decoder design: one shared U-Net decoder family
-  - proposal algorithm: one shared object-first algorithm
-  - loss set: `fg + boundary + core + ownership_offsets`
-- Primary question:
-  - can object-first query-only training beat the current fragment-first baseline cleanly and repeatably?
+### Phase 2: Query-Only Scale Extension
+- If `UQ-s/UQ-m` prove the mainline, extend the same structure upward.
+- `scale` study must stay clean:
+  - same family
+  - same fusion
+  - same proposal algorithm
+  - only width/depth/capacity may change
 
-### Phase B: Reference Rescue
-- Add `reference` only after Phase A is stable.
-- `reference` enters only the rescue path, not the coarse object backbone.
-- Primary question:
-  - can per-part reference packs help fix ambiguous local object structure without becoming a hidden crutch for the main segmentation model?
+### Phase 3: Reference Re-entry
+- `reference` returns only after the query-only object-first mainline is stable.
+- `reference` first enters rescue, not coarse object prediction.
+- `reference` stays a single-entry module in its first return phase to keep attribution clean.
 
-### Phase C: Graph Rescue
-- Add `graph` only after Phase B interface boundaries are stable.
-- Build graph only inside uncertain objects, never across the full image.
-- Start from a minimal scalar-feature local graph; no heavy pair ROI encoder in the first pass.
-- Primary question:
-  - can graph rescue reduce split/merge failures on the hardest subset without hurting already-correct objects?
+### Phase 4: Graph Re-entry
+- `graph` returns only as local rescue inside uncertain objects.
+- First graph return is intentionally minimal:
+  - lightweight local features
+  - no heavy pair-ROI encoder
+  - no global graph
 
-## Required Next-Stage Documents
-- Master plan:
+## Required Public Interfaces
+- New `v3` model family naming:
+  - `UQ-s`
+  - `UQ-m`
+  - later `UR-*`, `UG-*`, `UA-*`
+- New `v3-alpha` model outputs:
+  - `fg_logits`
+  - `boundary_logits`
+  - `core_heatmap`
+  - `ownership_offsets`
+  - `feature_map`
+- New config controls:
+  - `model_family`
+  - `model_scale`
+  - `encoder_name`
+  - `depth_fusion_mode`
+  - `proposal_mode`
+  - `use_reference`
+  - `use_graph_rescue`
+
+## Relative Gates
+- `Gate A`: `UQ-s` must beat `v1.5 legacy` on `segm/AP` and on instance-count calibration.
+- `Gate B`: `UQ-m` must beat `UQ-s` under the same structure, proving that the mainline scales.
+- `Gate C`: only after `Gate A/B` pass may `reference` return as a formal module.
+- `Gate D`: only after `reference` design is stable may `graph rescue` return as a formal module.
+- Numeric ambition such as `AP >= 80` remains a project target, not an alpha-stage hard stop.
+
+## Deliverables
+- One master plan:
   - `docs/plans/2026-03-23-gisec-v3-alpha-master-plan.md`
-- Subplans:
-  - `docs/plans/2026-03-23-01-gisec-v3-boundary-and-layout-plan.md`
-  - `docs/plans/2026-03-23-02-gisec-v3-uq-backbone-plan.md`
-  - `docs/plans/2026-03-23-03-gisec-v3-object-proposal-plan.md`
-  - `docs/plans/2026-03-23-04-gisec-v3-reference-rescue-plan.md`
-  - `docs/plans/2026-03-23-05-gisec-v3-graph-rescue-plan.md`
-  - `docs/plans/2026-03-23-06-gisec-v3-experiments-and-gates-plan.md`
+- Five subplans:
+  - `docs/plans/2026-03-23-01-gisec-v3-alpha-freeze-and-separation.md`
+  - `docs/plans/2026-03-23-02-gisec-v3-alpha-uq-backbone.md`
+  - `docs/plans/2026-03-23-03-gisec-v3-alpha-object-proposal-and-training.md`
+  - `docs/plans/2026-03-23-04-gisec-v3-alpha-eval-ladder.md`
+  - `docs/plans/2026-03-23-05-gisec-v3-alpha-reference-graph-reentry.md`
 
-## Acceptance Gates
-- Gate A1:
-  - `UQ-s` must outperform the current `v1.5` line on the same short-run protocol.
-- Gate A2:
-  - `UQ-m` must improve over `UQ-s` under the exact same structure, so the scale result stays interpretable.
-- Gate B1:
-  - `reference` must show stable gains on appearance-ambiguous objects without entering the coarse backbone.
-- Gate C1:
-  - `graph rescue` must improve the hard split/merge subset while leaving normal objects effectively unchanged.
-- Publication gate:
-  - the final default model must include both `reference` and `graph rescue`, and each must have proven value beyond the query-only base.
-
-## Diagnostics That Stay Mandatory
-- `metrics.cocoeval.json`
-- `mask_calibration_summary.json`
-- `match_diagnostics_summary.json`
-- `failure_summary.json`
-- object-level count bias summary:
-  - `pred_count_mean`
-  - `gt_count_mean`
-- phase-specific summaries added later:
-  - `reference_routing_summary.json`
-  - `graph_rescue_summary.json`
+## Acceptance
+- `v1.5 legacy` and `v3-alpha` are separated by code path, config path, and document naming.
+- The first implementation phase has only one meaningful scientific question:
+  - does object-first query-only segmentation outperform the current fragment-first baseline?
+- `reference` and `graph` remain mandatory later phases in the roadmap, not abandoned side ideas.
+- No alpha document allows dual encoder families, dual reference entry points, heavy graph rescue, or uncertain-label self-bootstrapping.
 
 ## Verification
-- Confirm the new `v3-alpha` docs never redefine the old `A0/G5/Q2` semantics as the new mainline.
-- Confirm the first executable phase is `query-only object-first`.
-- Confirm `reference` and `graph` are explicitly reserved as mandatory later modules, not removed from the final paper system.
-- Confirm scale comparisons in `alpha` do not mix encoder-family changes or fusion-strategy changes.
+- Confirm all six new plan documents exist in `docs/plans/`.
+- Confirm every `v3-alpha` subplan refers only to `UQ-s/UQ-m` in the first execution phase.
+- Confirm the first execution phase excludes:
+  - `reference`
+  - `graph rescue`
+  - `uncertainty`
+  - `ownership_confidence`
+  - staged ROI gradient routing
+- Confirm later `reference` and `graph` re-entry are preserved as explicit planned stages.
+
+## Assumptions
+- The project remains independent from `magformer` code.
+- The repository keeps one `master` branch; no branch/worktree-based isolation is used.
+- Existing data protocol and COCO evaluation remain valid and are reused.
+- `reference` and `graph` are required for the final paper system, but not allowed to define the first alpha backbone.
