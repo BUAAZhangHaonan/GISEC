@@ -15,6 +15,19 @@ def test_v3_master_plan_locks_core_boundary_contract() -> None:
     assert "separate package path" in master_plan
 
 
+def test_v3_master_plan_locks_alpha_exclusions() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    master_plan = (
+        repo_root / "docs" / "plans" / "2026-03-23-gisec-v3-alpha-master-plan.md"
+    ).read_text(encoding="utf-8")
+
+    assert "dual encoders" in master_plan
+    assert "stage-wise fusion" in master_plan
+    assert "encoder-family search" in master_plan
+    assert "uncertainty" in master_plan
+    assert "ownership_confidence" in master_plan
+
+
 def test_gisec_v3_package_surface_does_not_route_through_legacy_variant_logic() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     init_text = (repo_root / "gisec_v3" / "__init__.py").read_text(encoding="utf-8")

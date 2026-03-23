@@ -19,6 +19,7 @@
   - six-channel early fusion: `RGB + depth geometry`
   - outputs limited to `fg / boundary / core / ownership_offsets`
   - no `reference`, no `graph rescue`, no `uncertainty`, no staged ROI-backprop logic
+  - no dual encoders, no stage-wise fusion, no encoder-family search, no `ownership_confidence` head
 - Keep `reference` and `graph` as required later phases in the master plan, but explicitly block them from the first execution phase until the query-only mainline is proven.
 
 ## Phase Structure
