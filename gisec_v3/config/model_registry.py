@@ -20,7 +20,7 @@ _V3_MODEL_SPECS = {
         model_scale="s",
         encoder_name="resnet18",
         encoder_family="resnet",
-        depth_fusion_mode="rgb_depth_geometry_early",
+        depth_fusion_mode="early6",
     ),
     "UQ-m": V3ModelSpec(
         model_id="UQ-m",
@@ -28,7 +28,7 @@ _V3_MODEL_SPECS = {
         model_scale="m",
         encoder_name="resnet34",
         encoder_family="resnet",
-        depth_fusion_mode="rgb_depth_geometry_early",
+        depth_fusion_mode="early6",
     ),
 }
 

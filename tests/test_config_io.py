@@ -396,8 +396,8 @@ def test_v3_model_registry_reserves_uq_scales_and_keeps_legacy_names_out() -> No
     assert uq_m.model_family == "UQ"
     assert uq_s.encoder_family == "resnet"
     assert uq_m.encoder_family == "resnet"
-    assert uq_s.depth_fusion_mode == "rgb_depth_geometry_early"
-    assert uq_m.depth_fusion_mode == "rgb_depth_geometry_early"
+    assert uq_s.depth_fusion_mode == "early6"
+    assert uq_m.depth_fusion_mode == "early6"
     assert uq_s.model_scale == "s"
     assert uq_m.model_scale == "m"
 

@@ -7,7 +7,7 @@ This directory is reserved for the `GISEC v3-alpha` object-first line.
 - `UQ-s`
 - `UQ-m`
 - `ResNet` encoder family only
-- `RGB + depth geometry` early fusion only
+- `early6` fusion only: `RGB + depth geometry`
 
 ## Legacy Boundary
 

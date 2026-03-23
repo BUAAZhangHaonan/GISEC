@@ -2,4 +2,4 @@ common:
   model_family: UQ
   model_scale: s
   encoder_name: resnet18
-  depth_fusion_mode: rgb_depth_geometry_early
+  depth_fusion_mode: early6

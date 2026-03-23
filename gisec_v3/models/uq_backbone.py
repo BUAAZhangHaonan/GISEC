@@ -9,15 +9,26 @@ from gisec_v3.config.model_registry import V3ModelSpec
 from gisec_v3.models.depth_geometry import depth_to_geometry
 
 
+def _resolve_group_count(channels: int, max_groups: int = 8) -> int:
+    for groups in range(min(int(max_groups), int(channels)), 0, -1):
+        if int(channels) % groups == 0:
+            return groups
+    return 1
+
+
+def _make_group_norm(channels: int) -> nn.GroupNorm:
+    return nn.GroupNorm(_resolve_group_count(channels), channels)
+
+
 class ConvBlock(nn.Module):
     def __init__(self, in_channels: int, out_channels: int):
         super().__init__()
         self.block = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(out_channels),
+            _make_group_norm(out_channels),
             nn.ReLU(inplace=True),
             nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(out_channels),
+            _make_group_norm(out_channels),
             nn.ReLU(inplace=True),
         )
 
@@ -42,10 +53,10 @@ class UQBackbone(nn.Module):
         super().__init__()
         self.spec = spec
         if spec.encoder_name == "resnet18":
-            encoder = resnet18(weights=None)
+            encoder = resnet18(weights=None, norm_layer=_make_group_norm)
             decoder_channels = 64
         elif spec.encoder_name == "resnet34":
-            encoder = resnet34(weights=None)
+            encoder = resnet34(weights=None, norm_layer=_make_group_norm)
             decoder_channels = 96
         else:
             raise ValueError(f"Unsupported encoder for UQ backbone: {spec.encoder_name}")

@@ -36,3 +36,12 @@ def test_uq_backbone_emits_shared_alpha_outputs_for_s_and_m() -> None:
         assert outputs["feature_map"].shape[-2:] == (64, 64)
 
     assert _count_params(model_m) > _count_params(model_s)
+
+
+def test_uq_backbone_uses_small_batch_safe_normalization() -> None:
+    model_s = UQBackbone(get_v3_model_spec("UQ-s"))
+    model_m = UQBackbone(get_v3_model_spec("UQ-m"))
+
+    for model in (model_s, model_m):
+        batch_norm_layers = [module for module in model.modules() if isinstance(module, torch.nn.BatchNorm2d)]
+        assert batch_norm_layers == []
