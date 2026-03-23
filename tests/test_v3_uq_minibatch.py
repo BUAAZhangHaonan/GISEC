@@ -8,16 +8,16 @@ import numpy as np
 import torch
 
 from gisec.datasets.ecc_query_dataset import build_ownership_target as build_legacy_ownership_target
-from gisec.object_first.train.targets import build_ownership_target as build_v3_ownership_target
-from gisec.object_first.train.train_uq import run_uq_minibatch
-from gisec.object_first.train.train_uq import (
+from gisec.train.v3_targets import build_ownership_target as build_v3_ownership_target
+from gisec.train.train_v3 import run_uq_minibatch
+from gisec.train.train_v3 import (
     _build_alpha_optimizer,
     _build_alpha_targets_from_instance_maps,
     _classify_failure,
     _compute_alpha_losses,
     _reduce_alpha_losses,
 )
-from gisec.object_first.engine.factory import build_v3_model
+from gisec.engine.v3_factory import build_v3_model
 
 
 def _write_dataset(root: Path, *, file_name: str = "000001.png") -> None:

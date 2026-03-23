@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from gisec.object_first.engine.runtime import count_core_peaks, predict_instance_map
+from gisec.engine.v3_runtime import count_core_peaks, predict_instance_map
 
 
 def test_v3_count_core_peaks_applies_sigmoid_to_logits() -> None:

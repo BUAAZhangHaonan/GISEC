@@ -7,8 +7,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.models import resnet18, resnet34
 
-from gisec.object_first.config.model_registry import V3ModelSpec
-from gisec.object_first.models.depth_geometry import depth_to_geometry
+from gisec.config.v3_models import V3ModelSpec
+from gisec.models.v3_depth_geometry import depth_to_geometry
 
 
 FG_PRIOR = 0.10

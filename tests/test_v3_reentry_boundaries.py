@@ -5,7 +5,7 @@ from pathlib import Path
 
 def test_v3_alpha_runner_surface_does_not_activate_later_phase_model_ids() -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    runner_text = (repo_root / "scripts" / "experiments" / "run_gisec_object_first_alpha_uq.sh").read_text(encoding="utf-8")
+    runner_text = (repo_root / "scripts" / "experiments" / "run_gisec_v3_alpha_uq.sh").read_text(encoding="utf-8")
 
     assert "UR-s" not in runner_text
     assert "UG-s" not in runner_text

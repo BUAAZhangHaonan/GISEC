@@ -9,8 +9,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from gisec.object_first.engine.coarse_objects import build_coarse_objects
-from gisec.object_first.engine.object_split import _resolve_peak_threshold, split_coarse_object
+from gisec.engine.v3_coarse_objects import build_coarse_objects
+from gisec.engine.v3_object_split import _resolve_peak_threshold, split_coarse_object
 
 
 def _sigmoid_tensor(x: torch.Tensor) -> torch.Tensor:

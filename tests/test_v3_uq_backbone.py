@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from gisec.object_first.config.model_registry import get_v3_model_spec
-from gisec.object_first.models.uq_backbone import UQBackbone
+from gisec.config.v3_models import get_v3_model_spec
+from gisec.models.v3_uq_backbone import UQBackbone
 
 import torch
 

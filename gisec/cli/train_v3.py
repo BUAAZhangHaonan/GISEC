@@ -6,8 +6,8 @@ import sys
 from pathlib import Path
 
 from gisec.config.io import extract_argparse_defaults, load_yaml_config, merge_config_dicts
-from gisec.object_first.config.model_registry import is_alpha_enabled_model_id
-from gisec.object_first.train.train_uq import run_uq_minibatch
+from gisec.config.v3_models import is_alpha_enabled_model_id
+from gisec.train.train_v3 import run_uq_minibatch
 
 
 def _config_defaults(argv: list[str] | None, mode: str) -> dict[str, object]:
@@ -23,7 +23,7 @@ def _config_defaults(argv: list[str] | None, mode: str) -> dict[str, object]:
 def build_parser(argv: list[str] | None = None, *, mode: str = "train") -> argparse.ArgumentParser:
     defaults = _config_defaults(argv, mode)
     parser = argparse.ArgumentParser(
-        prog=f"python -m gisec.object_first.cli.{mode}",
+        prog=f"python -m gisec.cli.{mode}",
         description=f"GISEC v3-alpha query-only object-first {mode} surface.",
     )
     parser.add_argument("--config", action="append", default=[])

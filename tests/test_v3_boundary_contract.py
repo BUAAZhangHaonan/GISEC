@@ -12,7 +12,7 @@ def test_v3_master_plan_locks_core_boundary_contract() -> None:
     assert "not by incrementally mutating the current fragment-first core classes" in master_plan
     assert "must not import legacy `VariantSpec`, legacy `graph_utils.py`, or the old fragment-first runtime as the default v3 core" in master_plan
     assert "not allowed to define the first alpha backbone" in master_plan
-    assert "separate package path" in master_plan
+    assert "formal `gisec` `v3_*` modules" in master_plan
 
 
 def test_v3_master_plan_locks_alpha_exclusions() -> None:
@@ -28,11 +28,11 @@ def test_v3_master_plan_locks_alpha_exclusions() -> None:
     assert "ownership_confidence" in master_plan
 
 
-def test_gisec_object_first_package_surface_does_not_route_through_legacy_variant_logic() -> None:
+def test_formal_gisec_v3_surface_does_not_route_through_legacy_variant_logic() -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    init_text = (repo_root / "gisec" / "object_first" / "__init__.py").read_text(encoding="utf-8")
-    config_init_text = (repo_root / "gisec" / "object_first" / "config" / "__init__.py").read_text(encoding="utf-8")
-    registry_text = (repo_root / "gisec" / "object_first" / "config" / "model_registry.py").read_text(encoding="utf-8")
+    registry_text = (repo_root / "gisec" / "config" / "v3_models.py").read_text(encoding="utf-8")
+    factory_text = (repo_root / "gisec" / "engine" / "v3_factory.py").read_text(encoding="utf-8")
+    runtime_text = (repo_root / "gisec" / "engine" / "v3_runtime.py").read_text(encoding="utf-8")
 
     forbidden = [
         "gisec.config.variants",
@@ -42,6 +42,6 @@ def test_gisec_object_first_package_surface_does_not_route_through_legacy_varian
         "GraphRefiner",
     ]
 
-    combined = "\n".join([init_text, config_init_text, registry_text])
+    combined = "\n".join([registry_text, factory_text, runtime_text])
     for token in forbidden:
         assert token not in combined

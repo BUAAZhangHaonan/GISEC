@@ -18,7 +18,7 @@ This repository is intentionally independent from the `magformer` training stack
 ## Current Scope
 
 - independent Python package: `gisec`
-- reserved next-generation package surface: `gisec.object_first`
+- reserved next-generation package surface: formal `gisec` `v3_*` modules
 - `GISEC v1.5 legacy` remains the historical `fragment-first` baseline
 - `GISEC v3-alpha` is the active `object-first` implementation target
 - explicit variant interface: `A0/A1/B0/G1/G2/G3/G4/G5`

@@ -55,25 +55,26 @@ def test_project_docs_freeze_v15_and_v3_alpha_boundaries() -> None:
     assert "v3-alpha" in results_readme
 
 
-def test_project_metadata_includes_gisec_object_first_surface() -> None:
+def test_project_metadata_includes_formal_gisec_v3_surface() -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    assert (repo_root / "gisec" / "object_first" / "__init__.py").exists()
-    assert (repo_root / "gisec" / "object_first" / "cli" / "__init__.py").exists()
-    assert (repo_root / "gisec" / "object_first" / "cli" / "train.py").exists()
-    assert (repo_root / "gisec" / "object_first" / "models" / "__init__.py").exists()
-    assert (repo_root / "gisec" / "object_first" / "train" / "__init__.py").exists()
-    assert (repo_root / "gisec" / "object_first" / "engine" / "__init__.py").exists()
-    assert (repo_root / "gisec" / "object_first" / "config" / "__init__.py").exists()
+    assert (repo_root / "gisec" / "cli" / "train_v3.py").exists()
+    assert (repo_root / "gisec" / "cli" / "eval_v3.py").exists()
+    assert (repo_root / "gisec" / "config" / "v3_models.py").exists()
+    assert (repo_root / "gisec" / "engine" / "v3_factory.py").exists()
+    assert (repo_root / "gisec" / "engine" / "v3_runtime.py").exists()
+    assert (repo_root / "gisec" / "models" / "v3_uq_backbone.py").exists()
+    assert (repo_root / "gisec" / "train" / "v3_targets.py").exists()
+    assert (repo_root / "gisec" / "train" / "train_v3.py").exists()
     assert (repo_root / "tests" / "v3" / "__init__.py").exists()
 
 
 def test_project_metadata_includes_v3_alpha_runner_surface() -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    runner_path = repo_root / "scripts" / "experiments" / "run_gisec_object_first_alpha_uq.sh"
+    runner_path = repo_root / "scripts" / "experiments" / "run_gisec_v3_alpha_uq.sh"
 
     assert runner_path.exists()
     runner_text = runner_path.read_text(encoding="utf-8")
-    assert "gisec.object_first.cli.train" in runner_text
-    assert "gisec.object_first.cli.eval" in runner_text
+    assert "gisec.cli.train_v3" in runner_text
+    assert "gisec.cli.eval_v3" in runner_text
     assert "configs/v3/model/uq_" in runner_text
-    assert "[gisec-object-first-alpha-uq]" in runner_text
+    assert "[gisec-v3-alpha-uq]" in runner_text

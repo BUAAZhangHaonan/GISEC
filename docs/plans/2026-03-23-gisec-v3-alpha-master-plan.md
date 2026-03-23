@@ -4,16 +4,16 @@
 
 **Goal:** Rebuild `GISEC` around a minimal `object-first` query-only mainline that can later absorb `reference` enhancement and `graph rescue` as formal paper modules without repeating the current `fragment-first` failure mode.
 
-**Architecture:** `v3-alpha` is intentionally narrow. It freezes the current repository as `v1.5 legacy`, creates a hard-isolated `gisec.object_first` path, and proves one minimal hypothesis first: `UQ-s/UQ-m` query-only object-first segmentation is stronger and more stable than the current fragment-first pipeline. Only after that mainline is validated do `reference` and `graph` re-enter as separate later phases, because they remain mandatory paper modules but cannot be allowed to define the backbone before the backbone itself is strong.
+**Architecture:** `v3-alpha` is intentionally narrow. It freezes the current repository as `v1.5 legacy`, re-enters the new object-first line through formal `gisec` `v3_*` modules, and proves one minimal hypothesis first: `UQ-s/UQ-m` query-only object-first segmentation is stronger and more stable than the current fragment-first pipeline. Only after that mainline is validated do `reference` and `graph` re-enter as separate later phases, because they remain mandatory paper modules but cannot be allowed to define the backbone before the backbone itself is strong.
 
-**Tech Stack:** Python 3.13, PyTorch 2.10, current YAML config stack, COCO evaluation, existing logging/export contract, new `gisec.object_first` package for hard semantic isolation.
+**Tech Stack:** Python 3.13, PyTorch 2.10, current YAML config stack, COCO evaluation, existing logging/export contract, formal `gisec` `v3_*` modules for semantic isolation.
 
 ---
 
 ## Summary
 - Freeze the current implementation as `GISEC v1.5 legacy`.
 - Build `v3-alpha` in a hard-isolated code path, not by incrementally mutating the current fragment-first core classes.
-- `gisec.object_first` must not import legacy `VariantSpec`, legacy `graph_utils.py`, or the old fragment-first runtime as the default v3 core.
+- formal `gisec` `v3_*` modules must not import legacy `VariantSpec`, legacy `graph_utils.py`, or the old fragment-first runtime as the default v3 core.
 - Limit `alpha` to `UQ-s` and `UQ-m` only:
   - `ResNet18/34 + U-Net decoder`
   - six-channel early fusion: `RGB + depth geometry`
@@ -25,7 +25,7 @@
 ## Phase Structure
 ### Phase 0: Freeze Legacy and Create Hard Isolation
 - Mark current `gisec` mainline as `v1.5 legacy fragment-first`.
-- Introduce `gisec.object_first` as a separate package path with separate configs, runners, and tests where needed.
+- Introduce formal `gisec` `v3_*` modules with separate configs, runners, and tests where needed.
 - Keep shared infra only where semantics are identical:
   - dataset protocol
   - COCO export contract

@@ -3,8 +3,8 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from gisec.object_first.config.model_registry import V3ModelSpec
-from gisec.object_first.models.uq_backbone import UQBackbone
+from gisec.config.v3_models import V3ModelSpec
+from gisec.models.v3_uq_backbone import UQBackbone
 
 
 class UQModel(nn.Module):

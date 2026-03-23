@@ -14,7 +14,7 @@ from gisec.train.train_gisec import (
     parse_train_args,
     resolve_model_config,
 )
-from gisec.object_first.config.model_registry import get_v3_model_spec
+from gisec.config.v3_models import get_v3_model_spec
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:

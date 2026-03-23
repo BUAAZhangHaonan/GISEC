@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 import torch
 
-from gisec.object_first.config.model_registry import active_alpha_model_ids, get_v3_model_spec, later_phase_model_ids
-from gisec.object_first.rescue.contracts import (
+from gisec.config.v3_models import active_alpha_model_ids, get_v3_model_spec, later_phase_model_ids
+from gisec.engine.v3_reentry_contracts import (
     GraphRescueContract,
     GraphRescueInput,
     GraphRescueOutput,
