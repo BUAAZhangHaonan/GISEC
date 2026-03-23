@@ -5,8 +5,12 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import torch
 
+from gisec.datasets.ecc_query_dataset import build_ownership_target as build_legacy_ownership_target
+from gisec_v3.train.targets import build_ownership_target as build_v3_ownership_target
 from gisec_v3.train.train_uq import run_uq_minibatch
+from gisec_v3.train.train_uq import _build_alpha_targets_from_instance_maps, _compute_alpha_losses
 
 
 def _write_dataset(root: Path, *, file_name: str = "000001.png") -> None:
@@ -84,3 +88,67 @@ def test_v3_uq_minibatch_runs_single_stage_training_and_eval(tmp_path: Path) -> 
     assert "object_count" in train_rows[0]
     assert "split_count" in train_rows[0]
     assert "avg_cores_per_object" in train_rows[0]
+
+
+def test_v3_alpha_targets_are_built_from_v3_semantics_not_legacy_scaled_offsets() -> None:
+    instance_maps = torch.zeros((1, 64, 64), dtype=torch.long)
+    instance_maps[0, 16:48, 20:44] = 1
+
+    targets = _build_alpha_targets_from_instance_maps(instance_maps)
+    expected_v3 = torch.from_numpy(build_v3_ownership_target(instance_maps[0].numpy())).float().unsqueeze(0)
+    legacy = torch.from_numpy(build_legacy_ownership_target(instance_maps[0].numpy())).float().unsqueeze(0)
+
+    assert torch.allclose(targets["ownership"], expected_v3)
+    assert not torch.allclose(targets["ownership"], legacy)
+
+
+def test_v3_alpha_losses_reward_better_predictions() -> None:
+    instance_maps = torch.zeros((1, 32, 32), dtype=torch.long)
+    instance_maps[0, 8:24, 8:24] = 1
+    targets = _build_alpha_targets_from_instance_maps(instance_maps)
+
+    good_outputs = {
+        "fg_logits": torch.where(targets["fg"] > 0.5, torch.full_like(targets["fg"], 4.0), torch.full_like(targets["fg"], -4.0)),
+        "boundary_logits": torch.where(
+            targets["boundary"] > 0.5,
+            torch.full_like(targets["boundary"], 4.0),
+            torch.full_like(targets["boundary"], -4.0),
+        ),
+        "core_heatmap": torch.where(targets["core"] > 0.1, torch.full_like(targets["core"], 4.0), torch.full_like(targets["core"], -4.0)),
+        "ownership_offsets": targets["ownership"].clone(),
+    }
+    bad_outputs = {
+        "fg_logits": -good_outputs["fg_logits"],
+        "boundary_logits": -good_outputs["boundary_logits"],
+        "core_heatmap": -good_outputs["core_heatmap"],
+        "ownership_offsets": torch.zeros_like(targets["ownership"]),
+    }
+
+    good_losses = _compute_alpha_losses(good_outputs, targets)
+    bad_losses = _compute_alpha_losses(bad_outputs, targets)
+
+    assert good_losses["fg"] < bad_losses["fg"]
+    assert good_losses["boundary"] < bad_losses["boundary"]
+    assert good_losses["core"] < bad_losses["core"]
+    assert good_losses["ownership"] <= bad_losses["ownership"]
+
+
+def test_v3_alpha_fg_loss_matches_plain_bce_plus_dice_contract() -> None:
+    instance_maps = torch.zeros((1, 32, 32), dtype=torch.long)
+    instance_maps[0, 8:24, 8:24] = 1
+    targets = _build_alpha_targets_from_instance_maps(instance_maps)
+    outputs = {
+        "fg_logits": torch.where(targets["fg"] > 0.5, torch.full_like(targets["fg"], 1.5), torch.full_like(targets["fg"], -0.75)),
+        "boundary_logits": torch.zeros_like(targets["boundary"]),
+        "core_heatmap": torch.zeros_like(targets["core"]),
+        "ownership_offsets": torch.zeros_like(targets["ownership"]),
+    }
+
+    losses = _compute_alpha_losses(outputs, targets)
+    expected_bce = torch.nn.functional.binary_cross_entropy_with_logits(outputs["fg_logits"], targets["fg"])
+    probs = torch.sigmoid(outputs["fg_logits"])
+    intersection = (probs * targets["fg"]).sum(dim=(1, 2, 3))
+    denominator = probs.sum(dim=(1, 2, 3)) + targets["fg"].sum(dim=(1, 2, 3))
+    expected_dice = 1.0 - ((2.0 * intersection + 1e-6) / (denominator + 1e-6)).mean()
+
+    assert torch.isclose(losses["fg"], expected_bce + expected_dice, atol=1e-6)

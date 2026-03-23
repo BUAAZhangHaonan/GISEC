@@ -4,12 +4,19 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
 
 from gisec_v3.engine.coarse_objects import build_coarse_objects
 from gisec_v3.engine.object_split import split_coarse_object
+
+
+def _sigmoid_tensor(x: torch.Tensor) -> torch.Tensor:
+    if torch.all((x >= 0.0) & (x <= 1.0)):
+        return x.float()
+    return torch.sigmoid(x.float())
 
 
 @dataclass(frozen=True)
@@ -32,10 +39,13 @@ def write_json(path: Path, payload: dict) -> None:
 
 
 def count_core_peaks(core_heatmap: torch.Tensor, *, threshold: float = 0.5) -> int:
-    heat = core_heatmap.float().unsqueeze(0).unsqueeze(0)
+    core_prob = _sigmoid_tensor(core_heatmap)
+    heat = core_prob.unsqueeze(0).unsqueeze(0)
     pooled = F.max_pool2d(heat, kernel_size=3, stride=1, padding=1)[0, 0]
-    peaks = (core_heatmap >= float(threshold)) & (core_heatmap >= pooled)
-    return int(peaks.sum().item())
+    peaks = (core_prob >= float(threshold)) & (core_prob >= pooled)
+    peak_mask = peaks.detach().cpu().numpy().astype(np.uint8)
+    num_labels, _ = cv2.connectedComponents(peak_mask, connectivity=8)
+    return max(int(num_labels) - 1, 0)
 
 
 def predict_instance_map(
@@ -47,16 +57,17 @@ def predict_instance_map(
     min_area: int,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     coarse = build_coarse_objects(fg_logits, min_area=min_area)
+    core_prob = _sigmoid_tensor(core_heatmap)
     instance_map = torch.zeros_like(coarse.label_map, dtype=torch.long)
     next_id = 1
     split_count = 0
     total_core_peaks = 0
     for coarse_object in coarse.objects:
         object_mask = coarse.label_map == int(coarse_object.label)
-        total_core_peaks += count_core_peaks(core_heatmap * object_mask.float())
+        total_core_peaks += count_core_peaks(core_prob * object_mask.float())
         local_labels = split_coarse_object(
             object_mask=object_mask,
-            core_heatmap=core_heatmap,
+            core_heatmap=core_prob,
             boundary_logits=boundary_logits,
             ownership_offsets=ownership_offsets,
             min_area=min_area,

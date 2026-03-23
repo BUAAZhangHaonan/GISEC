@@ -19,15 +19,85 @@ from gisec_v3.engine.runtime import (
     summarize_matches,
     write_json,
 )
-from gisec_v3.train.targets import build_core_heatmap_target
+from gisec_v3.train.targets import (
+    build_core_heatmap_target,
+    build_fg_target,
+    build_instance_boundary_target,
+    build_ownership_target,
+)
 
 
-def _core_target_from_instance_maps(instance_maps: torch.Tensor) -> torch.Tensor:
-    targets = []
+def _build_alpha_targets_from_instance_maps(instance_maps: torch.Tensor) -> dict[str, torch.Tensor]:
+    fg_targets = []
+    boundary_targets = []
+    core_targets = []
+    ownership_targets = []
     for instance_map in instance_maps:
-        core = build_core_heatmap_target(instance_map.cpu().numpy())
-        targets.append(torch.from_numpy(core).float().unsqueeze(0))
-    return torch.stack(targets, dim=0)
+        instance_map_np = instance_map.cpu().numpy()
+        fg_targets.append(torch.from_numpy(build_fg_target(instance_map_np)).float().unsqueeze(0))
+        boundary_targets.append(torch.from_numpy(build_instance_boundary_target(instance_map_np)).float().unsqueeze(0))
+        core_targets.append(torch.from_numpy(build_core_heatmap_target(instance_map_np)).float().unsqueeze(0))
+        ownership_targets.append(torch.from_numpy(build_ownership_target(instance_map_np)).float())
+    return {
+        "fg": torch.stack(fg_targets, dim=0),
+        "boundary": torch.stack(boundary_targets, dim=0),
+        "core": torch.stack(core_targets, dim=0),
+        "ownership": torch.stack(ownership_targets, dim=0),
+    }
+
+
+def _dice_loss_from_logits(logits: torch.Tensor, targets: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+    probs = torch.sigmoid(logits)
+    dims = tuple(range(1, probs.ndim))
+    intersection = (probs * targets).sum(dim=dims)
+    denominator = probs.sum(dim=dims) + targets.sum(dim=dims)
+    dice = (2.0 * intersection + eps) / (denominator + eps)
+    return 1.0 - dice.mean()
+
+
+def _balanced_bce_with_logits(logits: torch.Tensor, targets: torch.Tensor, *, max_pos_weight: float = 64.0) -> torch.Tensor:
+    pos = float(targets.sum().item())
+    total = float(targets.numel())
+    neg = max(total - pos, 0.0)
+    if pos <= 0.0:
+        pos_weight = torch.tensor(1.0, device=logits.device, dtype=logits.dtype)
+    else:
+        pos_weight = torch.tensor(min(max(neg / pos, 1.0), max_pos_weight), device=logits.device, dtype=logits.dtype)
+    return F.binary_cross_entropy_with_logits(logits, targets, pos_weight=pos_weight)
+
+
+def _focal_heatmap_loss(
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    *,
+    alpha: float = 0.75,
+    gamma: float = 2.0,
+) -> torch.Tensor:
+    probs = torch.sigmoid(logits)
+    ce = F.binary_cross_entropy_with_logits(logits, targets, reduction="none")
+    pt = probs * targets + (1.0 - probs) * (1.0 - targets)
+    alpha_factor = alpha * targets + (1.0 - alpha) * (1.0 - targets)
+    modulating_factor = (1.0 - pt).pow(gamma)
+    return (alpha_factor * modulating_factor * ce).mean()
+
+
+def _compute_alpha_losses(outputs: dict[str, torch.Tensor], targets: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    fg_bce = F.binary_cross_entropy_with_logits(outputs["fg_logits"], targets["fg"])
+    fg_dice = _dice_loss_from_logits(outputs["fg_logits"], targets["fg"])
+    loss_fg = fg_bce + fg_dice
+    loss_boundary = _balanced_bce_with_logits(outputs["boundary_logits"], targets["boundary"])
+    loss_core = _focal_heatmap_loss(outputs["core_heatmap"], targets["core"])
+    fg_mask = targets["fg"].expand_as(outputs["ownership_offsets"]) > 0.5
+    if fg_mask.any():
+        loss_ownership = F.smooth_l1_loss(outputs["ownership_offsets"][fg_mask], targets["ownership"][fg_mask])
+    else:
+        loss_ownership = outputs["ownership_offsets"].sum() * 0.0
+    return {
+        "fg": loss_fg,
+        "boundary": loss_boundary,
+        "core": loss_core,
+        "ownership": loss_ownership,
+    }
 
 
 def _append_jsonl(path: Path, payload: dict) -> None:
@@ -69,20 +139,17 @@ def run_uq_minibatch(
     for batch in train_loader:
         images = batch["images"].to(device_obj)
         depths = batch["depths"].to(device_obj)
-        fg_target = batch["fg_target"].to(device_obj)
-        boundary_target = batch["boundary_target"].to(device_obj)
-        ownership_target = batch["ownership_target"].to(device_obj)
-        core_target = _core_target_from_instance_maps(batch["instance_maps"]).to(device_obj)
+        alpha_targets = {
+            key: value.to(device_obj)
+            for key, value in _build_alpha_targets_from_instance_maps(batch["instance_maps"]).items()
+        }
 
         outputs = model(images, depths)
-        loss_fg = F.binary_cross_entropy_with_logits(outputs["fg_logits"], fg_target)
-        loss_boundary = F.binary_cross_entropy_with_logits(outputs["boundary_logits"], boundary_target)
-        loss_core = F.binary_cross_entropy_with_logits(outputs["core_heatmap"], core_target)
-        fg_mask = fg_target.expand_as(ownership_target) > 0.5
-        if fg_mask.any():
-            loss_ownership = F.smooth_l1_loss(outputs["ownership_offsets"][fg_mask], ownership_target[fg_mask])
-        else:
-            loss_ownership = outputs["ownership_offsets"].sum() * 0.0
+        losses = _compute_alpha_losses(outputs, alpha_targets)
+        loss_fg = losses["fg"]
+        loss_boundary = losses["boundary"]
+        loss_core = losses["core"]
+        loss_ownership = losses["ownership"]
         loss = loss_fg + loss_boundary + loss_core + loss_ownership
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
@@ -130,6 +197,7 @@ def run_uq_minibatch(
         depths = batch["depths"].to(device_obj)
         with torch.no_grad():
             outputs = model(images, depths)
+        alpha_targets = _build_alpha_targets_from_instance_maps(batch["instance_maps"])
         pred_map, stats = predict_instance_map(
             fg_logits=outputs["fg_logits"][0, 0].detach().cpu(),
             boundary_logits=outputs["boundary_logits"][0, 0].detach().cpu(),
@@ -143,8 +211,8 @@ def run_uq_minibatch(
             {
                 "pred_fg_rate": float((fg_prob >= 0.5).float().mean().item()),
                 "pred_boundary_rate": float((boundary_prob >= 0.5).float().mean().item()),
-                "target_fg_rate": float(batch["fg_target"][0, 0].float().mean().item()),
-                "target_boundary_rate": float(batch["boundary_target"][0, 0].float().mean().item()),
+                "target_fg_rate": float(alpha_targets["fg"][0, 0].float().mean().item()),
+                "target_boundary_rate": float(alpha_targets["boundary"][0, 0].float().mean().item()),
             }
         )
         pathology_rows.append(stats)

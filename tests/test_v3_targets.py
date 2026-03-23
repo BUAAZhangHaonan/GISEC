@@ -39,3 +39,14 @@ def test_v3_core_heatmap_target_stays_inside_elongated_object() -> None:
 
     assert instance_map[peak_y, peak_x] == 1
     assert core[peak_y, peak_x] == 1.0
+
+
+def test_v3_core_heatmap_target_prefers_center_of_elongated_plateau_not_plateau_edge() -> None:
+    instance_map = np.zeros((15, 15), dtype=np.int32)
+    instance_map[6:9, 2:13] = 1
+
+    core = build_core_heatmap_target(instance_map)
+    peak_y, peak_x = np.unravel_index(int(core.argmax()), core.shape)
+
+    assert peak_y == 7
+    assert 6 <= peak_x <= 8

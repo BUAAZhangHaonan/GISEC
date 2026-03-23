@@ -15,14 +15,31 @@ def build_boundary_target(instance_mask: np.ndarray) -> np.ndarray:
     return (dilated - eroded).clip(min=0).astype(np.float32)
 
 
+def build_instance_boundary_target(instance_map: np.ndarray) -> np.ndarray:
+    boundary = np.zeros(instance_map.shape, dtype=np.float32)
+    for inst_id in np.unique(instance_map):
+        if int(inst_id) <= 0:
+            continue
+        boundary = np.maximum(boundary, build_boundary_target(instance_map == int(inst_id)))
+    return boundary
+
+
 def _core_point(mask: np.ndarray) -> tuple[int, int]:
     mask_u8 = mask.astype(np.uint8)
     if mask_u8.sum() == 0:
         return 0, 0
     distance = cv2.distanceTransform(mask_u8, cv2.DIST_L2, 5)
-    peak_index = int(distance.argmax())
-    y, x = np.unravel_index(peak_index, distance.shape)
-    return int(y), int(x)
+    peak_value = float(distance.max())
+    plateau = np.isclose(distance, peak_value, atol=1e-6) & mask.astype(bool)
+    ys, xs = np.nonzero(plateau)
+    if xs.size == 0 or ys.size == 0:
+        peak_index = int(distance.argmax())
+        y, x = np.unravel_index(peak_index, distance.shape)
+        return int(y), int(x)
+    center_y = float(ys.mean())
+    center_x = float(xs.mean())
+    nearest = int(np.argmin((ys.astype(np.float32) - center_y) ** 2 + (xs.astype(np.float32) - center_x) ** 2))
+    return int(ys[nearest]), int(xs[nearest])
 
 
 def build_core_heatmap_target(instance_map: np.ndarray, sigma: float = 2.0) -> np.ndarray:
