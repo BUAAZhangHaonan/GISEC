@@ -123,3 +123,35 @@ def test_v3_eval_cli_runs_official_eval_protocol(tmp_path: Path) -> None:
     assert (eval_output / "run_summary.json").exists()
     assert (eval_output / "metrics.cocoeval.json").exists()
     assert (eval_output / "failure_summary.json").exists()
+
+
+def test_v3_eval_cli_rejects_missing_checkpoint_file(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    dataset_root = tmp_path / "dataset"
+    eval_output = tmp_path / "eval_out"
+    _write_dataset(dataset_root)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gisec_v3.cli.eval",
+            "--dataset-root",
+            str(dataset_root),
+            "--output-dir",
+            str(eval_output),
+            "--model-family",
+            "UQ",
+            "--model-scale",
+            "s",
+            "--checkpoint",
+            str(tmp_path / "missing.pth"),
+        ],
+        cwd=str(repo_root),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "checkpoint file does not exist" in result.stderr

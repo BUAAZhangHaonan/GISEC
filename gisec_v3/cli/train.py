@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from gisec.config.io import extract_argparse_defaults, load_yaml_config, merge_config_dicts
+from gisec_v3.config.model_registry import is_alpha_enabled_model_id
 from gisec_v3.train.train_uq import run_uq_minibatch
 
 
@@ -61,10 +62,16 @@ def _print_payload(args: argparse.Namespace, *, mode: str) -> None:
     print(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
+def _validate_alpha_execution_surface(parser: argparse.ArgumentParser, *, model_id: str) -> None:
+    if not is_alpha_enabled_model_id(model_id):
+        parser.error(f"{model_id} is reserved or unavailable and is not enabled in current v3-alpha execution surface.")
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = build_parser(argv, mode="train")
     args = parser.parse_args(argv)
     model_id = f"{args.model_family}-{args.model_scale}"
+    _validate_alpha_execution_surface(parser, model_id=model_id)
     if args.dry_run:
         _print_payload(args, mode="train")
         return

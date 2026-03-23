@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from gisec_v3.cli.train import _print_payload, build_parser
+from gisec_v3.cli.train import _print_payload, _validate_alpha_execution_surface, build_parser
 from gisec_v3.train.train_uq import run_uq_minibatch
 
 
@@ -11,6 +11,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = build_parser(argv, mode="eval")
     args = parser.parse_args(argv)
     model_id = f"{args.model_family}-{args.model_scale}"
+    _validate_alpha_execution_surface(parser, model_id=model_id)
     if args.dry_run:
         _print_payload(args, mode="eval")
         return
@@ -20,6 +21,8 @@ def main(argv: list[str] | None = None) -> None:
         parser.error("--output-dir is required unless --dry-run is set")
     if not args.checkpoint:
         parser.error("--checkpoint is required unless --dry-run is set")
+    if not Path(args.checkpoint).exists():
+        parser.error("checkpoint file does not exist")
     run_uq_minibatch(
         dataset_root=Path(args.dataset_root),
         output_dir=Path(args.output_dir),

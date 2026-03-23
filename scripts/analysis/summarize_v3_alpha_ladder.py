@@ -38,11 +38,16 @@ def _read_optional(path: Path) -> dict[str, Any]:
 def _row_from_run(run_summary_path: Path) -> dict[str, Any]:
     payload = _read_json(run_summary_path)
     run_dir = run_summary_path.parent
+    variant = str(payload.get("variant", payload.get("model_id", run_dir.name)))
+    if variant != "v1.5 legacy":
+        if "use_reference" not in payload or "use_graph_rescue" not in payload:
+            raise ValueError(f"Alpha ladder requires explicit module flags for {variant}: {run_dir}")
+        if bool(payload.get("use_reference")) or bool(payload.get("use_graph_rescue")):
+            raise ValueError(f"Alpha ladder received contaminated run: {run_dir}")
     metrics = dict(payload.get("metrics", {}))
     match = _read_optional(run_dir / "match_diagnostics_summary.json")
     pathology = _read_optional(run_dir / "object_pathology_summary.json")
     failures = _read_optional(run_dir / "failure_summary.json")
-    variant = str(payload.get("variant", payload.get("model_id", run_dir.name)))
     return {
         "variant": variant,
         "segm/AP": float(metrics.get("segm/AP", 0.0)),
