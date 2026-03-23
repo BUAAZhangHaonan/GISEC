@@ -27,12 +27,103 @@ def sigmoid_np(logits: np.ndarray) -> np.ndarray:
     return (1.0 / (1.0 + np.exp(-logits))).astype(np.float32)
 
 
+def _ownership_seed_centers(
+    component_mask: np.ndarray,
+    ownership_offsets: np.ndarray,
+    min_area: int,
+) -> List[Tuple[float, float]]:
+    ys, xs = np.nonzero(component_mask)
+    if xs.size < max(int(min_area) * 2, 8):
+        return []
+    height, width = component_mask.shape
+    landing_x = np.clip(
+        np.rint(xs.astype(np.float32) + ownership_offsets[0, ys, xs]).astype(np.int32),
+        0,
+        width - 1,
+    )
+    landing_y = np.clip(
+        np.rint(ys.astype(np.float32) + ownership_offsets[1, ys, xs]).astype(np.int32),
+        0,
+        height - 1,
+    )
+    vote_map = np.zeros(component_mask.shape, dtype=np.float32)
+    np.add.at(vote_map, (landing_y, landing_x), 1.0)
+    if float(vote_map.max()) < 2.0:
+        return []
+    vote_map = cv2.GaussianBlur(vote_map, (0, 0), sigmaX=0.8, sigmaY=0.8)
+    local_max = cv2.dilate(vote_map, np.ones((3, 3), dtype=np.uint8), iterations=1)
+    seed_mask = (
+        (vote_map >= max(1.0, float(vote_map.max()) * 0.35))
+        & np.isclose(vote_map, local_max, atol=1e-4)
+        & component_mask.astype(bool)
+    ).astype(np.uint8)
+    if seed_mask.sum() == 0:
+        return []
+    num, labels, stats, _ = cv2.connectedComponentsWithStats(seed_mask, connectivity=8)
+    min_seed_gap = max(2.0, float(np.sqrt(max(int(min_area), 1))))
+    centers: List[Tuple[float, float]] = []
+    for label in range(1, num):
+        region = labels == label
+        weight = vote_map[region]
+        region_ys, region_xs = np.nonzero(region)
+        if region_xs.size == 0:
+            continue
+        if float(weight.sum()) > 0.0:
+            center_x = float((region_xs.astype(np.float32) * weight).sum() / weight.sum())
+            center_y = float((region_ys.astype(np.float32) * weight).sum() / weight.sum())
+        else:
+            center_x = float(region_xs.mean())
+            center_y = float(region_ys.mean())
+        if any(np.hypot(center_x - prev_x, center_y - prev_y) < min_seed_gap for prev_x, prev_y in centers):
+            continue
+        centers.append((center_x, center_y))
+    return centers
+
+
+def _split_component_by_ownership(
+    component_mask: np.ndarray,
+    ownership_offsets: np.ndarray,
+    min_area: int,
+) -> np.ndarray:
+    component_area = int(component_mask.sum())
+    if component_area < max(int(min_area) * 4, 32):
+        return np.zeros_like(component_mask, dtype=np.int32)
+    centers = _ownership_seed_centers(component_mask, ownership_offsets, min_area)
+    if len(centers) <= 1:
+        return np.zeros_like(component_mask, dtype=np.int32)
+    ys, xs = np.nonzero(component_mask)
+    height, width = component_mask.shape
+    landing = np.stack(
+        [
+            np.clip(xs.astype(np.float32) + ownership_offsets[0, ys, xs], 0.0, float(width - 1)),
+            np.clip(ys.astype(np.float32) + ownership_offsets[1, ys, xs], 0.0, float(height - 1)),
+        ],
+        axis=1,
+    )
+    center_array = np.asarray(centers, dtype=np.float32)
+    distances = ((landing[:, None, :] - center_array[None, :, :]) ** 2).sum(axis=2)
+    assigned = distances.argmin(axis=1)
+    counts = np.bincount(assigned, minlength=len(centers))
+    keep = counts >= int(min_area)
+    if int(keep.sum()) <= 1:
+        return np.zeros_like(component_mask, dtype=np.int32)
+    kept_indices = np.flatnonzero(keep)
+    kept_centers = center_array[kept_indices]
+    kept_distances = ((landing[:, None, :] - kept_centers[None, :, :]) ** 2).sum(axis=2)
+    kept_assigned = kept_indices[kept_distances.argmin(axis=1)]
+    split = np.zeros_like(component_mask, dtype=np.int32)
+    for next_id, center_idx in enumerate(kept_indices.tolist(), start=1):
+        split[ys[kept_assigned == center_idx], xs[kept_assigned == center_idx]] = next_id
+    return split
+
+
 def fragments_from_logits(
     fg_logits: np.ndarray,
     boundary_logits: np.ndarray,
     fg_threshold: float = 0.5,
     boundary_threshold: float = 0.5,
     min_area: int = 8,
+    ownership_offsets: np.ndarray | None = None,
 ) -> np.ndarray:
     fg = (sigmoid_np(fg_logits) >= float(fg_threshold)).astype(np.uint8)
     boundary = (sigmoid_np(boundary_logits) >= float(boundary_threshold)).astype(np.uint8)
@@ -46,7 +137,16 @@ def fragments_from_logits(
         area = int(stats[label, cv2.CC_STAT_AREA])
         if area < int(min_area):
             continue
-        fragments[labels == label] = next_id
+        component_mask = labels == label
+        ownership_split = None
+        if ownership_offsets is not None:
+            ownership_split = _split_component_by_ownership(component_mask, ownership_offsets, min_area)
+        if ownership_split is not None and int(ownership_split.max()) > 1:
+            for local_label in sorted(int(x) for x in np.unique(ownership_split).tolist() if int(x) > 0):
+                fragments[ownership_split == local_label] = next_id
+                next_id += 1
+            continue
+        fragments[component_mask] = next_id
         next_id += 1
     if next_id == 1 and fg.sum() > 0:
         num, labels, stats, _ = cv2.connectedComponentsWithStats(fg, connectivity=8)
@@ -54,7 +154,16 @@ def fragments_from_logits(
             area = int(stats[label, cv2.CC_STAT_AREA])
             if area < int(min_area):
                 continue
-            fragments[labels == label] = next_id
+            component_mask = labels == label
+            ownership_split = None
+            if ownership_offsets is not None:
+                ownership_split = _split_component_by_ownership(component_mask, ownership_offsets, min_area)
+            if ownership_split is not None and int(ownership_split.max()) > 1:
+                for local_label in sorted(int(x) for x in np.unique(ownership_split).tolist() if int(x) > 0):
+                    fragments[ownership_split == local_label] = next_id
+                    next_id += 1
+                continue
+            fragments[component_mask] = next_id
             next_id += 1
     return fragments
 
@@ -182,6 +291,8 @@ def _bridge_fragment_pairs(
             ownership_mean = float(ownership_support[corridor].mean()) if ownership_support is not None and corridor.any() else 0.0
             if boundary_mean > 0.55 or depth_delta > 0.3:
                 continue
+            if bbox_gap <= 1.0 and boundary_mean < 0.05 and ownership_mean < 0.05:
+                continue
             score = float(max_gap - bbox_gap) - depth_delta - boundary_mean + 0.25 * ownership_mean
             candidate_scores[a].append((score, (a, b), corridor))
             candidate_scores[b].append((score, (a, b), corridor))
@@ -277,8 +388,11 @@ def build_graph_batch(
     ownership_np = None
     ownership_support = None
     offset_scale = ownership_offset_scale(fg_prob.shape[0], fg_prob.shape[1])
-    if variant_spec.use_ownership_graph_cues and ownership_offsets is not None:
-        ownership_np = ownership_offsets.detach()[0].cpu().numpy() * float(offset_scale)
+    ownership_fragment_offsets = None
+    if variant_spec.use_ownership_supervision and ownership_offsets is not None:
+        ownership_fragment_offsets = ownership_offsets.detach()[0].cpu().numpy() * float(offset_scale)
+    if variant_spec.use_ownership_graph_cues and ownership_fragment_offsets is not None:
+        ownership_np = ownership_fragment_offsets
         ownership_support = torch.sigmoid(ownership_offsets.detach()).mean(dim=1)[0].cpu().numpy()
     depth_np = depth_map.detach()[0, 0].cpu().numpy()
     fragments = fragments_from_logits(
@@ -287,6 +401,7 @@ def build_graph_batch(
         fg_threshold=fg_threshold,
         boundary_threshold=boundary_threshold,
         min_area=min_area,
+        ownership_offsets=ownership_fragment_offsets,
     )
     labels = [int(x) for x in np.unique(fragments).tolist() if int(x) > 0]
 

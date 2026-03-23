@@ -235,6 +235,107 @@ def test_fragments_from_logits_supports_independent_fg_and_boundary_thresholds()
     assert len(merged_labels) == 1
 
 
+def test_fragments_from_logits_splits_weak_boundary_blob_with_ownership_basins() -> None:
+    fg_logits = np.full((12, 12), -4.0, dtype=np.float32)
+    boundary_logits = np.zeros((12, 12), dtype=np.float32)
+    ownership_offsets = np.zeros((2, 12, 12), dtype=np.float32)
+    fg_logits[2:10, 2:10] = 4.0
+
+    yy, xx = np.indices((12, 12), dtype=np.float32)
+    left_mask = np.zeros((12, 12), dtype=bool)
+    right_mask = np.zeros((12, 12), dtype=bool)
+    left_mask[2:10, 2:6] = True
+    right_mask[2:10, 6:10] = True
+    ownership_offsets[0, left_mask] = 3.5 - xx[left_mask]
+    ownership_offsets[1, left_mask] = 5.5 - yy[left_mask]
+    ownership_offsets[0, right_mask] = 7.5 - xx[right_mask]
+    ownership_offsets[1, right_mask] = 5.5 - yy[right_mask]
+
+    merged = fragments_from_logits(
+        fg_logits,
+        boundary_logits,
+        fg_threshold=0.5,
+        boundary_threshold=0.5,
+        min_area=2,
+    )
+    split = fragments_from_logits(
+        fg_logits,
+        boundary_logits,
+        fg_threshold=0.5,
+        boundary_threshold=0.5,
+        min_area=2,
+        ownership_offsets=ownership_offsets,
+    )
+
+    merged_labels = sorted(x for x in np.unique(merged).tolist() if x > 0)
+    split_labels = sorted(x for x in np.unique(split).tolist() if x > 0)
+    assert len(merged_labels) == 1
+    assert len(split_labels) == 2
+
+
+def test_fragments_from_logits_does_not_split_small_blob_only_from_ownership_basins() -> None:
+    fg_logits = np.full((12, 12), -4.0, dtype=np.float32)
+    boundary_logits = np.zeros((12, 12), dtype=np.float32)
+    ownership_offsets = np.zeros((2, 12, 12), dtype=np.float32)
+    fg_logits[3:7, 3:6] = 4.0
+
+    yy, xx = np.indices((12, 12), dtype=np.float32)
+    upper_mask = np.zeros((12, 12), dtype=bool)
+    lower_mask = np.zeros((12, 12), dtype=bool)
+    upper_mask[3:5, 3:6] = True
+    lower_mask[5:7, 3:6] = True
+    ownership_offsets[0, upper_mask] = 4.0 - xx[upper_mask]
+    ownership_offsets[1, upper_mask] = 3.5 - yy[upper_mask]
+    ownership_offsets[0, lower_mask] = 4.0 - xx[lower_mask]
+    ownership_offsets[1, lower_mask] = 5.5 - yy[lower_mask]
+
+    split = fragments_from_logits(
+        fg_logits,
+        boundary_logits,
+        fg_threshold=0.5,
+        boundary_threshold=0.5,
+        min_area=4,
+        ownership_offsets=ownership_offsets,
+    )
+
+    split_labels = sorted(x for x in np.unique(split).tolist() if x > 0)
+    assert len(split_labels) == 1
+
+
+def test_build_graph_batch_uses_ownership_supervision_for_fragment_splitting_before_graph_cues() -> None:
+    feature_map, fg_logits, boundary_logits, ownership_offsets, depth_map = _make_inputs()
+    fg_logits.fill_(-4.0)
+    fg_logits[:, :, 2:10, 2:10] = 4.0
+    boundary_logits.zero_()
+
+    yy, xx = np.indices((16, 16), dtype=np.float32)
+    left_mask = np.zeros((16, 16), dtype=bool)
+    right_mask = np.zeros((16, 16), dtype=bool)
+    left_mask[2:10, 2:6] = True
+    right_mask[2:10, 6:10] = True
+    ownership_offsets.zero_()
+    ownership_offsets[0, 0, left_mask] = torch.from_numpy(3.5 - xx[left_mask])
+    ownership_offsets[0, 1, left_mask] = torch.from_numpy(5.5 - yy[left_mask])
+    ownership_offsets[0, 0, right_mask] = torch.from_numpy(7.5 - xx[right_mask])
+    ownership_offsets[0, 1, right_mask] = torch.from_numpy(5.5 - yy[right_mask])
+
+    graph_batch = build_graph_batch(
+        feature_map=feature_map,
+        fg_logits=fg_logits,
+        boundary_logits=boundary_logits,
+        ownership_offsets=ownership_offsets,
+        depth_map=depth_map,
+        instance_map=None,
+        prototype_cache=_make_prototype_cache(),
+        variant=get_variant_spec("Q1"),
+        min_area=2,
+    )
+
+    labels = sorted(x for x in np.unique(graph_batch.fragments).tolist() if x > 0)
+    assert graph_batch.diagnostics["num_fragments"] == 2
+    assert len(labels) == 2
+
+
 def test_build_graph_batch_passes_runtime_boundary_threshold_to_contact_pairs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
