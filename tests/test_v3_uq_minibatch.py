@@ -10,7 +10,7 @@ import torch
 from gisec.datasets.ecc_query_dataset import build_ownership_target as build_legacy_ownership_target
 from gisec_v3.train.targets import build_ownership_target as build_v3_ownership_target
 from gisec_v3.train.train_uq import run_uq_minibatch
-from gisec_v3.train.train_uq import _build_alpha_targets_from_instance_maps, _compute_alpha_losses
+from gisec_v3.train.train_uq import _build_alpha_targets_from_instance_maps, _classify_failure, _compute_alpha_losses
 
 
 def _write_dataset(root: Path, *, file_name: str = "000001.png") -> None:
@@ -75,12 +75,19 @@ def test_v3_uq_minibatch_runs_single_stage_training_and_eval(tmp_path: Path) -> 
     assert (output_root / "mask_calibration_summary.json").exists()
     assert (output_root / "object_pathology_summary.json").exists()
     assert (output_root / "match_diagnostics_summary.json").exists()
+    assert (output_root / "failure_summary.json").exists()
+    assert (output_root / "coco_instances_results.json").exists()
+    assert (output_root / "metrics.cocoeval.json").exists()
 
     run_summary = json.loads((output_root / "run_summary.json").read_text(encoding="utf-8"))
     assert run_summary["model_id"] == "UQ-s"
+    assert run_summary["variant"] == "UQ-s"
     assert run_summary["split_mode"] == "object_first"
     assert run_summary["use_reference"] is False
     assert run_summary["use_graph_rescue"] is False
+    assert "metrics" in run_summary
+    assert "segm/AP" in run_summary["metrics"]
+    assert "bbox/AP" in run_summary["metrics"]
 
     metric_rows = [json.loads(line) for line in (output_root / "metrics_log.jsonl").read_text(encoding="utf-8").splitlines()]
     train_rows = [row for row in metric_rows if row.get("mode") == "train"]
@@ -88,6 +95,10 @@ def test_v3_uq_minibatch_runs_single_stage_training_and_eval(tmp_path: Path) -> 
     assert "object_count" in train_rows[0]
     assert "split_count" in train_rows[0]
     assert "avg_cores_per_object" in train_rows[0]
+
+    failure_summary = json.loads((output_root / "failure_summary.json").read_text(encoding="utf-8"))
+    assert failure_summary["total_images"] == 1
+    assert set(failure_summary["counts"]).issuperset({"normal", "empty", "oversized_blob", "severe_under_count", "severe_over_split"})
 
 
 def test_v3_alpha_targets_are_built_from_v3_semantics_not_legacy_scaled_offsets() -> None:
@@ -152,3 +163,13 @@ def test_v3_alpha_fg_loss_matches_plain_bce_plus_dice_contract() -> None:
     expected_dice = 1.0 - ((2.0 * intersection + 1e-6) / (denominator + 1e-6)).mean()
 
     assert torch.isclose(losses["fg"], expected_bce + expected_dice, atol=1e-6)
+
+
+def test_v3_failure_classifier_keeps_oversized_blob_separate_from_under_count() -> None:
+    gt_map = torch.zeros((16, 16), dtype=torch.long)
+    gt_map[2:6, 2:6] = 1
+    gt_map[10:14, 10:14] = 2
+    pred_map = torch.zeros((16, 16), dtype=torch.long)
+    pred_map[1:15, 1:15] = 1
+
+    assert _classify_failure(gt_map, pred_map) == "oversized_blob"

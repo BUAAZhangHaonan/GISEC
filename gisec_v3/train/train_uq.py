@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
+from baseline.common.coco_export import masks_to_coco_results
 from gisec.datasets.ecc_query_dataset import ECCGraphDataset, collate_graph_batch
+from gisec.engine.runtime import evaluate_json
 from gisec_v3.engine.factory import build_v3_model
 from gisec_v3.engine.runtime import (
     UQRunSummary,
@@ -106,11 +109,57 @@ def _append_jsonl(path: Path, payload: dict) -> None:
         handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
 
+def _predicted_masks_from_instance_map(instance_map: torch.Tensor) -> list[torch.Tensor]:
+    labels = [int(x) for x in torch.unique(instance_map).tolist() if int(x) > 0]
+    return [(instance_map == int(label)).to(torch.uint8) for label in labels]
+
+
+def _classify_failure(gt_map: torch.Tensor, pred_map: torch.Tensor) -> str:
+    gt_count = len([int(x) for x in torch.unique(gt_map).tolist() if int(x) > 0])
+    pred_count = len([int(x) for x in torch.unique(pred_map).tolist() if int(x) > 0])
+    pred_fg_ratio = float((pred_map > 0).float().mean().item())
+    if pred_count == 0:
+        return "empty"
+    if pred_count == 1 and gt_count > 1 and pred_fg_ratio >= 0.15:
+        return "oversized_blob"
+    if pred_count < gt_count:
+        return "severe_under_count"
+    if pred_count > gt_count:
+        return "severe_over_split"
+    return "normal"
+
+
+def _mask_scores_from_fg_prob(instance_map: torch.Tensor, fg_prob: torch.Tensor) -> list[float]:
+    scores: list[float] = []
+    for mask in _predicted_masks_from_instance_map(instance_map):
+        mask_bool = mask.to(dtype=torch.bool)
+        if mask_bool.any():
+            scores.append(float(fg_prob[mask_bool].mean().item()))
+        else:
+            scores.append(0.0)
+    return scores
+
+
+def _write_subset_annotations(
+    *,
+    source_ann: Path,
+    output_path: Path,
+    selected_image_ids: list[int],
+) -> Path:
+    payload = json.loads(source_ann.read_text(encoding="utf-8"))
+    selected = {int(image_id) for image_id in selected_image_ids}
+    payload["images"] = [item for item in payload.get("images", []) if int(item.get("id", -1)) in selected]
+    payload["annotations"] = [item for item in payload.get("annotations", []) if int(item.get("image_id", -1)) in selected]
+    output_path.write_text(json.dumps(payload, ensure_ascii=False) + "\n", encoding="utf-8")
+    return output_path
+
+
 def run_uq_minibatch(
     *,
     dataset_root: Path,
     output_dir: Path,
     model_id: str,
+    checkpoint: Path | None = None,
     device: str = "cpu",
     image_size: int = 64,
     batch_size: int = 1,
@@ -119,6 +168,7 @@ def run_uq_minibatch(
     max_val_images: int = 1,
     min_area: int = 8,
 ) -> None:
+    start_time = time.perf_counter()
     dataset_root = Path(dataset_root).resolve()
     output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -130,12 +180,16 @@ def run_uq_minibatch(
     val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=num_workers, collate_fn=collate_graph_batch)
 
     model = build_v3_model(model_id).to(device_obj)
+    if checkpoint is not None and Path(checkpoint).exists():
+        state = torch.load(Path(checkpoint), map_location=device_obj)
+        model.load_state_dict(state["model"] if isinstance(state, dict) and "model" in state else state)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     metrics_log_path = output_dir / "metrics_log.jsonl"
     if metrics_log_path.exists():
         metrics_log_path.unlink()
 
     train_steps = 0
+    model.train()
     for batch in train_loader:
         images = batch["images"].to(device_obj)
         depths = batch["depths"].to(device_obj)
@@ -187,9 +241,22 @@ def run_uq_minibatch(
         if train_steps >= int(max_train_steps):
             break
 
+    checkpoint_path = output_dir / "model_best.pth"
+    torch.save({"model": model.state_dict()}, checkpoint_path)
+
     mask_rows: list[dict[str, float]] = []
     pathology_rows: list[dict[str, float]] = []
     match_rows: list[dict[str, float]] = []
+    evaluated_image_ids: list[int] = []
+    failure_counts = {
+        "normal": 0,
+        "empty": 0,
+        "oversized_blob": 0,
+        "severe_under_count": 0,
+        "severe_over_split": 0,
+    }
+    coco_results: list[dict] = []
+    model.eval()
     for batch_idx, batch in enumerate(val_loader):
         if batch_idx >= int(max_val_images):
             break
@@ -217,6 +284,17 @@ def run_uq_minibatch(
         )
         pathology_rows.append(stats)
         match_rows.append(summarize_instance_matching(batch["instance_maps"][0], pred_map))
+        failure_counts[_classify_failure(batch["instance_maps"][0], pred_map)] += 1
+        pred_masks = [mask.cpu().numpy().astype("uint8") for mask in _predicted_masks_from_instance_map(pred_map)]
+        mask_scores = _mask_scores_from_fg_prob(pred_map, fg_prob)
+        coco_results.extend(
+            masks_to_coco_results(
+                image_id=int(batch["image_ids"][0]),
+                masks=pred_masks,
+                scores=mask_scores,
+            )
+        )
+        evaluated_image_ids.append(int(batch["image_ids"][0]))
         _append_jsonl(
             metrics_log_path,
             {
@@ -227,12 +305,30 @@ def run_uq_minibatch(
             },
         )
 
+    results_json = output_dir / "coco_instances_results.json"
+    results_json.write_text(json.dumps(coco_results, ensure_ascii=False) + "\n", encoding="utf-8")
+    ann_file = dataset_root / "annotations" / "instances_val.json"
+    subset_ann_file = _write_subset_annotations(
+        source_ann=ann_file,
+        output_path=output_dir / "instances_val.subset.json",
+        selected_image_ids=evaluated_image_ids,
+    )
+    metrics = evaluate_json(subset_ann_file, results_json)
+    write_json(output_dir / "metrics.cocoeval.json", metrics)
     write_json(output_dir / "mask_calibration_summary.json", summarize_mask_calibration(mask_rows))
     write_json(output_dir / "object_pathology_summary.json", summarize_object_pathology(pathology_rows))
     write_json(output_dir / "match_diagnostics_summary.json", summarize_matches(match_rows))
+    write_json(
+        output_dir / "failure_summary.json",
+        {
+            "total_images": int(sum(failure_counts.values())),
+            "counts": failure_counts,
+        },
+    )
     save_run_summary(
         output_dir / "run_summary.json",
         UQRunSummary(
+            variant=model_id,
             model_id=model_id,
             split_mode="object_first",
             use_reference=False,
@@ -243,5 +339,10 @@ def run_uq_minibatch(
             batch_size=int(batch_size),
             max_train_steps=int(max_train_steps),
             max_val_images=int(max_val_images),
+            metrics=metrics,
+            inference_speed={},
+            params_trainable=int(sum(param.numel() for param in model.parameters() if param.requires_grad)),
+            wall_time_sec=float(time.perf_counter() - start_time),
+            results_json=str(results_json),
         ),
     )

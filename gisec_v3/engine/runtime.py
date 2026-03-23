@@ -21,6 +21,7 @@ def _sigmoid_tensor(x: torch.Tensor) -> torch.Tensor:
 
 @dataclass(frozen=True)
 class UQRunSummary:
+    variant: str
     model_id: str
     split_mode: str
     use_reference: bool
@@ -31,6 +32,11 @@ class UQRunSummary:
     batch_size: int
     max_train_steps: int
     max_val_images: int
+    metrics: dict[str, float]
+    inference_speed: dict[str, float | None]
+    params_trainable: int | None
+    wall_time_sec: float | None
+    results_json: str | None = None
 
 
 def write_json(path: Path, payload: dict) -> None:

@@ -73,6 +73,7 @@ def test_project_metadata_includes_v3_alpha_runner_surface() -> None:
 
     assert runner_path.exists()
     runner_text = runner_path.read_text(encoding="utf-8")
-    assert "python -m gisec_v3.cli.train" in runner_text
+    assert "gisec_v3.cli.train" in runner_text
+    assert "gisec_v3.cli.eval" in runner_text
     assert "configs/v3/model/uq_" in runner_text
     assert "[gisec-v3-alpha-uq]" in runner_text

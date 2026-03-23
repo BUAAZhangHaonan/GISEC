@@ -1,0 +1,8 @@
+train:
+  device: cpu
+  image_size: 64
+  batch_size: 1
+  num_workers: 0
+  max_train_steps: 8
+  max_val_images: 4
+  min_area: 8
