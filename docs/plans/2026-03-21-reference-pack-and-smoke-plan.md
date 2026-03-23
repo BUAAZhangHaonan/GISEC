@@ -192,7 +192,7 @@ git commit -m "feat: add smoke failure diagnostics"
 ### Task 5: Add a targeted smoke runbook for effect debugging
 
 **Files:**
-- Modify: `scripts/experiments/run_0831_gisec_v2_smoke.sh`
+- Modify: `scripts/experiments/run_gisec_legacy_smoke.sh`
 - Create: `configs/train/smoke_debug_1024.yaml`
 - Modify: `configs/README.md`
 - Modify: `README.md`
@@ -232,7 +232,7 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add scripts/experiments/run_0831_gisec_v2_smoke.sh configs/train/smoke_debug_1024.yaml configs/README.md README.md tests/test_runner_dry_run.py
+git add scripts/experiments/run_gisec_legacy_smoke.sh configs/train/smoke_debug_1024.yaml configs/README.md README.md tests/test_runner_dry_run.py
 git commit -m "feat: add smoke debug runbook"
 ```
 

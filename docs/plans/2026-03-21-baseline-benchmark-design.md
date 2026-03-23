@@ -95,7 +95,7 @@ The repository should gain a top-level `baseline/` package or folder with clear 
   - shared metrics and logging helpers
 - `baseline/mask_rcnn/`
 - `baseline/mask2former/`
-- `baseline/yolov8_seg/`
+- `baseline/yolo_seg/`
 - `baseline/unet/`
 - `baseline/unetpp/`
 - `baseline/attention_unet/`
@@ -169,7 +169,7 @@ Rows should be grouped into:
 - RGB U-Net family
 - RGB-D U-Net family
 - `GISEC v1`
-- `GISEC v2 current`
+- `GISEC Method current`
 
 ## Stop Rules
 Benchmarking should change the research direction if the evidence demands it.

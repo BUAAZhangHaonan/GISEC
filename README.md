@@ -3,7 +3,7 @@
 `GISEC` now has two explicit lines:
 
 - `GISEC v1.5 legacy`: the historical `fragment-first` line kept for reproduction and failure analysis
-- `GISEC v3-alpha`: the new `object-first` line that starts from a query-only backbone before `reference and graph remain required later modules`
+- `GISEC Query Alpha`: the new `object-first` line that starts from a query-only backbone before `reference and graph remain required later modules`
 
 ## Why This Repo Exists
 
@@ -13,14 +13,14 @@ The lightweight RGB-D line in `magformer` has already established a stable basel
 - a lightweight `U-Net-first` backbone can predict fragment-level cues cheaply
 - a dedicated `GraphRefiner` can merge fragments more reliably than heuristic grouping under occlusion-heavy clutter
 
-This repository is intentionally independent from the `magformer` training stack. The current reset is explicit: `GISEC v1.5 legacy` remains runnable as the historical baseline, while `GISEC v3-alpha` becomes the active `object-first` implementation target.
+This repository is intentionally independent from the `magformer` training stack. The current reset is explicit: `GISEC v1.5 legacy` remains runnable as the historical baseline, while `GISEC Query Alpha` becomes the active `object-first` implementation target.
 
 ## Current Scope
 
 - independent Python package: `gisec`
-- reserved next-generation package surface: formal `gisec` `v3_*` modules
+- reserved next-generation package surface: formal `gisec` `query_*` modules
 - `GISEC v1.5 legacy` remains the historical `fragment-first` baseline
-- `GISEC v3-alpha` is the active `object-first` implementation target
+- `GISEC Query Alpha` is the active `object-first` implementation target
 - explicit variant interface: `A0/A1/B0/G1/G2/G3/G4/G5`
 - recovery debug interface: `Q0/Q1/Q2`
 - prototype bank contract with `compat` and `strict` validation modes
@@ -44,14 +44,14 @@ This repository is intentionally independent from the `magformer` training stack
 - [docs/experiments/README.md](docs/experiments/README.md)
 - [docs/results/README.md](docs/results/README.md)
 - [docs/method/README.md](docs/method/README.md)
-- [docs/plans/2026-03-23-gisec-v3-alpha-master-plan.md](docs/plans/2026-03-23-gisec-v3-alpha-master-plan.md)
-- [docs/plans/2026-03-23-01-gisec-v3-alpha-freeze-and-separation.md](docs/plans/2026-03-23-01-gisec-v3-alpha-freeze-and-separation.md)
-- [docs/plans/2026-03-23-02-gisec-v3-alpha-uq-backbone.md](docs/plans/2026-03-23-02-gisec-v3-alpha-uq-backbone.md)
-- [docs/plans/2026-03-23-03-gisec-v3-alpha-object-proposal-and-training.md](docs/plans/2026-03-23-03-gisec-v3-alpha-object-proposal-and-training.md)
-- [docs/plans/2026-03-23-04-gisec-v3-alpha-eval-ladder.md](docs/plans/2026-03-23-04-gisec-v3-alpha-eval-ladder.md)
-- [docs/plans/2026-03-23-05-gisec-v3-alpha-reference-graph-reentry.md](docs/plans/2026-03-23-05-gisec-v3-alpha-reference-graph-reentry.md)
-- [docs/method/gisec-v2-method.md](docs/method/gisec-v2-method.md)
-- [docs/plans/2026-03-19-gisec-v2-master-plan.md](docs/plans/2026-03-19-gisec-v2-master-plan.md)
+- [docs/plans/2026-03-23-gisec-query-master-plan.md](docs/plans/2026-03-23-gisec-query-master-plan.md)
+- [docs/plans/2026-03-23-01-gisec-query-freeze-and-separation.md](docs/plans/2026-03-23-01-gisec-query-freeze-and-separation.md)
+- [docs/plans/2026-03-23-02-gisec-query-uq-backbone.md](docs/plans/2026-03-23-02-gisec-query-uq-backbone.md)
+- [docs/plans/2026-03-23-03-gisec-query-object-proposal-and-training.md](docs/plans/2026-03-23-03-gisec-query-object-proposal-and-training.md)
+- [docs/plans/2026-03-23-04-gisec-query-eval-ladder.md](docs/plans/2026-03-23-04-gisec-query-eval-ladder.md)
+- [docs/plans/2026-03-23-05-gisec-query-reference-graph-reentry.md](docs/plans/2026-03-23-05-gisec-query-reference-graph-reentry.md)
+- [docs/method/gisec-method-method.md](docs/method/gisec-method-method.md)
+- [docs/plans/2026-03-19-gisec-method-master-plan.md](docs/plans/2026-03-19-gisec-method-master-plan.md)
 - [docs/release-checklist.md](docs/release-checklist.md)
 
 ## Quick Start
@@ -99,7 +99,7 @@ python -m gisec.cli.eval \
 ### Runner
 
 ```bash
-bash scripts/experiments/run_0831_1k_20ep_1024_gisec.sh \
+bash scripts/experiments/run_legacy_1k_20ep_1024_gisec.sh \
   --dataset-root /home/k100/zhn/electronic-components-grasp-and-segment/magformer_datasets/0831_1K \
   --prototype-root /home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/20260318_1K_13440_reference/150044M155220 \
   --output-root output/experiments/gisec_0831 \
@@ -135,14 +135,14 @@ The following names are `historical/debug-only` and belong to the `v1.5 legacy` 
 - `Q1`: query-mask + reference routing recovery debug variant
 - `Q2`: query-mask + reference routing + graph rescue recovery debug variant
 
-`GISEC v3-alpha` does not reuse these names as its active model family.
+`GISEC Query Alpha` does not reuse these names as its active model family.
 
 ## Recovery Smoke
 
 Use the recovery stack when the goal is to debug mask calibration, routing sharpness, and graph readiness before any larger run:
 
 ```bash
-bash scripts/experiments/run_0831_gisec_recovery_smoke.sh \
+bash scripts/experiments/run_gisec_legacy_recovery_smoke.sh \
   --output-root output/experiments/gisec_recovery_smoke \
   --dry-run
 ```
@@ -195,6 +195,6 @@ The historical Stage 1 story remains documented for `v1.5 legacy`:
 
 The active direction is different:
 
-- `GISEC v3-alpha` is `object-first`
+- `GISEC Query Alpha` is `object-first`
 - the first executable phase is `query-only`
 - `reference and graph remain required later modules`

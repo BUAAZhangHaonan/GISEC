@@ -26,4 +26,4 @@ def test_baseline_runner_dry_run_lists_selected_configs() -> None:
     assert "unet_rgb_smoke" in text
     assert "mask_rcnn_rgb_smoke" in text
     assert "mask2former_rgb_smoke" in text
-    assert "yolov8_seg_rgb_smoke" in text
+    assert "yolo_seg_rgb_smoke" in text

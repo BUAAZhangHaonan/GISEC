@@ -9,7 +9,7 @@ Deliver the Stage 1 matrix that proves a prototype-guided graph refiner beats th
 - Ensure overlay artifacts and benchmark summaries are collected for later analysis.
 
 ## Key Changes
-- Create a `scripts/experiments/run_0831_1k_20ep_1024_gisec_all.sh` that loops through the new CLI and writes logs per variant.
+- Create a `scripts/experiments/run_legacy_1k_20ep_1024_gisec_all.sh` that loops through the new CLI and writes logs per variant.
 - Teach the runner to emit `metrics.cocoeval.json`, `coco_instances_results.json`, `params_trainable.txt`, `wall_time_sec.txt`, and `inference_speed.json` with the expanded AP fields.
 - Wire the output directory layout into documentation so every run is discoverable and comparable to the future Stage 2 bridge.
 

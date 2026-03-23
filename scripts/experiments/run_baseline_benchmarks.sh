@@ -29,7 +29,7 @@ RGB_SMOKE_CONFIGS=(
   "attention_unet_rgb_smoke.yaml"
   "mask_rcnn_rgb_smoke.yaml"
   "mask2former_rgb_smoke.yaml"
-  "yolov8_seg_rgb_smoke.yaml"
+  "yolo_seg_rgb_smoke.yaml"
 )
 RGBD_SMOKE_CONFIGS=(
   "unet_rgbd_smoke.yaml"

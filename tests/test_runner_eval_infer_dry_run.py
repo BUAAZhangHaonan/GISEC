@@ -6,7 +6,7 @@ from pathlib import Path
 
 def test_gisec_eval_runner_dry_run_is_reproducible(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    script = repo_root / "scripts" / "experiments" / "run_0831_1k_20ep_1024_gisec_eval.sh"
+    script = repo_root / "scripts" / "experiments" / "run_legacy_1k_20ep_1024_gisec_eval.sh"
     result = subprocess.run(
         [
             "bash",
@@ -35,7 +35,7 @@ def test_gisec_eval_runner_dry_run_is_reproducible(tmp_path: Path) -> None:
 
 def test_gisec_infer_runner_dry_run_is_reproducible(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    script = repo_root / "scripts" / "experiments" / "run_0831_1k_20ep_1024_gisec_infer.sh"
+    script = repo_root / "scripts" / "experiments" / "run_legacy_1k_20ep_1024_gisec_infer.sh"
     result = subprocess.run(
         [
             "bash",

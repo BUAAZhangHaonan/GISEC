@@ -208,11 +208,11 @@ git commit -m "feat: add unet rgb baseline"
 ### Task 5: Land the minimal YOLOv8-seg RGB baseline
 
 **Files:**
-- Create: `baseline/yolov8_seg/train.py`
-- Create: `baseline/yolov8_seg/eval.py`
-- Create: `baseline/yolov8_seg/adapter.py`
-- Create: `configs/baseline/yolov8_seg_rgb_smoke.yaml`
-- Test: `tests/test_baseline_yolov8_smoke.py`
+- Create: `baseline/yolo_seg/train.py`
+- Create: `baseline/yolo_seg/eval.py`
+- Create: `baseline/yolo_seg/adapter.py`
+- Create: `configs/baseline/yolo_seg_rgb_smoke.yaml`
+- Test: `tests/test_baseline_yolo_smoke.py`
 
 **Step 1: Write the failing test**
 
@@ -225,7 +225,7 @@ Add a smoke test that requires:
 Run:
 
 ```bash
-pytest tests/test_baseline_yolov8_smoke.py -v
+pytest tests/test_baseline_yolo_smoke.py -v
 ```
 
 Expected: FAIL because the adapter does not exist.
@@ -239,7 +239,7 @@ Add the thinnest viable integration layer. Keep framework-specific code isolated
 Run:
 
 ```bash
-pytest tests/test_baseline_yolov8_smoke.py -v
+pytest tests/test_baseline_yolo_smoke.py -v
 ```
 
 Expected: PASS
@@ -247,8 +247,8 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add baseline/yolov8_seg/train.py baseline/yolov8_seg/eval.py baseline/yolov8_seg/adapter.py configs/baseline/yolov8_seg_rgb_smoke.yaml tests/test_baseline_yolov8_smoke.py
-git commit -m "feat: add yolov8 seg rgb baseline"
+git add baseline/yolo_seg/train.py baseline/yolo_seg/eval.py baseline/yolo_seg/adapter.py configs/baseline/yolo_seg_rgb_smoke.yaml tests/test_baseline_yolo_smoke.py
+git commit -m "feat: add yolo seg rgb baseline"
 ```
 
 ### Task 6: Land the minimal Mask R-CNN RGB baseline

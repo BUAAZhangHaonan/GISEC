@@ -7,7 +7,7 @@ from pathlib import Path
 
 def test_gisec_runner_dry_run_is_reproducible(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    script = repo_root / "scripts" / "experiments" / "run_0831_1k_20ep_1024_gisec.sh"
+    script = repo_root / "scripts" / "experiments" / "run_legacy_1k_20ep_1024_gisec.sh"
     ref_root = tmp_path / "prototype_bank"
     for name in ["rgb", "depth", "mask", "meta"]:
         (ref_root / name).mkdir(parents=True)
@@ -41,7 +41,7 @@ def test_gisec_runner_dry_run_is_reproducible(tmp_path: Path) -> None:
 
 def test_gisec_runner_dry_run_accepts_a0_variant(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    script = repo_root / "scripts" / "experiments" / "run_0831_1k_20ep_1024_gisec.sh"
+    script = repo_root / "scripts" / "experiments" / "run_legacy_1k_20ep_1024_gisec.sh"
     ref_root = tmp_path / "prototype_bank"
     for name in ["rgb", "depth", "mask", "meta"]:
         (ref_root / name).mkdir(parents=True)
@@ -71,7 +71,7 @@ def test_gisec_runner_dry_run_accepts_a0_variant(tmp_path: Path) -> None:
 
 def test_gisec_runner_dry_run_forwards_config_argument(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    script = repo_root / "scripts" / "experiments" / "run_0831_1k_20ep_1024_gisec.sh"
+    script = repo_root / "scripts" / "experiments" / "run_legacy_1k_20ep_1024_gisec.sh"
     ref_root = tmp_path / "prototype_bank"
     config_path = tmp_path / "smoke.yaml"
     for name in ["rgb", "depth", "mask", "meta"]:
@@ -103,7 +103,7 @@ def test_gisec_runner_dry_run_forwards_config_argument(tmp_path: Path) -> None:
 
 def test_gisec_runner_dry_run_supports_torchrun_launcher(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    script = repo_root / "scripts" / "experiments" / "run_0831_1k_20ep_1024_gisec.sh"
+    script = repo_root / "scripts" / "experiments" / "run_legacy_1k_20ep_1024_gisec.sh"
     ref_root = tmp_path / "prototype_bank"
     for name in ["rgb", "depth", "mask", "meta"]:
         (ref_root / name).mkdir(parents=True)
@@ -139,7 +139,7 @@ def test_gisec_runner_dry_run_supports_torchrun_launcher(tmp_path: Path) -> None
 
 def test_gisec_runner_dry_run_supports_torchrun_launch(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    script = repo_root / "scripts" / "experiments" / "run_0831_1k_20ep_1024_gisec.sh"
+    script = repo_root / "scripts" / "experiments" / "run_legacy_1k_20ep_1024_gisec.sh"
     ref_root = tmp_path / "prototype_bank"
     for name in ["rgb", "depth", "mask", "meta"]:
         (ref_root / name).mkdir(parents=True)
@@ -175,7 +175,7 @@ def test_gisec_runner_dry_run_supports_torchrun_launch(tmp_path: Path) -> None:
 
 def test_gisec_v2_smoke_runner_lists_a0_and_a1(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    script = repo_root / "scripts" / "experiments" / "run_0831_gisec_v2_smoke.sh"
+    script = repo_root / "scripts" / "experiments" / "run_gisec_legacy_smoke.sh"
     ref_root = tmp_path / "prototype_bank"
     for name in ["rgb", "depth", "mask", "meta"]:
         (ref_root / name).mkdir(parents=True)
@@ -204,7 +204,7 @@ def test_gisec_v2_smoke_runner_lists_a0_and_a1(tmp_path: Path) -> None:
 
 def test_gisec_v2_smoke_runner_uses_default_config_stack(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    script = repo_root / "scripts" / "experiments" / "run_0831_gisec_v2_smoke.sh"
+    script = repo_root / "scripts" / "experiments" / "run_gisec_legacy_smoke.sh"
 
     res = subprocess.run(
         [
@@ -227,7 +227,7 @@ def test_gisec_v2_smoke_runner_uses_default_config_stack(tmp_path: Path) -> None
 
 def test_gisec_recovery_smoke_runner_lists_q0_q1_q2(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    script = repo_root / "scripts" / "experiments" / "run_0831_gisec_recovery_smoke.sh"
+    script = repo_root / "scripts" / "experiments" / "run_gisec_legacy_recovery_smoke.sh"
 
     res = subprocess.run(
         [

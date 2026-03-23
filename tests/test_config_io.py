@@ -14,7 +14,7 @@ from gisec.train.train_gisec import (
     parse_train_args,
     resolve_model_config,
 )
-from gisec.config.v3_models import get_v3_model_spec
+from gisec.config.query_models import get_query_model_spec
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:
@@ -388,9 +388,9 @@ def test_parse_train_args_accepts_new_recovery_cli_flags() -> None:
     assert args.reference_skip_margin == 0.2
 
 
-def test_v3_model_registry_reserves_uq_scales_and_keeps_legacy_names_out() -> None:
-    uq_s = get_v3_model_spec("UQ-s")
-    uq_m = get_v3_model_spec("UQ-m")
+def test_query_model_registry_reserves_uq_scales_and_keeps_legacy_names_out() -> None:
+    uq_s = get_query_model_spec("UQ-s")
+    uq_m = get_query_model_spec("UQ-m")
 
     assert uq_s.model_family == "UQ"
     assert uq_m.model_family == "UQ"
@@ -402,4 +402,4 @@ def test_v3_model_registry_reserves_uq_scales_and_keeps_legacy_names_out() -> No
     assert uq_m.model_scale == "m"
 
     with pytest.raises(ValueError):
-        get_v3_model_spec("A1")
+        get_query_model_spec("A1")

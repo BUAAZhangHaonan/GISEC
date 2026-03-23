@@ -14,7 +14,7 @@ if str(REPO_ROOT) not in sys.path:
 from baseline.mask2former.train import train_mask2former_baseline
 from baseline.mask_rcnn.train import train_mask_rcnn_baseline
 from baseline.unet.train import train_unet_baseline
-from baseline.yolov8_seg.train import train_yolov8_seg_baseline
+from baseline.yolo_seg.train import train_yolo_seg_baseline
 from gisec.engine.runtime import build_device
 
 
@@ -96,8 +96,8 @@ def main() -> None:
         )
         return
 
-    if stem == "yolov8_seg_rgb_smoke":
-        train_yolov8_seg_baseline(
+    if stem == "yolo_seg_rgb_smoke":
+        train_yolo_seg_baseline(
             dataset_root=str(Path(args.dataset_root).resolve()),
             output_dir=str(output_dir),
             image_size=image_size,
@@ -107,7 +107,7 @@ def main() -> None:
             num_workers=num_workers,
             max_val_images=int(train_cfg.get("max_val_images", 0)),
             score_threshold=float(model_cfg.get("score_threshold", 0.05)),
-            model_source=str(model_cfg.get("model_source", "yolov8n-seg.pt")),
+            model_source=str(model_cfg.get("model_source", "yolon-seg.pt")),
         )
         return
 

@@ -60,7 +60,7 @@ conda run -n gisec pytest -q
 ```
 
 ```bash
-bash scripts/experiments/run_0831_1k_20ep_1024_gisec.sh \
+bash scripts/experiments/run_legacy_1k_20ep_1024_gisec.sh \
   --dataset-root /home/k100/zhn/electronic-components-grasp-and-segment/magformer_datasets/0831_1K \
   --prototype-root /home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/20260318_1K_13440_reference/150044M155220 \
   --output-root output/experiments/gisec_0831 \
@@ -70,7 +70,7 @@ bash scripts/experiments/run_0831_1k_20ep_1024_gisec.sh \
 ```
 
 ```bash
-bash scripts/experiments/run_0831_1k_20ep_1024_gisec_all.sh \
+bash scripts/experiments/run_legacy_1k_20ep_1024_gisec_all.sh \
   --dataset-root /home/k100/zhn/electronic-components-grasp-and-segment/magformer_datasets/0831_1K \
   --prototype-root /home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/20260318_1K_13440_reference/150044M155220 \
   --output-root output/experiments/gisec_0831_matrix \
