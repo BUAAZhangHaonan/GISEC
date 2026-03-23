@@ -37,3 +37,28 @@ def test_project_metadata_includes_baseline_scaffold() -> None:
     readme_text = baseline_readme.read_text(encoding="utf-8")
     assert "baseline benchmark stack" in readme_text
     assert "separate from `gisec/`" in readme_text
+
+
+def test_project_docs_freeze_v15_and_v3_alpha_boundaries() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    readme_text = (repo_root / "README.md").read_text(encoding="utf-8")
+    method_readme = (repo_root / "docs" / "method" / "README.md").read_text(encoding="utf-8")
+    results_readme = (repo_root / "docs" / "results" / "README.md").read_text(encoding="utf-8")
+
+    assert "GISEC v1.5 legacy" in readme_text
+    assert "GISEC v3-alpha" in readme_text
+    assert "fragment-first" in readme_text
+    assert "object-first" in readme_text
+    assert "reference and graph remain required later modules" in readme_text
+    assert "v1.5 legacy" in method_readme
+    assert "v3-alpha object-first" in method_readme
+    assert "v3-alpha" in results_readme
+
+
+def test_project_metadata_includes_gisec_v3_surface() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    assert (repo_root / "gisec_v3" / "__init__.py").exists()
+    assert (repo_root / "gisec_v3" / "models" / "__init__.py").exists()
+    assert (repo_root / "gisec_v3" / "train" / "__init__.py").exists()
+    assert (repo_root / "gisec_v3" / "engine" / "__init__.py").exists()
+    assert (repo_root / "gisec_v3" / "config" / "__init__.py").exists()

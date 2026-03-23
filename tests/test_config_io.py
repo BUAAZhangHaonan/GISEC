@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 import yaml
 
 from argparse import Namespace
@@ -13,6 +14,7 @@ from gisec.train.train_gisec import (
     parse_train_args,
     resolve_model_config,
 )
+from gisec_v3.config.model_registry import get_v3_model_spec
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:
@@ -384,3 +386,20 @@ def test_parse_train_args_accepts_new_recovery_cli_flags() -> None:
     assert args.reference_conditioning_mode == "bottleneck_only"
     assert args.reference_routing_mode == "hard_top1"
     assert args.reference_skip_margin == 0.2
+
+
+def test_v3_model_registry_reserves_uq_scales_and_keeps_legacy_names_out() -> None:
+    uq_s = get_v3_model_spec("UQ-s")
+    uq_m = get_v3_model_spec("UQ-m")
+
+    assert uq_s.model_family == "UQ"
+    assert uq_m.model_family == "UQ"
+    assert uq_s.encoder_family == "resnet"
+    assert uq_m.encoder_family == "resnet"
+    assert uq_s.depth_fusion_mode == "rgb_depth_geometry_early"
+    assert uq_m.depth_fusion_mode == "rgb_depth_geometry_early"
+    assert uq_s.model_scale == "s"
+    assert uq_m.model_scale == "m"
+
+    with pytest.raises(ValueError):
+        get_v3_model_spec("A1")

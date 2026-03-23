@@ -1,6 +1,9 @@
 # GISEC: Graph-based Instance Segmentation for Electronic Components
 
-`GISEC` is the Stage 1 research repository for `prototype-guided RGB-D fragment graph reasoning` on ECC-style electronic component scenes.
+`GISEC` now has two explicit lines:
+
+- `GISEC v1.5 legacy`: the historical `fragment-first` line kept for reproduction and failure analysis
+- `GISEC v3-alpha`: the new `object-first` line that starts from a query-only backbone before `reference and graph remain required later modules`
 
 ## Why This Repo Exists
 
@@ -10,11 +13,14 @@ The lightweight RGB-D line in `magformer` has already established a stable basel
 - a lightweight `U-Net-first` backbone can predict fragment-level cues cheaply
 - a dedicated `GraphRefiner` can merge fragments more reliably than heuristic grouping under occlusion-heavy clutter
 
-This repository is intentionally independent from the `magformer` training stack while keeping the same dataset protocol and evaluation contract so later bridge experiments remain comparable.
+This repository is intentionally independent from the `magformer` training stack. The current reset is explicit: `GISEC v1.5 legacy` remains runnable as the historical baseline, while `GISEC v3-alpha` becomes the active `object-first` implementation target.
 
 ## Current Scope
 
 - independent Python package: `gisec`
+- reserved next-generation package surface: `gisec_v3`
+- `GISEC v1.5 legacy` remains the historical `fragment-first` baseline
+- `GISEC v3-alpha` is the active `object-first` implementation target
 - explicit variant interface: `A0/A1/B0/G1/G2/G3/G4/G5`
 - recovery debug interface: `Q0/Q1/Q2`
 - prototype bank contract with `compat` and `strict` validation modes
@@ -171,9 +177,15 @@ python scripts/analysis/write_extended_metrics_table.py \
 
 ## Research Direction
 
-The main Stage 1 story is fixed:
+The historical Stage 1 story remains documented for `v1.5 legacy`:
 
 - `structured prototype bank + RGB-D fragment graph reasoning`
 - `U-Net-first` implementation priority
 - `GraphRefiner` first as a standalone module, then later as a `magformer` post-processing bridge
 - no new investment in generic transformer attention branches unless the bridge stage proves it is necessary
+
+The active direction is different:
+
+- `GISEC v3-alpha` is `object-first`
+- the first executable phase is `query-only`
+- `reference and graph remain required later modules`
