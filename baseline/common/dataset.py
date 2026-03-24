@@ -8,6 +8,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from baseline.common.instance_targets import build_instance_target_pack, load_instance_target_cache, resolve_instance_target_cache_dir
 from gisec.datasets.ecc_query_dataset import _LiteCOCO, _load_depth_array, ann_to_mask
 
 
@@ -28,11 +29,23 @@ class BaselineInstanceDataset(Dataset):
         split: str,
         image_size: int,
         include_depth: bool = False,
+        include_annotations: bool = True,
+        include_instance_map: bool = True,
+        include_instance_targets: bool = False,
+        instance_target_cache_dir: str | None = None,
     ) -> None:
         self.root = Path(dataset_root).resolve()
         self.split = str(split)
         self.image_size = int(image_size)
         self.include_depth = bool(include_depth)
+        self.include_annotations = bool(include_annotations)
+        self.include_instance_map = bool(include_instance_map)
+        self.include_instance_targets = bool(include_instance_targets)
+        self.instance_target_cache_dir = (
+            Path(instance_target_cache_dir).resolve()
+            if instance_target_cache_dir is not None
+            else resolve_instance_target_cache_dir(str(self.root), split=self.split, image_size=self.image_size)
+        )
         self.coco = _LiteCOCO(self.root / "annotations" / f"instances_{self.split}.json")
         self.image_ids = sorted(self.coco.getImgIds())
         depth_candidates = [
@@ -54,19 +67,39 @@ class BaselineInstanceDataset(Dataset):
         height, width = image.shape[:2]
         image = cv2.resize(image, (self.image_size, self.image_size), interpolation=cv2.INTER_LINEAR)
 
-        ann_ids = self.coco.getAnnIds(imgIds=[image_id], iscrowd=None)
-        anns = self.coco.loadAnns(ann_ids)
+        cached = None
+        if self.include_instance_targets and self.instance_target_cache_dir.exists():
+            cached = load_instance_target_cache(
+                cache_dir=self.instance_target_cache_dir,
+                image_id=image_id,
+                file_name=str(info["file_name"]),
+            )
+
         masks = []
         boxes = []
         labels = []
-        instance_map = np.zeros((self.image_size, self.image_size), dtype=np.int64)
-        for ann in anns:
-            mask = ann_to_mask(ann, height, width)
-            mask = cv2.resize(mask, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
-            masks.append(mask.astype(np.uint8))
-            boxes.append(_mask_to_box(mask))
-            labels.append(int(ann.get("category_id", 1)))
-            instance_map[mask > 0] = int(len(masks))
+        instance_map = None if cached is None else cached["instance_map"]
+        needs_annotations = self.include_annotations or (self.include_instance_map and instance_map is None)
+        if needs_annotations:
+            ann_ids = self.coco.getAnnIds(imgIds=[image_id], iscrowd=None)
+            anns = self.coco.loadAnns(ann_ids)
+            if instance_map is None:
+                instance_map = np.zeros((self.image_size, self.image_size), dtype=np.int64)
+            next_instance_id = int(instance_map.max())
+            for ann in anns:
+                mask = ann_to_mask(ann, height, width)
+                mask = cv2.resize(mask, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
+                if int(mask.max()) <= 0:
+                    continue
+                next_instance_id += 1
+                if self.include_annotations:
+                    masks.append(mask.astype(np.uint8))
+                    boxes.append(_mask_to_box(mask))
+                    labels.append(int(ann.get("category_id", 1)))
+                instance_map[mask > 0] = int(next_instance_id)
+
+        if instance_map is None:
+            instance_map = np.zeros((self.image_size, self.image_size), dtype=np.int64)
 
         if masks:
             masks_tensor = torch.from_numpy(np.stack(masks, axis=0)).to(torch.uint8)
@@ -85,6 +118,16 @@ class BaselineInstanceDataset(Dataset):
                 depth = cv2.resize(depth, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
                 depth_tensor = torch.from_numpy(depth[None, ...]).float()
 
+        instance_targets = None
+        if self.include_instance_targets:
+            targets = cached["targets"] if cached is not None else build_instance_target_pack(instance_map)
+            instance_targets = {
+                "fg": torch.from_numpy(np.asarray(targets["fg"], dtype=np.float32)).float(),
+                "boundary": torch.from_numpy(np.asarray(targets["boundary"], dtype=np.float32)).float(),
+                "center": torch.from_numpy(np.asarray(targets["center"], dtype=np.float32)).float(),
+                "offsets": torch.from_numpy(np.asarray(targets["offsets"], dtype=np.float32)).float(),
+            }
+
         return {
             "image_id": image_id,
             "file_name": info["file_name"],
@@ -94,12 +137,15 @@ class BaselineInstanceDataset(Dataset):
             "boxes": boxes_tensor,
             "labels": labels_tensor,
             "instance_map": torch.from_numpy(instance_map).long(),
+            "instance_targets": instance_targets,
         }
 
 
 def collate_baseline_batch(batch: list[dict[str, Any]]) -> dict[str, Any]:
     depths = [item.get("depth") for item in batch]
     has_depth = all(depth is not None for depth in depths)
+    target_batch = [item.get("instance_targets") for item in batch]
+    has_instance_targets = all(target is not None for target in target_batch)
     return {
         "image_ids": [int(item["image_id"]) for item in batch],
         "file_names": [str(item["file_name"]) for item in batch],
@@ -109,4 +155,12 @@ def collate_baseline_batch(batch: list[dict[str, Any]]) -> dict[str, Any]:
         "boxes": [item["boxes"] for item in batch],
         "labels": [item["labels"] for item in batch],
         "instance_maps": torch.stack([item["instance_map"].long() for item in batch], dim=0),
+        "instance_targets": None
+        if not has_instance_targets
+        else {
+            "fg": torch.stack([item["instance_targets"]["fg"].float() for item in batch], dim=0),
+            "boundary": torch.stack([item["instance_targets"]["boundary"].float() for item in batch], dim=0),
+            "center": torch.stack([item["instance_targets"]["center"].float() for item in batch], dim=0),
+            "offsets": torch.stack([item["instance_targets"]["offsets"].float() for item in batch], dim=0),
+        },
     }

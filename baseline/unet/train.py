@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import shutil
 from pathlib import Path
 
 import torch
@@ -13,12 +14,6 @@ from baseline.common.dataset import BaselineInstanceDataset, collate_baseline_ba
 from baseline.rgbd.fusion import prepare_unet_batch_inputs, unet_input_channels, unet_modality, unet_variant_name
 from baseline.unet.eval import evaluate_unet_baseline
 from baseline.unet.model import build_unet_family_model
-from gisec.train.query_targets import (
-    build_core_heatmap_target,
-    build_fg_target,
-    build_instance_boundary_target,
-    build_ownership_target,
-)
 from gisec.engine.runtime import write_json
 
 
@@ -55,24 +50,6 @@ def _focal_heatmap_loss(
     alpha_factor = alpha * targets + (1.0 - alpha) * (1.0 - targets)
     modulating_factor = (1.0 - pt).pow(gamma)
     return (alpha_factor * modulating_factor * ce).mean()
-
-
-def _build_instance_targets(instance_maps: torch.Tensor) -> dict[str, torch.Tensor]:
-    fg_targets = []
-    boundary_targets = []
-    center_targets = []
-    offset_targets = []
-    for instance_map in instance_maps.cpu().numpy():
-        fg_targets.append(torch.from_numpy(build_fg_target(instance_map)).float().unsqueeze(0))
-        boundary_targets.append(torch.from_numpy(build_instance_boundary_target(instance_map)).float().unsqueeze(0))
-        center_targets.append(torch.from_numpy(build_core_heatmap_target(instance_map)).float().unsqueeze(0))
-        offset_targets.append(torch.from_numpy(build_ownership_target(instance_map)).float())
-    return {
-        "fg": torch.stack(fg_targets, dim=0),
-        "boundary": torch.stack(boundary_targets, dim=0),
-        "center": torch.stack(center_targets, dim=0),
-        "offsets": torch.stack(offset_targets, dim=0),
-    }
 
 
 def _semantic_smoke_loss(outputs: dict[str, torch.Tensor], instance_maps: torch.Tensor) -> torch.Tensor:
@@ -155,6 +132,7 @@ def train_unet_baseline(
     center_threshold: float = 0.5,
     min_area: int = 8,
     decoder_channels: int = 64,
+    render_overlay_limit: int = 16,
 ) -> None:
     artifact_root = Path(output_dir)
     artifact_root.mkdir(parents=True, exist_ok=True)
@@ -174,6 +152,8 @@ def train_unet_baseline(
         split="train",
         image_size=image_size,
         include_depth=str(input_mode) != "rgb",
+        include_annotations=False,
+        include_instance_targets=str(task_mode) != "semantic_smoke",
     )
     loader = DataLoader(
         dataset,
@@ -195,6 +175,37 @@ def train_unet_baseline(
     step_count = 0
     best_segm_ap = float("-inf")
     best_state_dict: dict[str, torch.Tensor] | None = None
+    best_metrics: dict[str, float] | None = None
+    best_inference_speed: dict[str, float | int | str] | None = None
+
+    def _best_artifact_paths() -> dict[str, Path]:
+        return {
+            "results": artifact_root / "coco_instances_results.best.json",
+            "metrics": artifact_root / "metrics.cocoeval.best.json",
+            "speed": artifact_root / "inference_speed.best.json",
+        }
+
+    def _snapshot_best_eval_artifacts() -> None:
+        paths = _best_artifact_paths()
+        standard = {
+            "results": artifact_root / "coco_instances_results.json",
+            "metrics": artifact_root / "metrics.cocoeval.json",
+            "speed": artifact_root / "inference_speed.json",
+        }
+        for key, src in standard.items():
+            if src.exists():
+                shutil.copy2(src, paths[key])
+
+    def _restore_best_eval_artifacts() -> None:
+        paths = _best_artifact_paths()
+        standard = {
+            "results": artifact_root / "coco_instances_results.json",
+            "metrics": artifact_root / "metrics.cocoeval.json",
+            "speed": artifact_root / "inference_speed.json",
+        }
+        for key, src in paths.items():
+            if src.exists():
+                shutil.copy2(src, standard[key])
 
     for _epoch in range(int(epochs)):
         model.train()
@@ -206,7 +217,9 @@ def train_unet_baseline(
                 if str(task_mode) == "semantic_smoke":
                     loss = _semantic_smoke_loss(outputs, batch["instance_maps"].to(device))
                 else:
-                    targets = {key: value.to(device) for key, value in _build_instance_targets(batch["instance_maps"]).items()}
+                    if batch["instance_targets"] is None:
+                        raise RuntimeError("instance target batch is required for instance-mode U-Net training")
+                    targets = {key: value.to(device) for key, value in batch["instance_targets"].items()}
                     loss = _reduce_instance_losses(_instance_losses(outputs, targets), loss_weights=loss_weights)
                 loss = loss / float(grad_accum)
             scaler.scale(loss).backward()
@@ -223,31 +236,6 @@ def train_unet_baseline(
             optimizer.zero_grad(set_to_none=True)
 
         torch.save(model.state_dict(), artifact_root / "model_final.pth")
-        metrics, _ = evaluate_unet_baseline(
-            model=model,
-            model_name=str(model_name),
-            dataset_root=dataset_root,
-            output_dir=output_dir,
-            image_size=image_size,
-            device=device,
-            num_workers=num_workers,
-            threshold=float(threshold),
-            max_images=max_val_images,
-            input_mode=str(input_mode),
-            task_mode=str(task_mode),
-            center_threshold=float(center_threshold),
-            min_area=int(min_area),
-        )
-        segm_ap = float(metrics.get("segm/AP", 0.0))
-        if segm_ap >= best_segm_ap:
-            best_segm_ap = segm_ap
-            best_state_dict = {key: value.detach().cpu().clone() for key, value in model.state_dict().items()}
-            torch.save(best_state_dict, artifact_root / "model_best.pth")
-        if max_train_steps > 0 and step_count >= int(max_train_steps):
-            break
-
-    if best_state_dict is not None:
-        model.load_state_dict(best_state_dict)
         metrics, inference_speed = evaluate_unet_baseline(
             model=model,
             model_name=str(model_name),
@@ -262,7 +250,24 @@ def train_unet_baseline(
             task_mode=str(task_mode),
             center_threshold=float(center_threshold),
             min_area=int(min_area),
+            render_overlay_limit=int(render_overlay_limit),
         )
+        segm_ap = float(metrics.get("segm/AP", 0.0))
+        if segm_ap >= best_segm_ap:
+            best_segm_ap = segm_ap
+            best_state_dict = {key: value.detach().cpu().clone() for key, value in model.state_dict().items()}
+            best_metrics = dict(metrics)
+            best_inference_speed = dict(inference_speed)
+            torch.save(best_state_dict, artifact_root / "model_best.pth")
+            _snapshot_best_eval_artifacts()
+        if max_train_steps > 0 and step_count >= int(max_train_steps):
+            break
+
+    if best_state_dict is not None and best_metrics is not None and best_inference_speed is not None:
+        model.load_state_dict(best_state_dict)
+        _restore_best_eval_artifacts()
+        metrics = best_metrics
+        inference_speed = best_inference_speed
     else:
         metrics = {}
         inference_speed = {}

@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 import torch
 
+from baseline.unet.eval import evaluate_unet_baseline
 from baseline.unet.model import build_unet_family_model
 from baseline.unet.train import train_unet_baseline
 
@@ -110,3 +111,77 @@ def test_unet_family_supports_instance_training_options_in_summary(tmp_path: Pat
     summary = json.loads((output_root / "run_summary.json").read_text(encoding="utf-8"))
     assert summary["model"] == "unet"
     assert summary["variant"] == "rgb_instance"
+
+
+def test_unet_instance_training_single_epoch_skips_duplicate_final_eval(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    dataset_root = tmp_path / "dataset"
+    output_root = tmp_path / "out"
+    _write_dataset(dataset_root)
+
+    calls: list[dict[str, object]] = []
+
+    def _fake_eval(**kwargs):
+        calls.append(kwargs)
+        return {"segm/AP": 0.25}, {"status": "ok", "timed_images": 1}
+
+    monkeypatch.setattr("baseline.unet.train.evaluate_unet_baseline", _fake_eval)
+
+    train_unet_baseline(
+        dataset_root=str(dataset_root),
+        output_dir=str(output_root),
+        image_size=64,
+        device=torch.device("cpu"),
+        epochs=1,
+        batch_size=1,
+        num_workers=0,
+        max_train_steps=1,
+        max_val_images=1,
+        threshold=0.5,
+        model_name="unet",
+        encoder_name="resnet34",
+        pretrained_backbone=False,
+        task_mode="instance",
+        amp=False,
+        grad_accum_steps=1,
+    )
+
+    assert len(calls) == 1
+
+
+def test_evaluate_unet_baseline_can_skip_overlay_rendering(tmp_path: Path, monkeypatch) -> None:
+    dataset_root = tmp_path / "dataset"
+    output_root = tmp_path / "out"
+    _write_dataset(dataset_root)
+    model = build_unet_family_model(
+        "unet",
+        in_channels=3,
+        encoder_name="resnet34",
+        pretrained_backbone=False,
+        decoder_channels=64,
+    )
+    calls: list[dict[str, object]] = []
+
+    def _record_overlay(**kwargs) -> None:
+        calls.append(kwargs)
+
+    monkeypatch.setattr("baseline.unet.eval.render_fragment_merge_preview", _record_overlay)
+
+    evaluate_unet_baseline(
+        model=model,
+        model_name="unet",
+        dataset_root=str(dataset_root),
+        output_dir=str(output_root),
+        image_size=64,
+        device=torch.device("cpu"),
+        num_workers=0,
+        threshold=0.5,
+        max_images=1,
+        input_mode="rgb",
+        task_mode="instance",
+        render_overlay_limit=0,
+    )
+
+    assert calls == []

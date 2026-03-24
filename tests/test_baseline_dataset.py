@@ -5,9 +5,16 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import pytest
 
 from baseline.common.coco_export import masks_to_coco_results
 from baseline.common.dataset import BaselineInstanceDataset
+from baseline.common.instance_targets import (
+    build_instance_target_pack,
+    load_instance_target_cache,
+    resolve_instance_target_cache_dir,
+    save_instance_target_cache,
+)
 
 
 def _write_dataset(root: Path, *, file_name: str = "000001.png") -> None:
@@ -74,6 +81,77 @@ def test_baseline_instance_dataset_can_include_depth(tmp_path: Path) -> None:
 
     assert sample["depth"] is not None
     assert tuple(sample["depth"].shape) == (1, 64, 64)
+
+
+def test_baseline_instance_target_cache_roundtrip(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "dataset"
+    _write_dataset(dataset_root)
+
+    sample = BaselineInstanceDataset(
+        dataset_root=str(dataset_root),
+        split="train",
+        image_size=64,
+        include_depth=False,
+    )[0]
+    instance_map = sample["instance_map"].numpy()
+    targets = build_instance_target_pack(instance_map)
+    cache_dir = resolve_instance_target_cache_dir(str(dataset_root), split="train", image_size=64)
+    save_instance_target_cache(
+        cache_dir=cache_dir,
+        image_id=1,
+        file_name="000001.png",
+        instance_map=instance_map,
+        targets=targets,
+    )
+
+    cached = load_instance_target_cache(cache_dir=cache_dir, image_id=1, file_name="000001.png")
+    assert cached is not None
+    assert tuple(cached["instance_map"].shape) == (64, 64)
+    assert set(cached["targets"]) == {"fg", "boundary", "center", "offsets"}
+    assert tuple(cached["targets"]["offsets"].shape) == (2, 64, 64)
+
+
+def test_baseline_dataset_uses_cached_instance_targets_without_rebuilding(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    dataset_root = tmp_path / "dataset"
+    _write_dataset(dataset_root)
+
+    sample = BaselineInstanceDataset(
+        dataset_root=str(dataset_root),
+        split="train",
+        image_size=64,
+        include_depth=False,
+    )[0]
+    instance_map = sample["instance_map"].numpy()
+    cache_dir = resolve_instance_target_cache_dir(str(dataset_root), split="train", image_size=64)
+    save_instance_target_cache(
+        cache_dir=cache_dir,
+        image_id=1,
+        file_name="000001.png",
+        instance_map=instance_map,
+        targets=build_instance_target_pack(instance_map),
+    )
+
+    def _fail(_: np.ndarray) -> dict[str, np.ndarray]:
+        raise AssertionError("online instance target build should be skipped when cache exists")
+
+    monkeypatch.setattr("baseline.common.dataset.build_instance_target_pack", _fail)
+
+    dataset = BaselineInstanceDataset(
+        dataset_root=str(dataset_root),
+        split="train",
+        image_size=64,
+        include_depth=False,
+        include_annotations=False,
+        include_instance_targets=True,
+        instance_target_cache_dir=str(cache_dir),
+    )
+    cached = dataset[0]
+
+    assert cached["instance_targets"] is not None
+    assert tuple(cached["instance_targets"]["fg"].shape) == (1, 64, 64)
+    assert cached["masks"].numel() == 0
+    assert cached["boxes"].numel() == 0
+    assert cached["labels"].numel() == 0
 
 
 def test_masks_to_coco_results_encodes_basic_instance_records() -> None:

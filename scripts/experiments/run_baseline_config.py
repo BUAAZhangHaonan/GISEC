@@ -76,6 +76,7 @@ def main() -> None:
             "center_threshold": float(model_cfg.get("center_threshold", 0.5)),
             "min_area": int(model_cfg.get("min_area", 8)),
             "decoder_channels": int(model_cfg.get("decoder_channels", 64)),
+            "render_overlay_limit": int(model_cfg.get("render_overlay_limit", 16)),
         }
 
     if args.dry_run:

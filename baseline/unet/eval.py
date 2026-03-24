@@ -192,6 +192,7 @@ def evaluate_unet_baseline(
     task_mode: str = "semantic_smoke",
     center_threshold: float = 0.5,
     min_area: int = 8,
+    render_overlay_limit: int = 16,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     artifact_root = Path(output_dir)
     overlay_dir = artifact_root / "visualizations" / "overlay"
@@ -201,6 +202,8 @@ def evaluate_unet_baseline(
         split="val",
         image_size=image_size,
         include_depth=str(input_mode) != "rgb",
+        include_annotations=False,
+        include_instance_map=False,
     )
     loader = DataLoader(
         dataset,
@@ -260,13 +263,14 @@ def evaluate_unet_baseline(
                     category_id=1,
                 )
             )
-            image_rgb = np.round(sample["image"].permute(1, 2, 0).numpy() * 255.0).astype(np.uint8)
-            render_fragment_merge_preview(
-                image=image_rgb,
-                fragments=merged,
-                merged=merged,
-                output_path=overlay_dir / f"{index:04d}_{int(sample['image_id']):06d}.png",
-            )
+            if int(render_overlay_limit) < 0 or index < int(render_overlay_limit):
+                image_rgb = np.round(sample["image"].permute(1, 2, 0).numpy() * 255.0).astype(np.uint8)
+                render_fragment_merge_preview(
+                    image=image_rgb,
+                    fragments=merged,
+                    merged=merged,
+                    output_path=overlay_dir / f"{index:04d}_{int(sample['image_id']):06d}.png",
+                )
     results_json = artifact_root / "coco_instances_results.json"
     results_json.write_text(json.dumps(results, ensure_ascii=False) + "\n", encoding="utf-8")
     metrics = evaluate_json(Path(dataset_root) / "annotations" / "instances_val.json", results_json)
