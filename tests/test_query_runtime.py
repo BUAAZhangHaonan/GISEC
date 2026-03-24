@@ -102,3 +102,31 @@ def test_query_predict_instance_map_can_split_one_coarse_blob_into_three_instanc
     assert kept == [1, 2, 3]
     assert stats["object_count"] == 1.0
     assert stats["split_count"] == 2.0
+
+
+def test_query_predict_instance_map_uses_boundary_aware_coarse_split_without_double_split() -> None:
+    fg_logits = torch.full((20, 20), -4.0, dtype=torch.float32)
+    fg_logits[3:17, 3:17] = 4.0
+    boundary_logits = torch.full((20, 20), -4.0, dtype=torch.float32)
+    boundary_logits[3:17, 9:11] = 4.0
+    core_logits = torch.full((20, 20), -4.0, dtype=torch.float32)
+    core_logits[10, 6] = 0.5
+    core_logits[10, 13] = 0.45
+    ownership_offsets = torch.zeros((2, 20, 20), dtype=torch.float32)
+    ownership_offsets[0, 3:17, 3:10] = -2.0
+    ownership_offsets[0, 3:17, 10:17] = 2.0
+
+    pred_map, stats = predict_instance_map(
+        fg_logits=fg_logits,
+        boundary_logits=boundary_logits,
+        core_heatmap=core_logits,
+        ownership_offsets=ownership_offsets,
+        min_area=8,
+        coarse_boundary_threshold=0.3,
+        coarse_boundary_split_min_area=64,
+    )
+
+    kept = sorted(int(x) for x in torch.unique(pred_map).tolist() if int(x) > 0)
+    assert kept == [1, 2]
+    assert stats["object_count"] == 2.0
+    assert stats["split_count"] == 0.0

@@ -9,7 +9,12 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from gisec.engine.query_coarse_objects import build_coarse_objects
+from gisec.engine.query_coarse_objects import (
+    COARSE_BOUNDARY_MAX_LARGEST_RATIO,
+    COARSE_BOUNDARY_SPLIT_MIN_AREA,
+    COARSE_BOUNDARY_THRESHOLD,
+    build_coarse_objects,
+)
 from gisec.engine.query_object_split import _resolve_peak_threshold, split_coarse_object
 
 
@@ -62,8 +67,18 @@ def predict_instance_map(
     core_heatmap: torch.Tensor,
     ownership_offsets: torch.Tensor,
     min_area: int,
+    coarse_boundary_threshold: float = COARSE_BOUNDARY_THRESHOLD,
+    coarse_boundary_split_min_area: int = COARSE_BOUNDARY_SPLIT_MIN_AREA,
+    coarse_boundary_max_largest_ratio: float = COARSE_BOUNDARY_MAX_LARGEST_RATIO,
 ) -> tuple[torch.Tensor, dict[str, float]]:
-    coarse = build_coarse_objects(fg_logits, min_area=min_area)
+    coarse = build_coarse_objects(
+        fg_logits,
+        boundary_logits=boundary_logits,
+        min_area=min_area,
+        boundary_threshold=coarse_boundary_threshold,
+        boundary_split_min_area=coarse_boundary_split_min_area,
+        boundary_max_largest_ratio=coarse_boundary_max_largest_ratio,
+    )
     core_prob = _sigmoid_tensor(core_heatmap)
     instance_map = torch.zeros_like(coarse.label_map, dtype=torch.long)
     next_id = 1
