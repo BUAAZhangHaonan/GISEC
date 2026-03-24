@@ -42,9 +42,19 @@ def _write_dataset(root: Path, *, file_name: str = "000001.png") -> None:
 
 def test_unet_family_model_factory_builds_expected_variants() -> None:
     for name in ["unet", "unetpp", "attention_unet"]:
-        model = build_unet_family_model(name, in_channels=3, base_channels=8)
-        logits = model(torch.randn(1, 3, 64, 64))
-        assert logits.shape == (1, 1, 64, 64)
+        model = build_unet_family_model(
+            name,
+            in_channels=3,
+            encoder_name="resnet34",
+            pretrained_backbone=False,
+            decoder_channels=64,
+        )
+        outputs = model(torch.randn(2, 3, 64, 64))
+        assert set(outputs) == {"fg_logits", "center_heatmap", "offsets", "boundary_logits"}
+        assert outputs["fg_logits"].shape == (2, 1, 64, 64)
+        assert outputs["center_heatmap"].shape == (2, 1, 64, 64)
+        assert outputs["offsets"].shape == (2, 2, 64, 64)
+        assert outputs["boundary_logits"].shape == (2, 1, 64, 64)
 
 
 def test_attention_unet_smoke_uses_shared_export_contract(tmp_path: Path) -> None:
@@ -64,9 +74,39 @@ def test_attention_unet_smoke_uses_shared_export_contract(tmp_path: Path) -> Non
         max_val_images=1,
         threshold=0.5,
         model_name="attention_unet",
+        task_mode="semantic_smoke",
     )
 
     summary = json.loads((output_root / "run_summary.json").read_text(encoding="utf-8"))
     assert summary["model"] == "attention_unet"
     assert summary["variant"] == "rgb_smoke"
     assert summary["modality"] == "rgb"
+
+
+def test_unet_family_supports_instance_training_options_in_summary(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "dataset"
+    output_root = tmp_path / "out"
+    _write_dataset(dataset_root)
+
+    train_unet_baseline(
+        dataset_root=str(dataset_root),
+        output_dir=str(output_root),
+        image_size=64,
+        device=torch.device("cpu"),
+        epochs=1,
+        batch_size=2,
+        num_workers=0,
+        max_train_steps=1,
+        max_val_images=1,
+        threshold=0.5,
+        model_name="unet",
+        encoder_name="resnet34",
+        pretrained_backbone=False,
+        task_mode="instance",
+        amp=True,
+        grad_accum_steps=2,
+    )
+
+    summary = json.loads((output_root / "run_summary.json").read_text(encoding="utf-8"))
+    assert summary["model"] == "unet"
+    assert summary["variant"] == "rgb_instance"

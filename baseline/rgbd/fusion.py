@@ -43,6 +43,23 @@ def prepare_unet_inputs(sample: dict, *, input_mode: str) -> torch.Tensor:
     raise ValueError(f"Unsupported input_mode: {input_mode}")
 
 
+def prepare_unet_batch_inputs(batch: dict, *, input_mode: str) -> torch.Tensor:
+    mode = str(input_mode)
+    images = batch["images"].float()
+    if mode == "rgb":
+        return images
+    depths = batch.get("depths")
+    if depths is None:
+        raise ValueError(f"Depth input is required for input_mode={mode}")
+    depths = depths.float()
+    if mode == "rgbd":
+        return torch.cat([images, depths], dim=1)
+    if mode == "depth_geometry":
+        geometry = torch.stack([build_depth_geometry_channels(depth) for depth in depths], dim=0)
+        return torch.cat([images, geometry], dim=1)
+    raise ValueError(f"Unsupported input_mode: {input_mode}")
+
+
 def unet_input_channels(*, input_mode: str) -> int:
     mode = str(input_mode)
     if mode == "rgb":
@@ -54,14 +71,16 @@ def unet_input_channels(*, input_mode: str) -> int:
     raise ValueError(f"Unsupported input_mode: {input_mode}")
 
 
-def unet_variant_name(*, input_mode: str) -> str:
+def unet_variant_name(*, input_mode: str, task_mode: str = "semantic_smoke") -> str:
     mode = str(input_mode)
+    task = str(task_mode)
+    suffix = "smoke" if task == "semantic_smoke" else "instance"
     if mode == "rgb":
-        return "rgb_smoke"
+        return f"rgb_{suffix}"
     if mode == "rgbd":
-        return "rgbd_smoke"
+        return f"rgbd_{suffix}"
     if mode == "depth_geometry":
-        return "depth_geometry_smoke"
+        return f"depth_geometry_{suffix}"
     raise ValueError(f"Unsupported input_mode: {input_mode}")
 
 

@@ -35,10 +35,22 @@ RGBD_SMOKE_CONFIGS=(
   "unet_rgbd_smoke.yaml"
   "unet_depth_geometry_smoke.yaml"
 )
+RGB_STANDALONE_CONFIGS=(
+  "unet_rgb_full.yaml"
+  "unetpp_rgb_full.yaml"
+  "attention_unet_rgb_full.yaml"
+)
+RGBD_STANDALONE_CONFIGS=(
+  "unet_rgbd_full.yaml"
+  "unet_depth_geometry_full.yaml"
+)
 
 case "${GROUP}" in
   rgb_smoke) CONFIGS=("${RGB_SMOKE_CONFIGS[@]}") ;;
   rgbd_smoke) CONFIGS=("${RGBD_SMOKE_CONFIGS[@]}") ;;
+  rgb_standalone) CONFIGS=("${RGB_STANDALONE_CONFIGS[@]}") ;;
+  rgbd_standalone) CONFIGS=("${RGBD_STANDALONE_CONFIGS[@]}") ;;
+  standalone_all) CONFIGS=("${RGB_STANDALONE_CONFIGS[@]}" "${RGBD_STANDALONE_CONFIGS[@]}") ;;
   all) CONFIGS=("${RGB_SMOKE_CONFIGS[@]}" "${RGBD_SMOKE_CONFIGS[@]}") ;;
   *) echo "Unsupported group: ${GROUP}" >&2; exit 1 ;;
 esac

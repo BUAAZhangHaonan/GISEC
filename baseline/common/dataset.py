@@ -59,12 +59,23 @@ class BaselineInstanceDataset(Dataset):
         masks = []
         boxes = []
         labels = []
+        instance_map = np.zeros((self.image_size, self.image_size), dtype=np.int64)
         for ann in anns:
             mask = ann_to_mask(ann, height, width)
             mask = cv2.resize(mask, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
             masks.append(mask.astype(np.uint8))
             boxes.append(_mask_to_box(mask))
             labels.append(int(ann.get("category_id", 1)))
+            instance_map[mask > 0] = int(len(masks))
+
+        if masks:
+            masks_tensor = torch.from_numpy(np.stack(masks, axis=0)).to(torch.uint8)
+            boxes_tensor = torch.tensor(boxes, dtype=torch.float32)
+            labels_tensor = torch.tensor(labels, dtype=torch.int64)
+        else:
+            masks_tensor = torch.zeros((0, self.image_size, self.image_size), dtype=torch.uint8)
+            boxes_tensor = torch.zeros((0, 4), dtype=torch.float32)
+            labels_tensor = torch.zeros((0,), dtype=torch.int64)
 
         depth_tensor = None
         if self.include_depth and self.depth_dir is not None:
@@ -79,7 +90,23 @@ class BaselineInstanceDataset(Dataset):
             "file_name": info["file_name"],
             "image": torch.from_numpy(image.transpose(2, 0, 1)).float() / 255.0,
             "depth": depth_tensor,
-            "masks": torch.from_numpy(np.stack(masks, axis=0)).to(torch.uint8),
-            "boxes": torch.tensor(boxes, dtype=torch.float32),
-            "labels": torch.tensor(labels, dtype=torch.int64),
+            "masks": masks_tensor,
+            "boxes": boxes_tensor,
+            "labels": labels_tensor,
+            "instance_map": torch.from_numpy(instance_map).long(),
         }
+
+
+def collate_baseline_batch(batch: list[dict[str, Any]]) -> dict[str, Any]:
+    depths = [item.get("depth") for item in batch]
+    has_depth = all(depth is not None for depth in depths)
+    return {
+        "image_ids": [int(item["image_id"]) for item in batch],
+        "file_names": [str(item["file_name"]) for item in batch],
+        "images": torch.stack([item["image"].float() for item in batch], dim=0),
+        "depths": None if not has_depth else torch.stack([depth.float() for depth in depths if depth is not None], dim=0),
+        "masks": [item["masks"] for item in batch],
+        "boxes": [item["boxes"] for item in batch],
+        "labels": [item["labels"] for item in batch],
+        "instance_maps": torch.stack([item["instance_map"].long() for item in batch], dim=0),
+    }

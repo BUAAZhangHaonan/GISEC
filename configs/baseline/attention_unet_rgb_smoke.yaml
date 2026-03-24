@@ -7,3 +7,10 @@ train:
   epochs: 1
   max_train_steps: 8
   max_val_images: 16
+model:
+  model_name: attention_unet
+  input_mode: rgb
+  encoder_name: resnet34
+  pretrained_backbone: false
+  task_mode: semantic_smoke
+  threshold: 0.5

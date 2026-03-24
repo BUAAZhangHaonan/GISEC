@@ -10,4 +10,7 @@ train:
 model:
   model_name: unet
   input_mode: depth_geometry
+  encoder_name: resnet34
+  pretrained_backbone: false
+  task_mode: semantic_smoke
   threshold: 0.5

@@ -8,6 +8,7 @@ import numpy as np
 import torch
 
 from baseline.rgbd.fusion import prepare_unet_inputs
+from baseline.unet.eval import decode_instance_predictions
 from baseline.unet.model import build_unet_family_model
 from baseline.unet.train import train_unet_baseline
 
@@ -59,9 +60,18 @@ def test_rgbd_fusion_prepares_expected_channel_counts() -> None:
 
 def test_unet_family_models_accept_rgbd_channel_counts() -> None:
     for name, channels in [("unet", 4), ("unetpp", 6), ("attention_unet", 6)]:
-        model = build_unet_family_model(name, in_channels=channels, base_channels=8)
-        logits = model(torch.randn(1, channels, 64, 64))
-        assert logits.shape == (1, 1, 64, 64)
+        model = build_unet_family_model(
+            name,
+            in_channels=channels,
+            encoder_name="resnet34",
+            pretrained_backbone=False,
+            decoder_channels=64,
+        )
+        outputs = model(torch.randn(1, channels, 64, 64))
+        assert outputs["fg_logits"].shape == (1, 1, 64, 64)
+        assert outputs["center_heatmap"].shape == (1, 1, 64, 64)
+        assert outputs["offsets"].shape == (1, 2, 64, 64)
+        assert outputs["boundary_logits"].shape == (1, 1, 64, 64)
 
 
 def test_depth_geometry_unet_smoke_exports_rgbd_summary(tmp_path: Path) -> None:
@@ -82,9 +92,42 @@ def test_depth_geometry_unet_smoke_exports_rgbd_summary(tmp_path: Path) -> None:
         threshold=0.5,
         model_name="unet",
         input_mode="depth_geometry",
+        encoder_name="resnet34",
+        pretrained_backbone=False,
+        task_mode="semantic_smoke",
     )
 
     summary = json.loads((output_root / "run_summary.json").read_text(encoding="utf-8"))
     assert summary["model"] == "unet"
     assert summary["variant"] == "depth_geometry_smoke"
     assert summary["modality"] == "rgbd"
+
+
+def test_instance_decoder_separates_two_components_from_centers_and_offsets() -> None:
+    fg_logits = torch.full((1, 1, 32, 32), -8.0)
+    fg_logits[:, :, 8:24, 6:26] = 8.0
+    center_heatmap = torch.full((1, 1, 32, 32), -8.0)
+    center_heatmap[:, :, 16, 10] = 8.0
+    center_heatmap[:, :, 16, 21] = 8.0
+    boundary_logits = torch.full((1, 1, 32, 32), -8.0)
+    boundary_logits[:, :, 8:24, 15:17] = 8.0
+    offsets = torch.zeros((1, 2, 32, 32), dtype=torch.float32)
+    yy, xx = torch.meshgrid(torch.arange(32), torch.arange(32), indexing="ij")
+    offsets[0, 0, 8:24, 6:16] = 10.0 - xx[8:24, 6:16]
+    offsets[0, 1, 8:24, 6:16] = 16.0 - yy[8:24, 6:16]
+    offsets[0, 0, 8:24, 16:26] = 21.0 - xx[8:24, 16:26]
+    offsets[0, 1, 8:24, 16:26] = 16.0 - yy[8:24, 16:26]
+
+    label_map, stats = decode_instance_predictions(
+        fg_logits=fg_logits[0],
+        center_heatmap=center_heatmap[0],
+        offsets=offsets[0],
+        boundary_logits=boundary_logits[0],
+        fg_threshold=0.5,
+        center_threshold=0.5,
+        min_area=8,
+    )
+
+    labels = sorted(int(x) for x in torch.unique(label_map).tolist() if int(x) > 0)
+    assert labels == [1, 2]
+    assert stats["num_instances"] == 2.0

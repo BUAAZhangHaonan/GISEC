@@ -55,6 +55,9 @@ def test_unet_rgb_baseline_smoke_exports_shared_artifacts(tmp_path: Path) -> Non
         max_train_steps=1,
         max_val_images=1,
         threshold=0.5,
+        encoder_name="resnet34",
+        pretrained_backbone=False,
+        task_mode="semantic_smoke",
     )
 
     assert (output_root / "run_summary.json").exists()
