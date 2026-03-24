@@ -73,6 +73,7 @@ def test_uq_backbone_initial_output_priors_are_sparse_for_fg_boundary_and_core()
     boundary_prob_mean = float(torch.sigmoid(outputs["boundary_logits"]).mean().item())
     core_prob_mean = float(torch.sigmoid(outputs["core_heatmap"]).mean().item())
 
+    assert fg_prob_mean >= 0.12
     assert fg_prob_mean < 0.2
     assert boundary_prob_mean < 0.1
     assert core_prob_mean < 0.02

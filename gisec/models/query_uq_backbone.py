@@ -11,7 +11,7 @@ from gisec.config.query_models import QueryModelSpec
 from gisec.models.query_depth_geometry import depth_to_geometry
 
 
-FG_PRIOR = 0.10
+FG_PRIOR = 0.15
 BOUNDARY_PRIOR = 0.024
 CORE_PRIOR = 0.0015
 
