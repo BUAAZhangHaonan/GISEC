@@ -4,6 +4,12 @@ import cv2
 import numpy as np
 import torch
 
+MAX_EXACT_BOUNDARY_COST_EVALS = 16384
+BASE_MAX_PEAKS = 8
+MAX_DYNAMIC_PEAKS = 24
+AREA_PER_DYNAMIC_PEAK = 1536
+SPAN_PER_DYNAMIC_PEAK = 16
+
 
 def _sigmoid_tensor(x: torch.Tensor) -> torch.Tensor:
     if torch.all((x >= 0.0) & (x <= 1.0)):
@@ -62,7 +68,7 @@ def _select_diverse_peaks(
     peaks: list[tuple[int, int, float]],
     *,
     min_distance: float = 4.0,
-    max_peaks: int = 8,
+    max_peaks: int = BASE_MAX_PEAKS,
 ) -> list[tuple[int, int, float]]:
     selected: list[tuple[int, int, float]] = []
     for peak in peaks:
@@ -77,6 +83,23 @@ def _select_diverse_peaks(
         if len(selected) >= int(max_peaks):
             break
     return selected
+
+
+def _resolve_max_peaks(object_mask: np.ndarray, *, min_area: int) -> int:
+    object_area = int(object_mask.sum())
+    if object_area <= 0:
+        return int(BASE_MAX_PEAKS)
+
+    ys, xs = np.nonzero(object_mask)
+    if xs.size == 0 or ys.size == 0:
+        return int(BASE_MAX_PEAKS)
+
+    height = int(ys.max() - ys.min() + 1)
+    width = int(xs.max() - xs.min() + 1)
+    longest_span = max(height, width)
+    area_budget = int(np.ceil(float(object_area) / float(AREA_PER_DYNAMIC_PEAK)))
+    span_budget = int(np.ceil(float(longest_span) / float(SPAN_PER_DYNAMIC_PEAK)))
+    return int(max(BASE_MAX_PEAKS, min(MAX_DYNAMIC_PEAKS, max(area_budget, span_budget))))
 
 
 def _boundary_line_cost(
@@ -107,16 +130,18 @@ def _assign_pixels_with_local_cues(
     ownership_sq = ((landing[:, None, :] - peak_array[None, :, :]) ** 2).sum(axis=2)
     boundary_cost = np.zeros_like(dist_sq, dtype=np.float32)
 
-    pixel_coords = np.argwhere(object_mask)
-    for pixel_idx, (py, px) in enumerate(pixel_coords):
-        start = (int(py), int(px))
-        for peak_idx, peak in enumerate(peak_array):
-            boundary_cost[pixel_idx, peak_idx] = _boundary_line_cost(
-                boundary_prob,
-                object_mask,
-                start,
-                (int(peak[0]), int(peak[1])),
-            )
+    exact_boundary_evals = int(object_mask.sum()) * int(peak_array.shape[0])
+    if exact_boundary_evals <= int(MAX_EXACT_BOUNDARY_COST_EVALS):
+        pixel_coords = np.argwhere(object_mask)
+        for pixel_idx, (py, px) in enumerate(pixel_coords):
+            start = (int(py), int(px))
+            for peak_idx, peak in enumerate(peak_array):
+                boundary_cost[pixel_idx, peak_idx] = _boundary_line_cost(
+                    boundary_prob,
+                    object_mask,
+                    start,
+                    (int(peak[0]), int(peak[1])),
+                )
 
     combined_score = dist_sq + 0.25 * ownership_sq + 12.0 * boundary_cost
     active = np.arange(peak_array.shape[0], dtype=np.int64)
@@ -160,7 +185,10 @@ def split_coarse_object(
     ownership_np = ownership_offsets.detach().cpu().numpy().astype(np.float32)
 
     peak_threshold = _resolve_peak_threshold(core_np, object_np)
-    peaks = _select_diverse_peaks(_peak_points(core_np, object_np, min_score=peak_threshold))
+    peaks = _select_diverse_peaks(
+        _peak_points(core_np, object_np, min_score=peak_threshold),
+        max_peaks=_resolve_max_peaks(object_np, min_area=min_area),
+    )
     if len(peaks) < 2:
         out = np.zeros_like(object_np, dtype=np.int64)
         out[object_np] = 1
