@@ -178,3 +178,30 @@ def test_query_object_split_allows_more_than_eight_peaks_for_large_object() -> N
 
     kept = sorted(int(x) for x in torch.unique(labels).tolist() if int(x) > 0)
     assert len(kept) == 10
+
+
+def test_query_object_split_allows_more_than_twenty_four_peaks_for_very_large_object() -> None:
+    object_mask = torch.zeros((96, 544), dtype=torch.bool)
+    object_mask[8:88, 8:536] = True
+    core_heatmap = torch.zeros((96, 544), dtype=torch.float32)
+    centers = [16 + 17 * idx for idx in range(30)]
+    for idx, cx in enumerate(centers):
+        core_heatmap[48, cx] = 1.0 - float(idx) * 0.005
+    boundary_logits = torch.full((96, 544), -4.0, dtype=torch.float32)
+    ownership_offsets = torch.zeros((2, 96, 544), dtype=torch.float32)
+    for idx, cx in enumerate(centers):
+        x0 = 8 + idx * 17
+        x1 = 8 + (idx + 1) * 17 if idx < len(centers) - 1 else 536
+        ownership_offsets[0, 8:88, x0:x1] = float(cx) - torch.arange(x0, x1, dtype=torch.float32)[None, :]
+        ownership_offsets[1, 8:88, x0:x1] = 48.0 - torch.arange(8, 88, dtype=torch.float32)[:, None]
+
+    labels = split_coarse_object(
+        object_mask=object_mask,
+        core_heatmap=core_heatmap,
+        boundary_logits=boundary_logits,
+        ownership_offsets=ownership_offsets,
+        min_area=8,
+    )
+
+    kept = sorted(int(x) for x in torch.unique(labels).tolist() if int(x) > 0)
+    assert len(kept) == 30
