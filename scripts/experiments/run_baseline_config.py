@@ -45,6 +45,10 @@ def main() -> None:
     image_size = int(common.get("image_size", 1024))
     batch_size = int(common.get("batch", 1))
     num_workers = int(common.get("num_workers", 0))
+    pin_memory = common.get("pin_memory")
+    persistent_workers = common.get("persistent_workers")
+    prefetch_factor = common.get("prefetch_factor")
+    eval_every_epochs = int(common.get("eval_every_epochs", 1))
     device = build_device(str(common.get("device", "cpu")))
     stem = config_path.stem
 
@@ -57,6 +61,9 @@ def main() -> None:
             "epochs": int(train_cfg.get("epochs", 1)),
             "batch_size": batch_size,
             "num_workers": num_workers,
+            "pin_memory": None if pin_memory is None else bool(pin_memory),
+            "persistent_workers": None if persistent_workers is None else bool(persistent_workers),
+            "prefetch_factor": None if prefetch_factor is None else int(prefetch_factor),
             "max_train_steps": int(train_cfg.get("max_train_steps", 0)),
             "max_val_images": int(train_cfg.get("max_val_images", 0)),
             "threshold": float(model_cfg.get("threshold", 0.5)),
@@ -73,6 +80,7 @@ def main() -> None:
             "center_loss_weight": float(train_cfg.get("center_loss_weight", 4.0)),
             "offset_loss_weight": float(train_cfg.get("offset_loss_weight", 0.25)),
             "boundary_loss_weight": float(train_cfg.get("boundary_loss_weight", 0.5)),
+            "eval_every_epochs": eval_every_epochs,
             "center_threshold": float(model_cfg.get("center_threshold", 0.5)),
             "min_area": int(model_cfg.get("min_area", 8)),
             "decoder_channels": int(model_cfg.get("decoder_channels", 64)),

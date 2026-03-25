@@ -151,6 +151,84 @@ def test_unet_instance_training_single_epoch_skips_duplicate_final_eval(
     assert len(calls) == 1
 
 
+def test_unet_instance_training_respects_eval_every_epochs(tmp_path: Path, monkeypatch) -> None:
+    dataset_root = tmp_path / "dataset"
+    output_root = tmp_path / "out"
+    _write_dataset(dataset_root)
+
+    calls: list[dict[str, object]] = []
+
+    def _fake_eval(**kwargs):
+        calls.append(kwargs)
+        return {"segm/AP": 0.25, "bbox/AP": 0.25}, {"status": "ok", "timed_images": 1}
+
+    monkeypatch.setattr("baseline.unet.train.evaluate_unet_baseline", _fake_eval)
+
+    train_unet_baseline(
+        dataset_root=str(dataset_root),
+        output_dir=str(output_root),
+        image_size=64,
+        device=torch.device("cpu"),
+        epochs=3,
+        batch_size=1,
+        num_workers=0,
+        max_train_steps=0,
+        max_val_images=1,
+        threshold=0.5,
+        model_name="unet",
+        encoder_name="resnet34",
+        pretrained_backbone=False,
+        task_mode="instance",
+        amp=False,
+        grad_accum_steps=1,
+        eval_every_epochs=2,
+    )
+
+    assert len(calls) == 2
+
+
+def test_unet_instance_training_saves_model_final_once(tmp_path: Path, monkeypatch) -> None:
+    dataset_root = tmp_path / "dataset"
+    output_root = tmp_path / "out"
+    _write_dataset(dataset_root)
+
+    def _fake_eval(**kwargs):
+        return {"segm/AP": 0.25, "bbox/AP": 0.25}, {"status": "ok", "timed_images": 1}
+
+    save_paths: list[str] = []
+    original_save = torch.save
+
+    def _record_save(obj, path, *args, **kwargs):
+        save_paths.append(str(path))
+        return original_save(obj, path, *args, **kwargs)
+
+    monkeypatch.setattr("baseline.unet.train.evaluate_unet_baseline", _fake_eval)
+    monkeypatch.setattr("baseline.unet.train.torch.save", _record_save)
+
+    train_unet_baseline(
+        dataset_root=str(dataset_root),
+        output_dir=str(output_root),
+        image_size=64,
+        device=torch.device("cpu"),
+        epochs=3,
+        batch_size=1,
+        num_workers=0,
+        max_train_steps=0,
+        max_val_images=1,
+        threshold=0.5,
+        model_name="unet",
+        encoder_name="resnet34",
+        pretrained_backbone=False,
+        task_mode="instance",
+        amp=False,
+        grad_accum_steps=1,
+        eval_every_epochs=2,
+    )
+
+    model_final_saves = [path for path in save_paths if path.endswith("model_final.pth")]
+    assert len(model_final_saves) == 1
+
+
 def test_evaluate_unet_baseline_can_skip_overlay_rendering(tmp_path: Path, monkeypatch) -> None:
     dataset_root = tmp_path / "dataset"
     output_root = tmp_path / "out"

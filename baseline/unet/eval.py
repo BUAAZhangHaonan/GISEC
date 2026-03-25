@@ -245,6 +245,9 @@ def evaluate_unet_baseline(
     image_size: int,
     device: torch.device,
     num_workers: int,
+    pin_memory: bool = False,
+    persistent_workers: bool = False,
+    prefetch_factor: int | None = None,
     threshold: float,
     max_images: int = 0,
     input_mode: str = "rgb",
@@ -254,8 +257,11 @@ def evaluate_unet_baseline(
     render_overlay_limit: int = 16,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     artifact_root = Path(output_dir)
+    artifact_root.mkdir(parents=True, exist_ok=True)
     overlay_dir = artifact_root / "visualizations" / "overlay"
-    overlay_dir.mkdir(parents=True, exist_ok=True)
+    should_render_overlay = int(render_overlay_limit) != 0
+    if should_render_overlay:
+        overlay_dir.mkdir(parents=True, exist_ok=True)
     dataset = BaselineInstanceDataset(
         dataset_root=dataset_root,
         split="val",
@@ -271,6 +277,9 @@ def evaluate_unet_baseline(
         shuffle=False,
         num_workers=num_workers,
         collate_fn=lambda batch: batch[0],
+        pin_memory=bool(pin_memory),
+        persistent_workers=bool(persistent_workers) and int(num_workers) > 0,
+        prefetch_factor=None if int(num_workers) <= 0 else prefetch_factor,
     )
     results: list[dict[str, Any]] = []
     latencies_ms: list[float] = []
@@ -279,7 +288,10 @@ def evaluate_unet_baseline(
         for index, sample in enumerate(loader):
             if max_images > 0 and index >= int(max_images):
                 break
-            image = prepare_unet_inputs(sample, input_mode=str(input_mode)).unsqueeze(0).to(device)
+            image = prepare_unet_inputs(sample, input_mode=str(input_mode)).unsqueeze(0).to(
+                device,
+                non_blocking=bool(pin_memory) and device.type == "cuda",
+            )
             start = time.perf_counter()
             outputs = model(image)
             latencies_ms.append((time.perf_counter() - start) * 1000.0)
@@ -323,7 +335,7 @@ def evaluate_unet_baseline(
                     category_id=1,
                 )
             )
-            if int(render_overlay_limit) < 0 or index < int(render_overlay_limit):
+            if should_render_overlay and (int(render_overlay_limit) < 0 or index < int(render_overlay_limit)):
                 image_rgb = np.round(sample["image"].permute(1, 2, 0).numpy() * 255.0).astype(np.uint8)
                 render_fragment_merge_preview(
                     image=image_rgb,

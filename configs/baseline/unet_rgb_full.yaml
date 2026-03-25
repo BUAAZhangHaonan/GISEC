@@ -1,8 +1,12 @@
 common:
   image_size: 1024
   batch: 16
-  num_workers: 4
+  num_workers: 12
   device: cuda
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 4
+  eval_every_epochs: 5
 train:
   epochs: 20
   max_train_steps: 0
@@ -25,3 +29,4 @@ model:
   center_threshold: 0.5
   min_area: 8
   decoder_channels: 64
+  render_overlay_limit: 0

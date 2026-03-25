@@ -20,6 +20,23 @@ from baseline.unet.model import build_unet_family_model
 from gisec.engine.runtime import write_json
 
 
+def _resolve_loader_perf(
+    *,
+    device: torch.device,
+    num_workers: int,
+    pin_memory: bool | None,
+    persistent_workers: bool | None,
+    prefetch_factor: int | None,
+) -> tuple[bool, bool, int | None]:
+    resolved_pin_memory = bool(device.type == "cuda") if pin_memory is None else bool(pin_memory)
+    has_workers = int(num_workers) > 0
+    resolved_persistent_workers = (has_workers if persistent_workers is None else bool(persistent_workers)) and has_workers
+    resolved_prefetch_factor = None
+    if has_workers:
+        resolved_prefetch_factor = max(int(prefetch_factor) if prefetch_factor is not None else 4, 1)
+    return resolved_pin_memory, resolved_persistent_workers, resolved_prefetch_factor
+
+
 def _dice_loss_from_logits(logits: torch.Tensor, targets: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
     probs = torch.sigmoid(logits)
     dims = tuple(range(1, probs.ndim))
@@ -150,6 +167,9 @@ def train_unet_baseline(
     epochs: int = 1,
     batch_size: int = 1,
     num_workers: int = 0,
+    pin_memory: bool | None = None,
+    persistent_workers: bool | None = None,
+    prefetch_factor: int | None = None,
     max_train_steps: int = 0,
     max_val_images: int = 0,
     threshold: float = 0.5,
@@ -166,6 +186,7 @@ def train_unet_baseline(
     center_loss_weight: float = 4.0,
     offset_loss_weight: float = 0.25,
     boundary_loss_weight: float = 0.5,
+    eval_every_epochs: int = 1,
     center_threshold: float = 0.5,
     min_area: int = 8,
     decoder_channels: int = 64,
@@ -183,6 +204,13 @@ def train_unet_baseline(
     optimizer = _optimizer(model, lr=float(learning_rate), encoder_lr_multiplier=float(encoder_lr_multiplier))
     scaler = GradScaler(enabled=bool(amp and device.type == "cuda"))
     grad_accum = max(int(grad_accum_steps), 1)
+    loader_pin_memory, loader_persistent_workers, loader_prefetch_factor = _resolve_loader_perf(
+        device=device,
+        num_workers=int(num_workers),
+        pin_memory=pin_memory,
+        persistent_workers=persistent_workers,
+        prefetch_factor=prefetch_factor,
+    )
 
     dataset = BaselineInstanceDataset(
         dataset_root=dataset_root,
@@ -199,10 +227,14 @@ def train_unet_baseline(
         shuffle=True,
         num_workers=num_workers,
         collate_fn=collate_baseline_batch,
+        pin_memory=loader_pin_memory,
+        persistent_workers=loader_persistent_workers,
+        prefetch_factor=loader_prefetch_factor,
     )
     start = time.time()
     if device.type == "cuda" and torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats(device)
+        torch.backends.cudnn.benchmark = True
 
     loss_weights = {
         "fg": float(fg_loss_weight),
@@ -212,11 +244,13 @@ def train_unet_baseline(
     }
     step_count = 0
     best_segm_ap = float("-inf")
+    best_bbox_ap = float("-inf")
     best_state_dict: dict[str, torch.Tensor] | None = None
     best_metrics: dict[str, float] | None = None
     best_inference_speed: dict[str, float | int | str] | None = None
     train_only_sec = 0.0
     eval_post_sec = 0.0
+    eval_interval = max(int(eval_every_epochs), 1)
 
     def _best_artifact_paths() -> dict[str, Path]:
         return {
@@ -247,20 +281,29 @@ def train_unet_baseline(
             if src.exists():
                 shutil.copy2(src, standard[key])
 
-    for _epoch in range(int(epochs)):
+    for epoch_index in range(int(epochs)):
         model.train()
         optimizer.zero_grad(set_to_none=True)
         epoch_train_start = time.perf_counter()
         for batch in loader:
-            inputs = prepare_unet_batch_inputs(batch, input_mode=str(input_mode)).to(device)
+            inputs = prepare_unet_batch_inputs(batch, input_mode=str(input_mode)).to(
+                device,
+                non_blocking=loader_pin_memory and device.type == "cuda",
+            )
             with autocast(device_type=device.type, enabled=bool(amp and device.type == "cuda")):
                 outputs = model(inputs)
                 if str(task_mode) == "semantic_smoke":
-                    loss = _semantic_smoke_loss(outputs, batch["instance_maps"].to(device))
+                    loss = _semantic_smoke_loss(
+                        outputs,
+                        batch["instance_maps"].to(device, non_blocking=loader_pin_memory and device.type == "cuda"),
+                    )
                 else:
                     if batch["instance_targets"] is None:
                         raise RuntimeError("instance target batch is required for instance-mode U-Net training")
-                    targets = {key: value.to(device) for key, value in batch["instance_targets"].items()}
+                    targets = {
+                        key: value.to(device, non_blocking=loader_pin_memory and device.type == "cuda")
+                        for key, value in batch["instance_targets"].items()
+                    }
                     loss = _reduce_instance_losses(_instance_losses(outputs, targets), loss_weights=loss_weights)
                 loss = loss / float(grad_accum)
             scaler.scale(loss).backward()
@@ -277,36 +320,47 @@ def train_unet_baseline(
             optimizer.zero_grad(set_to_none=True)
         train_only_sec += float(time.perf_counter() - epoch_train_start)
 
-        torch.save(model.state_dict(), artifact_root / "model_final.pth")
-        eval_start = time.perf_counter()
-        metrics, inference_speed = evaluate_unet_baseline(
-            model=model,
-            model_name=str(model_name),
-            dataset_root=dataset_root,
-            output_dir=output_dir,
-            image_size=image_size,
-            device=device,
-            num_workers=num_workers,
-            threshold=float(threshold),
-            max_images=max_val_images,
-            input_mode=str(input_mode),
-            task_mode=str(task_mode),
-            center_threshold=float(center_threshold),
-            min_area=int(min_area),
-            render_overlay_limit=int(render_overlay_limit),
+        should_eval = (
+            epoch_index + 1 == int(epochs)
+            or (epoch_index + 1) % eval_interval == 0
+            or (max_train_steps > 0 and step_count >= int(max_train_steps))
         )
-        eval_post_sec += float(time.perf_counter() - eval_start)
-        segm_ap = float(metrics.get("segm/AP", 0.0))
-        if segm_ap >= best_segm_ap:
-            best_segm_ap = segm_ap
-            best_state_dict = {key: value.detach().cpu().clone() for key, value in model.state_dict().items()}
-            best_metrics = dict(metrics)
-            best_inference_speed = dict(inference_speed)
-            torch.save(best_state_dict, artifact_root / "model_best.pth")
-            _snapshot_best_eval_artifacts()
+        if should_eval:
+            eval_start = time.perf_counter()
+            metrics, inference_speed = evaluate_unet_baseline(
+                model=model,
+                model_name=str(model_name),
+                dataset_root=dataset_root,
+                output_dir=output_dir,
+                image_size=image_size,
+                device=device,
+                num_workers=num_workers,
+                pin_memory=loader_pin_memory,
+                persistent_workers=loader_persistent_workers,
+                prefetch_factor=loader_prefetch_factor,
+                threshold=float(threshold),
+                max_images=max_val_images,
+                input_mode=str(input_mode),
+                task_mode=str(task_mode),
+                center_threshold=float(center_threshold),
+                min_area=int(min_area),
+                render_overlay_limit=int(render_overlay_limit),
+            )
+            eval_post_sec += float(time.perf_counter() - eval_start)
+            segm_ap = float(metrics.get("segm/AP", 0.0))
+            bbox_ap = float(metrics.get("bbox/AP", float("-inf")))
+            if segm_ap > best_segm_ap or (segm_ap == best_segm_ap and bbox_ap > best_bbox_ap):
+                best_segm_ap = segm_ap
+                best_bbox_ap = bbox_ap
+                best_state_dict = {key: value.detach().cpu().clone() for key, value in model.state_dict().items()}
+                best_metrics = dict(metrics)
+                best_inference_speed = dict(inference_speed)
+                torch.save(best_state_dict, artifact_root / "model_best.pth")
+                _snapshot_best_eval_artifacts()
         if max_train_steps > 0 and step_count >= int(max_train_steps):
             break
 
+    torch.save(model.state_dict(), artifact_root / "model_final.pth")
     if best_state_dict is not None and best_metrics is not None and best_inference_speed is not None:
         model.load_state_dict(best_state_dict)
         _restore_best_eval_artifacts()

@@ -70,3 +70,7 @@ def test_baseline_config_defaults_include_expected_experiment_keys() -> None:
     assert defaults["batch"] == 1
     assert defaults["num_workers"] >= 0
     assert defaults["device"] == "cuda"
+    assert "pin_memory" in defaults
+    assert "persistent_workers" in defaults
+    assert "prefetch_factor" in defaults
+    assert "eval_every_epochs" in defaults
