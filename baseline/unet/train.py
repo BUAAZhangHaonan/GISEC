@@ -13,6 +13,7 @@ from torch.utils.data import DataLoader
 from baseline.common.export import build_run_summary_payload
 from baseline.common.dataset import BaselineInstanceDataset, collate_baseline_batch
 from baseline.common.instance_targets import resolve_instance_target_cache_dir
+from baseline.rgbd.depth_cache import resolve_depth_feature_cache_dir
 from baseline.rgbd.fusion import prepare_unet_batch_inputs, unet_input_channels, unet_modality, unet_variant_name
 from baseline.unet.eval import evaluate_unet_baseline
 from baseline.unet.model import build_unet_family_model
@@ -121,6 +122,25 @@ def _resolve_prep_offline_sec(*, dataset_root: str, image_size: int, task_mode: 
     return _read_manifest_elapsed(cache_dir / "manifest.json")
 
 
+def _resolve_depth_prep_offline_sec(*, dataset_root: str, image_size: int, input_mode: str) -> float | None:
+    if str(input_mode) != "depth_geometry_dense":
+        return None
+    total = 0.0
+    found = False
+    for split in ["train", "val"]:
+        cache_dir = resolve_depth_feature_cache_dir(
+            dataset_root,
+            split=split,
+            image_size=image_size,
+            feature_mode="depth_geometry_dense",
+        )
+        elapsed = _read_manifest_elapsed(cache_dir / "manifest.json")
+        if elapsed is not None:
+            total += float(elapsed)
+            found = True
+    return total if found else None
+
+
 def train_unet_baseline(
     *,
     dataset_root: str,
@@ -171,6 +191,7 @@ def train_unet_baseline(
         include_depth=str(input_mode) != "rgb",
         include_annotations=False,
         include_instance_targets=str(task_mode) != "semantic_smoke",
+        depth_feature_mode="depth_geometry_dense" if str(input_mode) == "depth_geometry_dense" else None,
     )
     loader = DataLoader(
         dataset,
@@ -319,11 +340,23 @@ def train_unet_baseline(
             training_peak_memory_mb=peak_memory_mb,
             wall_time_sec=wall_time_sec,
             timing={
-                "prep_offline_sec": _resolve_prep_offline_sec(
-                    dataset_root=dataset_root,
-                    image_size=image_size,
-                    task_mode=str(task_mode),
-                ),
+                "prep_offline_sec": sum(
+                    value
+                    for value in [
+                        _resolve_prep_offline_sec(
+                            dataset_root=dataset_root,
+                            image_size=image_size,
+                            task_mode=str(task_mode),
+                        ),
+                        _resolve_depth_prep_offline_sec(
+                            dataset_root=dataset_root,
+                            image_size=image_size,
+                            input_mode=str(input_mode),
+                        ),
+                    ]
+                    if value is not None
+                )
+                or None,
                 "train_only_sec": float(train_only_sec),
                 "eval_post_sec": float(eval_post_sec),
                 "end_to_end_sec": float(wall_time_sec),

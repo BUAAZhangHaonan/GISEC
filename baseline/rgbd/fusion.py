@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import torch
+import torch.nn.functional as F
 
 
 def _normalize_depth(depth: torch.Tensor) -> torch.Tensor:
@@ -20,11 +21,42 @@ def _gradient_magnitude(depth: torch.Tensor) -> torch.Tensor:
     return torch.sqrt(grad_x.square() + grad_y.square() + 1.0e-8)
 
 
+def _sobel_xy(depth: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    squeeze = False
+    if depth.ndim == 3:
+        depth = depth.unsqueeze(0)
+        squeeze = True
+    kernel_x = torch.tensor(
+        [[[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]]],
+        dtype=depth.dtype,
+        device=depth.device,
+    ).unsqueeze(0)
+    kernel_y = torch.tensor(
+        [[[-1.0, -2.0, -1.0], [0.0, 0.0, 0.0], [1.0, 2.0, 1.0]]],
+        dtype=depth.dtype,
+        device=depth.device,
+    ).unsqueeze(0)
+    dx = F.conv2d(depth, kernel_x, padding=1)
+    dy = F.conv2d(depth, kernel_y, padding=1)
+    if squeeze:
+        dx = dx.squeeze(0)
+        dy = dy.squeeze(0)
+    return dx, dy
+
+
 def build_depth_geometry_channels(depth: torch.Tensor) -> torch.Tensor:
     normalized = _normalize_depth(depth)
     gradient = _gradient_magnitude(normalized)
     discontinuity = (gradient >= 0.1).float()
     return torch.cat([normalized, gradient, discontinuity], dim=0)
+
+
+def build_depth_geometry_dense_channels(depth: torch.Tensor) -> torch.Tensor:
+    normalized = _normalize_depth(depth)
+    sobel_dx, sobel_dy = _sobel_xy(normalized)
+    gradient = torch.sqrt(sobel_dx.square() + sobel_dy.square() + 1.0e-8)
+    discontinuity = (gradient >= 0.1).float()
+    return torch.cat([normalized, sobel_dx, sobel_dy, gradient, discontinuity], dim=0)
 
 
 def prepare_unet_inputs(sample: dict, *, input_mode: str) -> torch.Tensor:
@@ -40,6 +72,11 @@ def prepare_unet_inputs(sample: dict, *, input_mode: str) -> torch.Tensor:
         return torch.cat([image, depth], dim=0)
     if mode == "depth_geometry":
         return torch.cat([image, build_depth_geometry_channels(depth)], dim=0)
+    if mode == "depth_geometry_dense":
+        features = sample.get("depth_features")
+        if features is None:
+            features = build_depth_geometry_dense_channels(depth)
+        return torch.cat([image, features.float()], dim=0)
     raise ValueError(f"Unsupported input_mode: {input_mode}")
 
 
@@ -57,6 +94,11 @@ def prepare_unet_batch_inputs(batch: dict, *, input_mode: str) -> torch.Tensor:
     if mode == "depth_geometry":
         geometry = torch.stack([build_depth_geometry_channels(depth) for depth in depths], dim=0)
         return torch.cat([images, geometry], dim=1)
+    if mode == "depth_geometry_dense":
+        features = batch.get("depth_features")
+        if features is None:
+            features = torch.stack([build_depth_geometry_dense_channels(depth) for depth in depths], dim=0)
+        return torch.cat([images, features.float()], dim=1)
     raise ValueError(f"Unsupported input_mode: {input_mode}")
 
 
@@ -68,6 +110,8 @@ def unet_input_channels(*, input_mode: str) -> int:
         return 4
     if mode == "depth_geometry":
         return 6
+    if mode == "depth_geometry_dense":
+        return 8
     raise ValueError(f"Unsupported input_mode: {input_mode}")
 
 
@@ -81,6 +125,8 @@ def unet_variant_name(*, input_mode: str, task_mode: str = "semantic_smoke") -> 
         return f"rgbd_{suffix}"
     if mode == "depth_geometry":
         return f"depth_geometry_{suffix}"
+    if mode == "depth_geometry_dense":
+        return f"depth_geometry_dense_{suffix}"
     raise ValueError(f"Unsupported input_mode: {input_mode}")
 
 

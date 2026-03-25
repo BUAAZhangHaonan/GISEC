@@ -9,6 +9,7 @@ import torch
 from torch.utils.data import Dataset
 
 from baseline.common.instance_targets import build_instance_target_pack, load_instance_target_cache, resolve_instance_target_cache_dir
+from baseline.rgbd.depth_cache import load_depth_feature_cache, resolve_depth_feature_cache_dir
 from gisec.datasets.ecc_query_dataset import _LiteCOCO, _load_depth_array, ann_to_mask
 
 
@@ -33,6 +34,8 @@ class BaselineInstanceDataset(Dataset):
         include_instance_map: bool = True,
         include_instance_targets: bool = False,
         instance_target_cache_dir: str | None = None,
+        depth_feature_mode: str | None = None,
+        depth_feature_cache_dir: str | None = None,
     ) -> None:
         self.root = Path(dataset_root).resolve()
         self.split = str(split)
@@ -45,6 +48,21 @@ class BaselineInstanceDataset(Dataset):
             Path(instance_target_cache_dir).resolve()
             if instance_target_cache_dir is not None
             else resolve_instance_target_cache_dir(str(self.root), split=self.split, image_size=self.image_size)
+        )
+        self.depth_feature_mode = None if depth_feature_mode is None else str(depth_feature_mode)
+        self.depth_feature_cache_dir = (
+            None
+            if self.depth_feature_mode is None
+            else (
+                Path(depth_feature_cache_dir).resolve()
+                if depth_feature_cache_dir is not None
+                else resolve_depth_feature_cache_dir(
+                    str(self.root),
+                    split=self.split,
+                    image_size=self.image_size,
+                    feature_mode=self.depth_feature_mode,
+                )
+            )
         )
         self.coco = _LiteCOCO(self.root / "annotations" / f"instances_{self.split}.json")
         self.image_ids = sorted(self.coco.getImgIds())
@@ -111,12 +129,23 @@ class BaselineInstanceDataset(Dataset):
             labels_tensor = torch.zeros((0,), dtype=torch.int64)
 
         depth_tensor = None
+        depth_feature_tensor = None
         if self.include_depth and self.depth_dir is not None:
             depth_path = self.depth_dir / f"{Path(info['file_name']).stem}.npy"
             if depth_path.exists():
                 depth = _load_depth_array(depth_path)
                 depth = cv2.resize(depth, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
                 depth_tensor = torch.from_numpy(depth[None, ...]).float()
+                if self.depth_feature_mode is not None and self.depth_feature_cache_dir is not None:
+                    cached_features = None
+                    if self.depth_feature_cache_dir.exists():
+                        cached_features = load_depth_feature_cache(
+                            cache_dir=self.depth_feature_cache_dir,
+                            image_id=image_id,
+                            file_name=str(info["file_name"]),
+                        )
+                    if cached_features is not None:
+                        depth_feature_tensor = torch.from_numpy(np.asarray(cached_features, dtype=np.float32)).float()
 
         instance_targets = None
         if self.include_instance_targets:
@@ -133,6 +162,7 @@ class BaselineInstanceDataset(Dataset):
             "file_name": info["file_name"],
             "image": torch.from_numpy(image.transpose(2, 0, 1)).float() / 255.0,
             "depth": depth_tensor,
+            "depth_features": depth_feature_tensor,
             "masks": masks_tensor,
             "boxes": boxes_tensor,
             "labels": labels_tensor,
@@ -144,6 +174,8 @@ class BaselineInstanceDataset(Dataset):
 def collate_baseline_batch(batch: list[dict[str, Any]]) -> dict[str, Any]:
     depths = [item.get("depth") for item in batch]
     has_depth = all(depth is not None for depth in depths)
+    depth_features = [item.get("depth_features") for item in batch]
+    has_depth_features = all(depth_feature is not None for depth_feature in depth_features)
     target_batch = [item.get("instance_targets") for item in batch]
     has_instance_targets = all(target is not None for target in target_batch)
     return {
@@ -151,6 +183,9 @@ def collate_baseline_batch(batch: list[dict[str, Any]]) -> dict[str, Any]:
         "file_names": [str(item["file_name"]) for item in batch],
         "images": torch.stack([item["image"].float() for item in batch], dim=0),
         "depths": None if not has_depth else torch.stack([depth.float() for depth in depths if depth is not None], dim=0),
+        "depth_features": None
+        if not has_depth_features
+        else torch.stack([feature.float() for feature in depth_features if feature is not None], dim=0),
         "masks": [item["masks"] for item in batch],
         "boxes": [item["boxes"] for item in batch],
         "labels": [item["labels"] for item in batch],

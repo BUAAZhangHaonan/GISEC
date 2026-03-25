@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import cv2
 import numpy as np
 import torch
 
+from baseline.common.dataset import BaselineInstanceDataset
 from baseline.rgbd.fusion import prepare_unet_inputs
 from baseline.unet.eval import decode_instance_predictions
 from baseline.unet.model import build_unet_family_model
@@ -52,14 +55,17 @@ def test_rgbd_fusion_prepares_expected_channel_counts() -> None:
 
     rgbd = prepare_unet_inputs(sample, input_mode="rgbd")
     depth_geometry = prepare_unet_inputs(sample, input_mode="depth_geometry")
+    depth_geometry_dense = prepare_unet_inputs(sample, input_mode="depth_geometry_dense")
 
     assert tuple(rgbd.shape) == (4, 64, 64)
     assert tuple(depth_geometry.shape) == (6, 64, 64)
+    assert tuple(depth_geometry_dense.shape) == (8, 64, 64)
     assert not torch.allclose(depth_geometry[3], depth_geometry[4])
+    assert not torch.allclose(depth_geometry_dense[4], depth_geometry_dense[5])
 
 
 def test_unet_family_models_accept_rgbd_channel_counts() -> None:
-    for name, channels in [("unet", 4), ("unetpp", 6), ("attention_unet", 6)]:
+    for name, channels in [("unet", 4), ("unetpp", 6), ("attention_unet", 8)]:
         model = build_unet_family_model(
             name,
             in_channels=channels,
@@ -100,6 +106,97 @@ def test_depth_geometry_unet_smoke_exports_rgbd_summary(tmp_path: Path) -> None:
     summary = json.loads((output_root / "run_summary.json").read_text(encoding="utf-8"))
     assert summary["model"] == "unet"
     assert summary["variant"] == "depth_geometry_smoke"
+    assert summary["modality"] == "rgbd"
+
+
+def test_depth_geometry_dense_cache_script_and_dataset_loading(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    dataset_root = tmp_path / "dataset"
+    _write_dataset(dataset_root)
+
+    subprocess.run(
+        [
+            sys.executable,
+            "scripts/experiments/precompute_baseline_depth_cache.py",
+            "--dataset-root",
+            str(dataset_root),
+            "--image-size",
+            "64",
+            "--feature-mode",
+            "depth_geometry_dense",
+            "--split",
+            "train",
+            "--workers",
+            "1",
+        ],
+        cwd=str(repo_root),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    dataset = BaselineInstanceDataset(
+        dataset_root=str(dataset_root),
+        split="train",
+        image_size=64,
+        include_depth=True,
+        depth_feature_mode="depth_geometry_dense",
+    )
+    sample = dataset[0]
+
+    assert sample["depth_features"] is not None
+    assert tuple(sample["depth_features"].shape) == (5, 64, 64)
+
+
+def test_depth_geometry_dense_unet_smoke_uses_cached_features(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    dataset_root = tmp_path / "dataset"
+    output_root = tmp_path / "out"
+    _write_dataset(dataset_root)
+
+    subprocess.run(
+        [
+            sys.executable,
+            "scripts/experiments/precompute_baseline_depth_cache.py",
+            "--dataset-root",
+            str(dataset_root),
+            "--image-size",
+            "64",
+            "--feature-mode",
+            "depth_geometry_dense",
+            "--split",
+            "train",
+            "--split",
+            "val",
+            "--workers",
+            "1",
+        ],
+        cwd=str(repo_root),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    train_unet_baseline(
+        dataset_root=str(dataset_root),
+        output_dir=str(output_root),
+        image_size=64,
+        device=torch.device("cpu"),
+        epochs=1,
+        batch_size=1,
+        num_workers=0,
+        max_train_steps=1,
+        max_val_images=1,
+        threshold=0.5,
+        model_name="unet",
+        input_mode="depth_geometry_dense",
+        encoder_name="resnet34",
+        pretrained_backbone=False,
+        task_mode="semantic_smoke",
+    )
+
+    summary = json.loads((output_root / "run_summary.json").read_text(encoding="utf-8"))
+    assert summary["variant"] == "depth_geometry_dense_smoke"
     assert summary["modality"] == "rgbd"
 
 

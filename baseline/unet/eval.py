@@ -204,6 +204,7 @@ def evaluate_unet_baseline(
         include_depth=str(input_mode) != "rgb",
         include_annotations=False,
         include_instance_map=False,
+        depth_feature_mode="depth_geometry_dense" if str(input_mode) == "depth_geometry_dense" else None,
     )
     loader = DataLoader(
         dataset,
