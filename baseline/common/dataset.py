@@ -97,7 +97,11 @@ class BaselineInstanceDataset(Dataset):
         boxes = []
         labels = []
         instance_map = None if cached is None else cached["instance_map"]
-        needs_annotations = self.include_annotations or (self.include_instance_map and instance_map is None)
+        needs_annotations = (
+            self.include_annotations
+            or (self.include_instance_map and instance_map is None)
+            or (self.include_instance_targets and instance_map is None)
+        )
         if needs_annotations:
             ann_ids = self.coco.getAnnIds(imgIds=[image_id], iscrowd=None)
             anns = self.coco.loadAnns(ann_ids)
@@ -116,17 +120,18 @@ class BaselineInstanceDataset(Dataset):
                     labels.append(int(ann.get("category_id", 1)))
                 instance_map[mask > 0] = int(next_instance_id)
 
-        if instance_map is None:
-            instance_map = np.zeros((self.image_size, self.image_size), dtype=np.int64)
-
-        if masks:
-            masks_tensor = torch.from_numpy(np.stack(masks, axis=0)).to(torch.uint8)
-            boxes_tensor = torch.tensor(boxes, dtype=torch.float32)
-            labels_tensor = torch.tensor(labels, dtype=torch.int64)
-        else:
-            masks_tensor = torch.zeros((0, self.image_size, self.image_size), dtype=torch.uint8)
-            boxes_tensor = torch.zeros((0, 4), dtype=torch.float32)
-            labels_tensor = torch.zeros((0,), dtype=torch.int64)
+        masks_tensor = None
+        boxes_tensor = None
+        labels_tensor = None
+        if self.include_annotations:
+            if masks:
+                masks_tensor = torch.from_numpy(np.stack(masks, axis=0)).to(torch.uint8)
+                boxes_tensor = torch.tensor(boxes, dtype=torch.float32)
+                labels_tensor = torch.tensor(labels, dtype=torch.int64)
+            else:
+                masks_tensor = torch.zeros((0, self.image_size, self.image_size), dtype=torch.uint8)
+                boxes_tensor = torch.zeros((0, 4), dtype=torch.float32)
+                labels_tensor = torch.zeros((0,), dtype=torch.int64)
 
         depth_tensor = None
         depth_feature_tensor = None
@@ -149,6 +154,8 @@ class BaselineInstanceDataset(Dataset):
 
         instance_targets = None
         if self.include_instance_targets:
+            if instance_map is None:
+                raise RuntimeError("instance_map is required to build instance targets")
             targets = cached["targets"] if cached is not None else build_instance_target_pack(instance_map)
             instance_targets = {
                 "fg": torch.from_numpy(np.asarray(targets["fg"], dtype=np.float32)).float(),
@@ -156,6 +163,12 @@ class BaselineInstanceDataset(Dataset):
                 "center": torch.from_numpy(np.asarray(targets["center"], dtype=np.float32)).float(),
                 "offsets": torch.from_numpy(np.asarray(targets["offsets"], dtype=np.float32)).float(),
             }
+
+        instance_map_tensor = None
+        if self.include_instance_map:
+            if instance_map is None:
+                instance_map = np.zeros((self.image_size, self.image_size), dtype=np.int64)
+            instance_map_tensor = torch.from_numpy(instance_map).long()
 
         return {
             "image_id": image_id,
@@ -166,7 +179,7 @@ class BaselineInstanceDataset(Dataset):
             "masks": masks_tensor,
             "boxes": boxes_tensor,
             "labels": labels_tensor,
-            "instance_map": torch.from_numpy(instance_map).long(),
+            "instance_map": instance_map_tensor,
             "instance_targets": instance_targets,
         }
 
@@ -176,6 +189,14 @@ def collate_baseline_batch(batch: list[dict[str, Any]]) -> dict[str, Any]:
     has_depth = all(depth is not None for depth in depths)
     depth_features = [item.get("depth_features") for item in batch]
     has_depth_features = all(depth_feature is not None for depth_feature in depth_features)
+    mask_batch = [item.get("masks") for item in batch]
+    has_masks = all(masks is not None for masks in mask_batch)
+    box_batch = [item.get("boxes") for item in batch]
+    has_boxes = all(boxes is not None for boxes in box_batch)
+    label_batch = [item.get("labels") for item in batch]
+    has_labels = all(labels is not None for labels in label_batch)
+    instance_map_batch = [item.get("instance_map") for item in batch]
+    has_instance_maps = all(instance_map is not None for instance_map in instance_map_batch)
     target_batch = [item.get("instance_targets") for item in batch]
     has_instance_targets = all(target is not None for target in target_batch)
     return {
@@ -186,10 +207,12 @@ def collate_baseline_batch(batch: list[dict[str, Any]]) -> dict[str, Any]:
         "depth_features": None
         if not has_depth_features
         else torch.stack([feature.float() for feature in depth_features if feature is not None], dim=0),
-        "masks": [item["masks"] for item in batch],
-        "boxes": [item["boxes"] for item in batch],
-        "labels": [item["labels"] for item in batch],
-        "instance_maps": torch.stack([item["instance_map"].long() for item in batch], dim=0),
+        "masks": None if not has_masks else [masks for masks in mask_batch if masks is not None],
+        "boxes": None if not has_boxes else [boxes for boxes in box_batch if boxes is not None],
+        "labels": None if not has_labels else [labels for labels in label_batch if labels is not None],
+        "instance_maps": None
+        if not has_instance_maps
+        else torch.stack([instance_map.long() for instance_map in instance_map_batch if instance_map is not None], dim=0),
         "instance_targets": None
         if not has_instance_targets
         else {

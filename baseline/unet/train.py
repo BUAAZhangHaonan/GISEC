@@ -218,6 +218,7 @@ def train_unet_baseline(
         image_size=image_size,
         include_depth=str(input_mode) != "rgb",
         include_annotations=False,
+        include_instance_map=str(task_mode) == "semantic_smoke",
         include_instance_targets=str(task_mode) != "semantic_smoke",
         depth_feature_mode="depth_geometry_dense" if str(input_mode) == "depth_geometry_dense" else None,
     )
