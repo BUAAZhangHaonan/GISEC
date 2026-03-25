@@ -8,6 +8,7 @@ from typing import Any
 import cv2
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from baseline.common.coco_export import masks_to_coco_results
@@ -80,6 +81,40 @@ def _peak_points(
     return selected
 
 
+def _peak_points_torch(
+    center_prob: torch.Tensor,
+    fg_mask: torch.Tensor,
+    *,
+    min_score: float,
+    min_distance: float = 4.0,
+    boundary_prob: torch.Tensor | None = None,
+    boundary_peak_veto: float = 0.7,
+) -> list[tuple[int, int, float]]:
+    masked = center_prob.float().clone()
+    masked[~fg_mask] = 0.0
+    if float(masked.max().item()) < float(min_score):
+        return []
+    pooled = F.max_pool2d(masked[None, None], kernel_size=3, stride=1, padding=1)[0, 0]
+    peak_mask = (masked >= float(min_score)) & torch.isclose(masked, pooled, atol=1.0e-6)
+    if boundary_prob is not None:
+        peak_mask &= boundary_prob.float() < float(boundary_peak_veto)
+    coords = torch.nonzero(peak_mask, as_tuple=False)
+    if coords.numel() == 0:
+        return []
+    scores = masked[coords[:, 0], coords[:, 1]]
+    order = torch.argsort(scores, descending=True)
+    coords = coords[order].detach().cpu().numpy()
+    scores = scores[order].detach().cpu().numpy()
+    selected: list[tuple[int, int, float]] = []
+    min_distance_sq = float(min_distance) ** 2
+    for (y, x), score in zip(coords, scores, strict=False):
+        py = int(y)
+        px = int(x)
+        if all(float((py - sy) ** 2 + (px - sx) ** 2) >= min_distance_sq for sy, sx, _ in selected):
+            selected.append((py, px, float(score)))
+    return selected
+
+
 def _fallback_component_peaks(fg_mask: np.ndarray) -> list[tuple[int, int, float]]:
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(fg_mask.astype(np.uint8), connectivity=8)
     peaks: list[tuple[int, int, float]] = []
@@ -114,6 +149,22 @@ def _masks_from_label_map(label_map: np.ndarray, *, min_area: int) -> list[np.nd
     return masks
 
 
+def _assign_pixels_to_centers_torch(
+    *,
+    fg_mask: torch.Tensor,
+    landing: torch.Tensor,
+    centers: torch.Tensor,
+) -> torch.Tensor:
+    label_map = torch.zeros_like(fg_mask, dtype=torch.long)
+    if centers.numel() == 0 or not bool(fg_mask.any()):
+        return label_map
+    landing_points = landing.permute(1, 2, 0)[fg_mask]
+    dist_sq = (landing_points[:, None, :] - centers[None, :, :]).pow(2).sum(dim=2)
+    assigned = torch.argmin(dist_sq, dim=1) + 1
+    label_map[fg_mask] = assigned.long()
+    return label_map
+
+
 def decode_instance_predictions(
     *,
     fg_logits: torch.Tensor,
@@ -125,16 +176,18 @@ def decode_instance_predictions(
     min_area: int = 8,
     boundary_peak_veto: float = 0.7,
 ) -> tuple[torch.Tensor, dict[str, float]]:
-    fg_prob = _sigmoid_tensor(fg_logits).detach().cpu().numpy().astype(np.float32)
-    center_prob = _sigmoid_tensor(center_heatmap).detach().cpu().numpy().astype(np.float32)
-    boundary_prob = _sigmoid_tensor(boundary_logits).detach().cpu().numpy().astype(np.float32)
-    offset_np = offsets.detach().cpu().numpy().astype(np.float32)
-    if fg_prob.ndim == 3:
-        fg_prob = fg_prob[0]
-    if center_prob.ndim == 3:
-        center_prob = center_prob[0]
-    if boundary_prob.ndim == 3:
-        boundary_prob = boundary_prob[0]
+    fg_prob_tensor = _sigmoid_tensor(fg_logits).detach().float()
+    center_prob_tensor = _sigmoid_tensor(center_heatmap).detach().float()
+    boundary_prob_tensor = _sigmoid_tensor(boundary_logits).detach().float()
+    if fg_prob_tensor.ndim == 3:
+        fg_prob_tensor = fg_prob_tensor[0]
+    if center_prob_tensor.ndim == 3:
+        center_prob_tensor = center_prob_tensor[0]
+    if boundary_prob_tensor.ndim == 3:
+        boundary_prob_tensor = boundary_prob_tensor[0]
+    fg_prob = fg_prob_tensor.cpu().numpy().astype(np.float32)
+    center_prob = center_prob_tensor.cpu().numpy().astype(np.float32)
+    boundary_prob = boundary_prob_tensor.cpu().numpy().astype(np.float32)
 
     fg_mask = fg_prob >= float(fg_threshold)
     label_map = np.zeros_like(fg_mask, dtype=np.int64)
@@ -142,11 +195,12 @@ def decode_instance_predictions(
         return torch.from_numpy(label_map), {"num_instances": 0.0, "num_centers": 0.0}
 
     peak_threshold = _resolve_peak_threshold(center_prob, fg_mask, base_threshold=center_threshold)
-    peaks = _peak_points(
-        center_prob,
-        fg_mask,
+    fg_mask_tensor = fg_prob_tensor >= float(fg_threshold)
+    peaks = _peak_points_torch(
+        center_prob_tensor,
+        fg_mask_tensor,
         min_score=peak_threshold,
-        boundary_prob=boundary_prob,
+        boundary_prob=boundary_prob_tensor,
         boundary_peak_veto=boundary_peak_veto,
     )
     if not peaks:
@@ -154,24 +208,29 @@ def decode_instance_predictions(
     if not peaks:
         return torch.from_numpy(label_map), {"num_instances": 0.0, "num_centers": 0.0}
 
-    yy, xx = np.indices(fg_mask.shape, dtype=np.float32)
-    landing_y = yy + offset_np[1]
-    landing_x = xx + offset_np[0]
-    centers = np.asarray([(float(y), float(x)) for y, x, _ in peaks], dtype=np.float32)
-    landing = np.stack([landing_y[fg_mask], landing_x[fg_mask]], axis=1)
-    dist_sq = ((landing[:, None, :] - centers[None, :, :]) ** 2).sum(axis=2)
-    assigned = dist_sq.argmin(axis=1)
-    label_map[fg_mask] = assigned.astype(np.int64) + 1
+    device = offsets.device
+    yy, xx = torch.meshgrid(
+        torch.arange(fg_mask.shape[0], device=device, dtype=offsets.dtype),
+        torch.arange(fg_mask.shape[1], device=device, dtype=offsets.dtype),
+        indexing="ij",
+    )
+    landing = torch.stack([yy + offsets[1], xx + offsets[0]], dim=0)
+    centers = torch.tensor([(float(y), float(x)) for y, x, _ in peaks], device=device, dtype=offsets.dtype)
+    label_map_tensor = _assign_pixels_to_centers_torch(
+        fg_mask=fg_mask_tensor,
+        landing=landing,
+        centers=centers,
+    )
 
-    refined = np.zeros_like(label_map, dtype=np.int64)
+    refined = torch.zeros_like(label_map_tensor, dtype=torch.long)
     next_id = 1
-    for label in range(1, int(label_map.max()) + 1):
-        mask = label_map == int(label)
-        if int(mask.sum()) < int(min_area):
+    for label in range(1, int(label_map_tensor.max().item()) + 1):
+        mask = label_map_tensor == int(label)
+        if int(mask.sum().item()) < int(min_area):
             continue
         refined[mask] = next_id
         next_id += 1
-    return torch.from_numpy(refined), {
+    return refined.cpu(), {
         "num_instances": float(next_id - 1),
         "num_centers": float(len(peaks)),
     }
