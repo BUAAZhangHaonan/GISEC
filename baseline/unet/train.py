@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 import shutil
 from pathlib import Path
@@ -11,6 +12,7 @@ from torch.utils.data import DataLoader
 
 from baseline.common.export import build_run_summary_payload
 from baseline.common.dataset import BaselineInstanceDataset, collate_baseline_batch
+from baseline.common.instance_targets import resolve_instance_target_cache_dir
 from baseline.rgbd.fusion import prepare_unet_batch_inputs, unet_input_channels, unet_modality, unet_variant_name
 from baseline.unet.eval import evaluate_unet_baseline
 from baseline.unet.model import build_unet_family_model
@@ -104,6 +106,21 @@ def _optimizer(model: torch.nn.Module, *, lr: float, encoder_lr_multiplier: floa
     )
 
 
+def _read_manifest_elapsed(path: Path) -> float | None:
+    if not path.exists():
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    elapsed = payload.get("elapsed_sec")
+    return None if elapsed is None else float(elapsed)
+
+
+def _resolve_prep_offline_sec(*, dataset_root: str, image_size: int, task_mode: str) -> float | None:
+    if str(task_mode) == "semantic_smoke":
+        return None
+    cache_dir = resolve_instance_target_cache_dir(dataset_root, split="train", image_size=image_size)
+    return _read_manifest_elapsed(cache_dir / "manifest.json")
+
+
 def train_unet_baseline(
     *,
     dataset_root: str,
@@ -177,6 +194,8 @@ def train_unet_baseline(
     best_state_dict: dict[str, torch.Tensor] | None = None
     best_metrics: dict[str, float] | None = None
     best_inference_speed: dict[str, float | int | str] | None = None
+    train_only_sec = 0.0
+    eval_post_sec = 0.0
 
     def _best_artifact_paths() -> dict[str, Path]:
         return {
@@ -210,6 +229,7 @@ def train_unet_baseline(
     for _epoch in range(int(epochs)):
         model.train()
         optimizer.zero_grad(set_to_none=True)
+        epoch_train_start = time.perf_counter()
         for batch in loader:
             inputs = prepare_unet_batch_inputs(batch, input_mode=str(input_mode)).to(device)
             with autocast(device_type=device.type, enabled=bool(amp and device.type == "cuda")):
@@ -234,8 +254,10 @@ def train_unet_baseline(
             scaler.step(optimizer)
             scaler.update()
             optimizer.zero_grad(set_to_none=True)
+        train_only_sec += float(time.perf_counter() - epoch_train_start)
 
         torch.save(model.state_dict(), artifact_root / "model_final.pth")
+        eval_start = time.perf_counter()
         metrics, inference_speed = evaluate_unet_baseline(
             model=model,
             model_name=str(model_name),
@@ -252,6 +274,7 @@ def train_unet_baseline(
             min_area=int(min_area),
             render_overlay_limit=int(render_overlay_limit),
         )
+        eval_post_sec += float(time.perf_counter() - eval_start)
         segm_ap = float(metrics.get("segm/AP", 0.0))
         if segm_ap >= best_segm_ap:
             best_segm_ap = segm_ap
@@ -289,9 +312,21 @@ def train_unet_baseline(
             artifact_root=artifact_root,
             metrics=metrics,
             inference_speed=inference_speed,
+            dataset_root=dataset_root,
             checkpoint=artifact_root / "model_best.pth",
             results_json=artifact_root / "coco_instances_results.json",
             params_trainable=params_trainable,
+            training_peak_memory_mb=peak_memory_mb,
             wall_time_sec=wall_time_sec,
+            timing={
+                "prep_offline_sec": _resolve_prep_offline_sec(
+                    dataset_root=dataset_root,
+                    image_size=image_size,
+                    task_mode=str(task_mode),
+                ),
+                "train_only_sec": float(train_only_sec),
+                "eval_post_sec": float(eval_post_sec),
+                "end_to_end_sec": float(wall_time_sec),
+            },
         ),
     )

@@ -24,6 +24,15 @@ def _read_optional_int(path: Path) -> int | None:
         return int(float(raw))
 
 
+def _read_optional_float(path: Path) -> float | None:
+    if not path.exists():
+        return None
+    raw = path.read_text(encoding="utf-8").strip()
+    if not raw:
+        return None
+    return float(raw)
+
+
 def build_run_summary_payload(
     *,
     model: str,
@@ -34,8 +43,11 @@ def build_run_summary_payload(
     inference_speed: dict[str, Any],
     checkpoint: Path | str | None = None,
     results_json: Path | str | None = None,
+    dataset_root: Path | str | None = None,
     params_trainable: int | None = None,
+    training_peak_memory_mb: float | None = None,
     wall_time_sec: int | None = None,
+    timing: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     artifact_root = Path(artifact_root).resolve()
     resolved_checkpoint = (
@@ -58,6 +70,19 @@ def build_run_summary_payload(
         if wall_time_sec is not None
         else _read_optional_int(artifact_root / "wall_time_sec.txt")
     )
+    resolved_training_peak_memory_mb = (
+        float(training_peak_memory_mb)
+        if training_peak_memory_mb is not None
+        else _read_optional_float(artifact_root / "peak_memory_mb.txt")
+    )
+    resolved_timing = {
+        "prep_offline_sec": None,
+        "train_only_sec": resolved_wall_time_sec,
+        "eval_post_sec": None,
+        "end_to_end_sec": resolved_wall_time_sec,
+    }
+    if timing is not None:
+        resolved_timing.update(dict(timing))
     return {
         "model": str(model),
         "variant": str(variant),
@@ -65,8 +90,11 @@ def build_run_summary_payload(
         "artifact_root": str(artifact_root),
         "checkpoint": resolved_checkpoint,
         "results_json": resolved_results_json,
+        "dataset_root": None if dataset_root is None else str(Path(dataset_root).resolve()),
         "params_trainable": resolved_params_trainable,
+        "training_peak_memory_mb": resolved_training_peak_memory_mb,
         "wall_time_sec": resolved_wall_time_sec,
+        "timing": resolved_timing,
         "metrics": dict(metrics),
         "inference_speed": dict(inference_speed),
     }

@@ -19,6 +19,8 @@ REQUIRED_RUN_SUMMARY_KEYS = (
     "results_json",
     "params_trainable",
     "wall_time_sec",
+    "training_peak_memory_mb",
+    "timing",
     "metrics",
     "inference_speed",
 )
