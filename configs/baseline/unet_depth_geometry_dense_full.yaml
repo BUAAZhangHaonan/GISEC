@@ -1,6 +1,6 @@
 common:
   image_size: 1024
-  batch: 16
+  batch: 24
   num_workers: 4
   device: cuda
 train:
