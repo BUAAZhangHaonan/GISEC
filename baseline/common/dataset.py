@@ -10,6 +10,7 @@ from torch.utils.data import Dataset
 
 from baseline.common.instance_targets import build_instance_target_pack, load_instance_target_cache, resolve_instance_target_cache_dir
 from baseline.rgbd.depth_cache import load_depth_feature_cache, resolve_depth_feature_cache_dir
+from gisec.train.query_targets import DEFAULT_BOUNDARY_BAND_PX, DEFAULT_CORE_EROSION_PX
 from gisec.datasets.ecc_query_dataset import _LiteCOCO, _load_depth_array, ann_to_mask
 
 
@@ -34,6 +35,8 @@ class BaselineInstanceDataset(Dataset):
         include_instance_map: bool = True,
         include_instance_targets: bool = False,
         instance_target_cache_dir: str | None = None,
+        core_erosion_px: int = DEFAULT_CORE_EROSION_PX,
+        boundary_band_px: int = DEFAULT_BOUNDARY_BAND_PX,
         depth_feature_mode: str | None = None,
         depth_feature_cache_dir: str | None = None,
     ) -> None:
@@ -44,10 +47,18 @@ class BaselineInstanceDataset(Dataset):
         self.include_annotations = bool(include_annotations)
         self.include_instance_map = bool(include_instance_map)
         self.include_instance_targets = bool(include_instance_targets)
+        self.core_erosion_px = int(core_erosion_px)
+        self.boundary_band_px = int(boundary_band_px)
         self.instance_target_cache_dir = (
             Path(instance_target_cache_dir).resolve()
             if instance_target_cache_dir is not None
-            else resolve_instance_target_cache_dir(str(self.root), split=self.split, image_size=self.image_size)
+            else resolve_instance_target_cache_dir(
+                str(self.root),
+                split=self.split,
+                image_size=self.image_size,
+                core_erosion_px=self.core_erosion_px,
+                boundary_band_px=self.boundary_band_px,
+            )
         )
         self.depth_feature_mode = None if depth_feature_mode is None else str(depth_feature_mode)
         self.depth_feature_cache_dir = (
@@ -156,7 +167,11 @@ class BaselineInstanceDataset(Dataset):
         if self.include_instance_targets:
             if instance_map is None:
                 raise RuntimeError("instance_map is required to build instance targets")
-            targets = cached["targets"] if cached is not None else build_instance_target_pack(instance_map)
+            targets = cached["targets"] if cached is not None else build_instance_target_pack(
+                instance_map,
+                core_erosion_px=self.core_erosion_px,
+                boundary_band_px=self.boundary_band_px,
+            )
             instance_targets = {
                 "fg": torch.from_numpy(np.asarray(targets["fg"], dtype=np.float32)).float(),
                 "boundary": torch.from_numpy(np.asarray(targets["boundary"], dtype=np.float32)).float(),

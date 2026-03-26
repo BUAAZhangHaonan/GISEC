@@ -1,6 +1,6 @@
 common:
   image_size: 1024
-  batch: 24
+  batch: 16
   num_workers: 4
   device: cuda
   pin_memory: true
@@ -21,7 +21,7 @@ train:
   boundary_loss_weight: 0.5
 model:
   model_name: unet
-  input_mode: rgbd
+  input_mode: rgb
   encoder_name: resnet34
   pretrained_backbone: true
   task_mode: instance
@@ -29,7 +29,7 @@ model:
   core_erosion_px: 3
   boundary_band_px: 5
   watershed_enabled: true
-  use_depth_split_walls: false
+  use_depth_split_walls: true
   depth_wall_threshold: 0.1
   center_threshold: 0.5
   fragment_min_area: 8

@@ -115,12 +115,18 @@ def unet_input_channels(*, input_mode: str) -> int:
     raise ValueError(f"Unsupported input_mode: {input_mode}")
 
 
-def unet_variant_name(*, input_mode: str, task_mode: str = "semantic_smoke") -> str:
+def unet_variant_name(
+    *,
+    input_mode: str,
+    task_mode: str = "semantic_smoke",
+    use_depth_split_walls: bool = False,
+) -> str:
     mode = str(input_mode)
     task = str(task_mode)
     suffix = "smoke" if task == "semantic_smoke" else "instance"
     if mode == "rgb":
-        return f"rgb_{suffix}"
+        prefix = "rgb_depth_wall" if bool(use_depth_split_walls) else "rgb"
+        return f"{prefix}_{suffix}"
     if mode == "rgbd":
         return f"rgbd_{suffix}"
     if mode == "depth_geometry":

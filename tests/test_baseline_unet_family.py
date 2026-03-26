@@ -113,6 +113,34 @@ def test_unet_family_supports_instance_training_options_in_summary(tmp_path: Pat
     assert summary["variant"] == "rgb_instance"
 
 
+def test_unet_family_depth_wall_variant_is_reflected_in_summary(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "dataset"
+    output_root = tmp_path / "out"
+    _write_dataset(dataset_root)
+
+    train_unet_baseline(
+        dataset_root=str(dataset_root),
+        output_dir=str(output_root),
+        image_size=64,
+        device=torch.device("cpu"),
+        epochs=1,
+        batch_size=1,
+        num_workers=0,
+        max_train_steps=1,
+        max_val_images=1,
+        threshold=0.5,
+        model_name="unet",
+        encoder_name="resnet34",
+        pretrained_backbone=False,
+        task_mode="instance",
+        use_depth_split_walls=True,
+        watershed_enabled=True,
+    )
+
+    summary = json.loads((output_root / "run_summary.json").read_text(encoding="utf-8"))
+    assert summary["variant"] == "rgb_depth_wall_instance"
+
+
 def test_unet_instance_training_single_epoch_skips_duplicate_final_eval(
     tmp_path: Path,
     monkeypatch,

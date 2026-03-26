@@ -18,6 +18,7 @@ from baseline.rgbd.fusion import prepare_unet_batch_inputs, unet_input_channels,
 from baseline.unet.eval import evaluate_unet_baseline
 from baseline.unet.model import build_unet_family_model
 from gisec.engine.runtime import write_json
+from gisec.train.query_targets import DEFAULT_BOUNDARY_BAND_PX, DEFAULT_CORE_EROSION_PX
 
 
 def _resolve_loader_perf(
@@ -132,10 +133,23 @@ def _read_manifest_elapsed(path: Path) -> float | None:
     return None if elapsed is None else float(elapsed)
 
 
-def _resolve_prep_offline_sec(*, dataset_root: str, image_size: int, task_mode: str) -> float | None:
+def _resolve_prep_offline_sec(
+    *,
+    dataset_root: str,
+    image_size: int,
+    task_mode: str,
+    core_erosion_px: int,
+    boundary_band_px: int,
+) -> float | None:
     if str(task_mode) == "semantic_smoke":
         return None
-    cache_dir = resolve_instance_target_cache_dir(dataset_root, split="train", image_size=image_size)
+    cache_dir = resolve_instance_target_cache_dir(
+        dataset_root,
+        split="train",
+        image_size=image_size,
+        core_erosion_px=core_erosion_px,
+        boundary_band_px=boundary_band_px,
+    )
     return _read_manifest_elapsed(cache_dir / "manifest.json")
 
 
@@ -187,6 +201,11 @@ def train_unet_baseline(
     offset_loss_weight: float = 0.25,
     boundary_loss_weight: float = 0.5,
     eval_every_epochs: int = 1,
+    core_erosion_px: int = DEFAULT_CORE_EROSION_PX,
+    boundary_band_px: int = DEFAULT_BOUNDARY_BAND_PX,
+    watershed_enabled: bool = True,
+    use_depth_split_walls: bool = False,
+    depth_wall_threshold: float = 0.1,
     center_threshold: float = 0.5,
     min_area: int = 8,
     decoder_channels: int = 64,
@@ -220,6 +239,8 @@ def train_unet_baseline(
         include_annotations=False,
         include_instance_map=str(task_mode) == "semantic_smoke",
         include_instance_targets=str(task_mode) != "semantic_smoke",
+        core_erosion_px=int(core_erosion_px),
+        boundary_band_px=int(boundary_band_px),
         depth_feature_mode="depth_geometry_dense" if str(input_mode) == "depth_geometry_dense" else None,
     )
     loader = DataLoader(
@@ -343,6 +364,9 @@ def train_unet_baseline(
                 max_images=max_val_images,
                 input_mode=str(input_mode),
                 task_mode=str(task_mode),
+                watershed_enabled=bool(watershed_enabled),
+                use_depth_split_walls=bool(use_depth_split_walls),
+                depth_wall_threshold=float(depth_wall_threshold),
                 center_threshold=float(center_threshold),
                 min_area=int(min_area),
                 render_overlay_limit=int(render_overlay_limit),
@@ -383,7 +407,11 @@ def train_unet_baseline(
         artifact_root / "run_summary.json",
         build_run_summary_payload(
             model=str(model_name),
-            variant=unet_variant_name(input_mode=str(input_mode), task_mode=str(task_mode)),
+            variant=unet_variant_name(
+                input_mode=str(input_mode),
+                task_mode=str(task_mode),
+                use_depth_split_walls=bool(use_depth_split_walls),
+            ),
             modality=unet_modality(input_mode=str(input_mode)),
             artifact_root=artifact_root,
             metrics=metrics,
@@ -402,6 +430,8 @@ def train_unet_baseline(
                             dataset_root=dataset_root,
                             image_size=image_size,
                             task_mode=str(task_mode),
+                            core_erosion_px=int(core_erosion_px),
+                            boundary_band_px=int(boundary_band_px),
                         ),
                         _resolve_depth_prep_offline_sec(
                             dataset_root=dataset_root,

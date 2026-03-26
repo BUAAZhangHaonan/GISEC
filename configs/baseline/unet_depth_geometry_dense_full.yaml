@@ -26,7 +26,12 @@ model:
   pretrained_backbone: true
   task_mode: instance
   threshold: 0.5
+  core_erosion_px: 3
+  boundary_band_px: 5
+  watershed_enabled: true
+  use_depth_split_walls: false
+  depth_wall_threshold: 0.1
   center_threshold: 0.5
-  min_area: 8
+  fragment_min_area: 8
   decoder_channels: 64
   render_overlay_limit: 0

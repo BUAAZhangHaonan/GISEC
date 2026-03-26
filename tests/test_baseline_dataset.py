@@ -149,9 +149,9 @@ def test_baseline_dataset_uses_cached_instance_targets_without_rebuilding(tmp_pa
 
     assert cached["instance_targets"] is not None
     assert tuple(cached["instance_targets"]["fg"].shape) == (1, 64, 64)
-    assert cached["masks"].numel() == 0
-    assert cached["boxes"].numel() == 0
-    assert cached["labels"].numel() == 0
+    assert cached["masks"] is None
+    assert cached["boxes"] is None
+    assert cached["labels"] is None
 
 
 def test_masks_to_coco_results_encodes_basic_instance_records() -> None:

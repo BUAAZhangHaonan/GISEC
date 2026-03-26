@@ -6,6 +6,8 @@ from pathlib import Path
 import numpy as np
 
 from gisec.train.query_targets import (
+    DEFAULT_BOUNDARY_BAND_PX,
+    DEFAULT_CORE_EROSION_PX,
     build_core_heatmap_target,
     build_fg_target,
     build_instance_boundary_target,
@@ -13,18 +15,46 @@ from gisec.train.query_targets import (
 )
 
 
-def build_instance_target_pack(instance_map: np.ndarray) -> dict[str, np.ndarray]:
+TARGET_CACHE_VERSION = "splitfirst_v1"
+
+
+def build_instance_target_pack(
+    instance_map: np.ndarray,
+    *,
+    core_erosion_px: int = DEFAULT_CORE_EROSION_PX,
+    boundary_band_px: int = DEFAULT_BOUNDARY_BAND_PX,
+) -> dict[str, np.ndarray]:
     instance_map = instance_map.astype(np.int64, copy=False)
     return {
-        "fg": build_fg_target(instance_map).astype(np.float32, copy=False)[None, ...],
-        "boundary": build_instance_boundary_target(instance_map).astype(np.float32, copy=False)[None, ...],
+        "fg": build_fg_target(instance_map, core_erosion_px=core_erosion_px).astype(np.float32, copy=False)[None, ...],
+        "boundary": build_instance_boundary_target(
+            instance_map,
+            band_px=boundary_band_px,
+        ).astype(np.float32, copy=False)[None, ...],
         "center": build_core_heatmap_target(instance_map).astype(np.float32, copy=False)[None, ...],
         "offsets": build_ownership_target(instance_map).astype(np.float32, copy=False),
     }
 
 
-def resolve_instance_target_cache_dir(dataset_root: str, *, split: str, image_size: int) -> Path:
-    return Path(dataset_root).resolve() / "preprocessed" / "baseline_instance_targets" / f"size_{int(image_size)}" / str(split)
+def resolve_instance_target_cache_dir(
+    dataset_root: str,
+    *,
+    split: str,
+    image_size: int,
+    core_erosion_px: int = DEFAULT_CORE_EROSION_PX,
+    boundary_band_px: int = DEFAULT_BOUNDARY_BAND_PX,
+) -> Path:
+    target_profile = (
+        f"{TARGET_CACHE_VERSION}_core{int(core_erosion_px)}_band{int(boundary_band_px)}"
+    )
+    return (
+        Path(dataset_root).resolve()
+        / "preprocessed"
+        / "baseline_instance_targets"
+        / target_profile
+        / f"size_{int(image_size)}"
+        / str(split)
+    )
 
 
 def instance_target_cache_path(*, cache_dir: Path, image_id: int, file_name: str) -> Path:
@@ -81,6 +111,8 @@ def write_instance_target_cache_manifest(
     split: str,
     image_size: int,
     num_images: int,
+    core_erosion_px: int = DEFAULT_CORE_EROSION_PX,
+    boundary_band_px: int = DEFAULT_BOUNDARY_BAND_PX,
 ) -> Path:
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -90,6 +122,9 @@ def write_instance_target_cache_manifest(
         "image_size": int(image_size),
         "num_images": int(num_images),
         "format": "npz",
+        "target_cache_version": TARGET_CACHE_VERSION,
+        "core_erosion_px": int(core_erosion_px),
+        "boundary_band_px": int(boundary_band_px),
         "keys": ["instance_map", "fg", "boundary", "center", "offsets"],
     }
     path = cache_dir / "manifest.json"

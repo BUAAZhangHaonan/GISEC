@@ -165,16 +165,115 @@ def _assign_pixels_to_centers_torch(
     return label_map
 
 
+def build_depth_discontinuity_map(depth: torch.Tensor, threshold: float = 0.1) -> torch.Tensor:
+    if depth.ndim == 2:
+        depth = depth.unsqueeze(0)
+    if depth.ndim == 3:
+        working = depth.float()
+    elif depth.ndim == 4:
+        if depth.shape[1] != 1:
+            raise ValueError(f"Expected depth with a single channel, got {tuple(depth.shape)}")
+        working = depth[:, 0].float()
+    else:
+        raise ValueError(f"Unsupported depth shape: {tuple(depth.shape)}")
+    grad_x = torch.zeros_like(working)
+    grad_y = torch.zeros_like(working)
+    grad_x[..., :, 1:] = working[..., :, 1:] - working[..., :, :-1]
+    grad_y[..., 1:, :] = working[..., 1:, :] - working[..., :-1, :]
+    gradient = torch.sqrt(grad_x.square() + grad_y.square() + 1.0e-8)
+    return (gradient >= float(threshold)).float()
+
+
+def _component_markers(
+    support_mask: np.ndarray,
+    center_prob: np.ndarray,
+    *,
+    center_threshold: float,
+    min_area: int,
+    boundary_prob: np.ndarray | None = None,
+    boundary_peak_veto: float = 0.7,
+) -> tuple[np.ndarray, int]:
+    support_tensor = torch.from_numpy(support_mask.astype(bool))
+    center_tensor = torch.from_numpy(center_prob.astype(np.float32))
+    boundary_tensor = None if boundary_prob is None else torch.from_numpy(boundary_prob.astype(np.float32))
+    peaks = _peak_points_torch(
+        center_tensor,
+        support_tensor,
+        min_score=float(center_threshold),
+        boundary_prob=boundary_tensor,
+        boundary_peak_veto=float(boundary_peak_veto),
+    )
+    if not peaks:
+        peaks = _fallback_component_peaks(support_mask.astype(bool))
+    if not peaks:
+        return np.zeros_like(support_mask, dtype=np.int32), 0
+    markers = np.zeros_like(support_mask, dtype=np.int32)
+    for label, (y, x, _score) in enumerate(peaks, start=1):
+        markers[int(y), int(x)] = int(label)
+    kernel = np.ones((3, 3), dtype=np.uint8)
+    markers = cv2.dilate(markers.astype(np.uint8), kernel, iterations=1).astype(np.int32) * support_mask.astype(np.int32)
+    if int(markers.max()) <= 0:
+        return np.zeros_like(support_mask, dtype=np.int32), 0
+    return markers, len(peaks)
+
+
+def _watershed_split_mask(
+    support_mask: np.ndarray,
+    wall_prob: np.ndarray,
+    center_prob: np.ndarray,
+    *,
+    center_threshold: float,
+    min_area: int,
+    boundary_peak_veto: float = 0.7,
+) -> tuple[np.ndarray, int]:
+    markers, num_peaks = _component_markers(
+        support_mask,
+        center_prob,
+        center_threshold=center_threshold,
+        min_area=min_area,
+        boundary_prob=wall_prob,
+        boundary_peak_veto=boundary_peak_veto,
+    )
+    if num_peaks <= 0:
+        return np.zeros_like(support_mask, dtype=np.int32), 0
+    if num_peaks == 1:
+        return support_mask.astype(np.int32), 1
+    ys, xs = np.nonzero(support_mask)
+    y0 = max(int(ys.min()) - 1, 0)
+    y1 = min(int(ys.max()) + 2, support_mask.shape[0])
+    x0 = max(int(xs.min()) - 1, 0)
+    x1 = min(int(xs.max()) + 2, support_mask.shape[1])
+    crop_support = support_mask[y0:y1, x0:x1].astype(bool)
+    crop_wall = wall_prob[y0:y1, x0:x1].astype(np.float32)
+    crop_markers = markers[y0:y1, x0:x1].astype(np.int32)
+    watershed_markers = np.ones_like(crop_markers, dtype=np.int32)
+    watershed_markers[crop_support] = 0
+    positive = crop_markers > 0
+    watershed_markers[positive] = crop_markers[positive] + 1
+    image = np.clip(crop_wall * 255.0, 0.0, 255.0).astype(np.uint8)
+    image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    labels = cv2.watershed(image, watershed_markers)
+    result = np.zeros_like(support_mask, dtype=np.int32)
+    component = np.zeros_like(crop_markers, dtype=np.int32)
+    valid = crop_support & (labels > 1)
+    component[valid] = labels[valid] - 1
+    result[y0:y1, x0:x1] = component
+    return result, num_peaks
+
+
 def decode_instance_predictions(
     *,
     fg_logits: torch.Tensor,
     center_heatmap: torch.Tensor,
     offsets: torch.Tensor,
     boundary_logits: torch.Tensor,
+    query_depth: torch.Tensor | None = None,
     fg_threshold: float = 0.5,
     center_threshold: float = 0.5,
     min_area: int = 8,
     boundary_peak_veto: float = 0.7,
+    watershed_enabled: bool = True,
+    depth_wall_threshold: float = 0.1,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     fg_prob_tensor = _sigmoid_tensor(fg_logits).detach().float()
     center_prob_tensor = _sigmoid_tensor(center_heatmap).detach().float()
@@ -194,45 +293,46 @@ def decode_instance_predictions(
     if int(fg_mask.sum()) < int(min_area):
         return torch.from_numpy(label_map), {"num_instances": 0.0, "num_centers": 0.0}
 
-    peak_threshold = _resolve_peak_threshold(center_prob, fg_mask, base_threshold=center_threshold)
-    fg_mask_tensor = fg_prob_tensor >= float(fg_threshold)
-    peaks = _peak_points_torch(
-        center_prob_tensor,
-        fg_mask_tensor,
-        min_score=peak_threshold,
-        boundary_prob=boundary_prob_tensor,
-        boundary_peak_veto=boundary_peak_veto,
-    )
-    if not peaks:
-        peaks = _fallback_component_peaks(fg_mask)
-    if not peaks:
-        return torch.from_numpy(label_map), {"num_instances": 0.0, "num_centers": 0.0}
+    depth_wall = np.zeros_like(fg_mask, dtype=np.float32)
+    if query_depth is not None:
+        depth_wall_tensor = build_depth_discontinuity_map(query_depth.detach().float(), threshold=depth_wall_threshold)
+        if depth_wall_tensor.ndim == 3:
+            depth_wall = depth_wall_tensor[0].cpu().numpy().astype(np.float32)
+        else:
+            depth_wall = depth_wall_tensor.cpu().numpy().astype(np.float32)
+    wall_prob = np.maximum(boundary_prob, depth_wall)
 
-    device = offsets.device
-    yy, xx = torch.meshgrid(
-        torch.arange(fg_mask.shape[0], device=device, dtype=offsets.dtype),
-        torch.arange(fg_mask.shape[1], device=device, dtype=offsets.dtype),
-        indexing="ij",
-    )
-    landing = torch.stack([yy + offsets[1], xx + offsets[0]], dim=0)
-    centers = torch.tensor([(float(y), float(x)) for y, x, _ in peaks], device=device, dtype=offsets.dtype)
-    label_map_tensor = _assign_pixels_to_centers_torch(
-        fg_mask=fg_mask_tensor,
-        landing=landing,
-        centers=centers,
-    )
-
-    refined = torch.zeros_like(label_map_tensor, dtype=torch.long)
+    num_components, components, stats, _ = cv2.connectedComponentsWithStats(fg_mask.astype(np.uint8), connectivity=8)
+    refined = np.zeros_like(label_map, dtype=np.int64)
     next_id = 1
-    for label in range(1, int(label_map_tensor.max().item()) + 1):
-        mask = label_map_tensor == int(label)
-        if int(mask.sum().item()) < int(min_area):
+    total_centers = 0
+    for component_id in range(1, int(num_components)):
+        if int(stats[component_id, cv2.CC_STAT_AREA]) < int(min_area):
             continue
-        refined[mask] = next_id
-        next_id += 1
-    return refined.cpu(), {
+        support_mask = components == int(component_id)
+        peak_threshold = _resolve_peak_threshold(center_prob, support_mask, base_threshold=center_threshold)
+        if watershed_enabled:
+            split_map, num_peaks = _watershed_split_mask(
+                support_mask,
+                wall_prob,
+                center_prob,
+                center_threshold=peak_threshold,
+                min_area=min_area,
+                boundary_peak_veto=boundary_peak_veto,
+            )
+        else:
+            split_map = support_mask.astype(np.int32)
+            num_peaks = 1
+        total_centers += int(num_peaks)
+        for local_label in sorted(int(x) for x in np.unique(split_map) if int(x) > 0):
+            mask = split_map == int(local_label)
+            if int(mask.sum()) < int(min_area):
+                continue
+            refined[mask] = next_id
+            next_id += 1
+    return torch.from_numpy(refined.astype(np.int64)), {
         "num_instances": float(next_id - 1),
-        "num_centers": float(len(peaks)),
+        "num_centers": float(total_centers),
     }
 
 
@@ -254,6 +354,9 @@ def evaluate_unet_baseline(
     task_mode: str = "semantic_smoke",
     center_threshold: float = 0.5,
     min_area: int = 8,
+    watershed_enabled: bool = True,
+    use_depth_split_walls: bool = False,
+    depth_wall_threshold: float = 0.1,
     render_overlay_limit: int = 16,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     artifact_root = Path(output_dir)
@@ -266,7 +369,7 @@ def evaluate_unet_baseline(
         dataset_root=dataset_root,
         split="val",
         image_size=image_size,
-        include_depth=str(input_mode) != "rgb",
+        include_depth=str(input_mode) != "rgb" or bool(use_depth_split_walls),
         include_annotations=False,
         include_instance_map=False,
         depth_feature_mode="depth_geometry_dense" if str(input_mode) == "depth_geometry_dense" else None,
@@ -313,9 +416,12 @@ def evaluate_unet_baseline(
                     center_heatmap=outputs["center_heatmap"][0].cpu(),
                     offsets=outputs["offsets"][0].cpu(),
                     boundary_logits=outputs["boundary_logits"][0].cpu(),
+                    query_depth=None if sample.get("depth") is None else sample["depth"].cpu(),
                     fg_threshold=float(threshold),
                     center_threshold=float(center_threshold),
                     min_area=int(min_area),
+                    watershed_enabled=bool(watershed_enabled),
+                    depth_wall_threshold=float(depth_wall_threshold),
                 )
                 merged = label_map.numpy().astype(np.int32)
                 masks = _masks_from_label_map(merged, min_area=min_area)
@@ -351,7 +457,11 @@ def evaluate_unet_baseline(
     write_json(artifact_root / "inference_speed.json", speed)
     summary = build_run_summary_payload(
         model=str(model_name),
-        variant=unet_variant_name(input_mode=str(input_mode), task_mode=str(task_mode)),
+        variant=unet_variant_name(
+            input_mode=str(input_mode),
+            task_mode=str(task_mode),
+            use_depth_split_walls=bool(use_depth_split_walls),
+        ),
         modality=unet_modality(input_mode=str(input_mode)),
         artifact_root=artifact_root,
         metrics=metrics,

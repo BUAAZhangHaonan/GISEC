@@ -29,6 +29,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--image-size", type=int, required=True)
     parser.add_argument("--split", action="append", default=None)
     parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--core-erosion-px", type=int, default=3)
+    parser.add_argument("--boundary-band-px", type=int, default=5)
     parser.add_argument("--force", action="store_true")
     return parser.parse_args()
 
@@ -43,9 +45,17 @@ def _build_one(
     anns: list[dict],
     height: int,
     width: int,
+    core_erosion_px: int,
+    boundary_band_px: int,
     force: bool,
 ) -> str:
-    cache_dir = resolve_instance_target_cache_dir(dataset_root, split=split, image_size=image_size)
+    cache_dir = resolve_instance_target_cache_dir(
+        dataset_root,
+        split=split,
+        image_size=image_size,
+        core_erosion_px=core_erosion_px,
+        boundary_band_px=boundary_band_px,
+    )
     cache_path = instance_target_cache_path(cache_dir=cache_dir, image_id=image_id, file_name=file_name)
     if cache_path.exists() and not force:
         return "skipped"
@@ -58,7 +68,11 @@ def _build_one(
             continue
         next_id += 1
         instance_map[mask > 0] = next_id
-    targets = build_instance_target_pack(instance_map)
+    targets = build_instance_target_pack(
+        instance_map,
+        core_erosion_px=core_erosion_px,
+        boundary_band_px=boundary_band_px,
+    )
     save_instance_target_cache(
         cache_dir=cache_dir,
         image_id=int(image_id),
@@ -69,11 +83,26 @@ def _build_one(
     return "written"
 
 
-def _process_split(dataset_root: str, *, split: str, image_size: int, workers: int, force: bool) -> None:
+def _process_split(
+    dataset_root: str,
+    *,
+    split: str,
+    image_size: int,
+    workers: int,
+    core_erosion_px: int,
+    boundary_band_px: int,
+    force: bool,
+) -> None:
     root = Path(dataset_root).resolve()
     coco = _LiteCOCO(root / "annotations" / f"instances_{split}.json")
     image_ids = sorted(coco.getImgIds())
-    cache_dir = resolve_instance_target_cache_dir(str(root), split=split, image_size=image_size)
+    cache_dir = resolve_instance_target_cache_dir(
+        str(root),
+        split=split,
+        image_size=image_size,
+        core_erosion_px=core_erosion_px,
+        boundary_band_px=boundary_band_px,
+    )
     jobs: list[dict[str, object]] = []
     for image_id in image_ids:
         info = coco.loadImgs([int(image_id)])[0]
@@ -89,6 +118,8 @@ def _process_split(dataset_root: str, *, split: str, image_size: int, workers: i
                 "anns": anns,
                 "height": int(info["height"]),
                 "width": int(info["width"]),
+                "core_erosion_px": int(core_erosion_px),
+                "boundary_band_px": int(boundary_band_px),
                 "force": bool(force),
             }
         )
@@ -113,6 +144,8 @@ def _process_split(dataset_root: str, *, split: str, image_size: int, workers: i
         split=str(split),
         image_size=int(image_size),
         num_images=len(image_ids),
+        core_erosion_px=int(core_erosion_px),
+        boundary_band_px=int(boundary_band_px),
     )
     print(f"[baseline-cache] split={split} image_size={image_size} written={written} skipped={skipped} cache_dir={cache_dir}")
 
@@ -130,6 +163,8 @@ def main() -> None:
             split=str(split),
             image_size=int(args.image_size),
             workers=int(args.workers),
+            core_erosion_px=int(args.core_erosion_px),
+            boundary_band_px=int(args.boundary_band_px),
             force=bool(args.force),
         )
 
