@@ -33,6 +33,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--positive-edge-weight", type=float, default=None)
     parser.add_argument("--negative-edge-weight", type=float, default=None)
     parser.add_argument("--hard-negative-ratio", type=float, default=None)
+    parser.add_argument("--ranking-loss-weight", type=float, default=None)
+    parser.add_argument("--ranking-margin", type=float, default=None)
+    parser.add_argument("--ranking-samples-per-class", type=int, default=None)
     return parser.parse_args()
 
 
@@ -76,6 +79,9 @@ def main() -> None:
         positive_edge_weight=float(_resolve_value(args.positive_edge_weight, train_cfg.get("positive_edge_weight"), 1.0)),
         negative_edge_weight=float(_resolve_value(args.negative_edge_weight, train_cfg.get("negative_edge_weight"), 1.0)),
         hard_negative_ratio=float(_resolve_value(args.hard_negative_ratio, train_cfg.get("hard_negative_ratio"), 0.0)),
+        ranking_loss_weight=float(_resolve_value(args.ranking_loss_weight, train_cfg.get("ranking_loss_weight"), 0.0)),
+        ranking_margin=float(_resolve_value(args.ranking_margin, train_cfg.get("ranking_margin"), 0.2)),
+        ranking_samples_per_class=int(_resolve_value(args.ranking_samples_per_class, train_cfg.get("ranking_samples_per_class"), 128)),
     )
     summary = json.loads((output_dir / "train_summary.json").read_text(encoding="utf-8"))
     print(json.dumps(summary, ensure_ascii=False))

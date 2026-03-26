@@ -65,6 +65,28 @@ def build_edge_training_mask(
     return selected
 
 
+def pairwise_ranking_loss(
+    *,
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    valid_mask: torch.Tensor,
+    margin: float,
+    max_samples_per_class: int,
+) -> torch.Tensor:
+    valid_logits = logits[valid_mask]
+    valid_targets = targets[valid_mask]
+    positive_logits = valid_logits[valid_targets > 0.5]
+    negative_logits = valid_logits[valid_targets <= 0.5]
+    if positive_logits.numel() == 0 or negative_logits.numel() == 0:
+        return valid_logits.sum() * 0.0
+    pos_k = min(int(max_samples_per_class), int(positive_logits.numel()))
+    neg_k = min(int(max_samples_per_class), int(negative_logits.numel()))
+    hard_positive = torch.topk(positive_logits, k=pos_k, largest=False).values
+    hard_negative = torch.topk(negative_logits, k=neg_k, largest=True).values
+    pair_margin = hard_positive[:, None] - hard_negative[None, :]
+    return torch.relu(float(margin) - pair_margin).mean()
+
+
 def train_reference_graph_merge(
     *,
     cache_root: str,
@@ -88,6 +110,9 @@ def train_reference_graph_merge(
     positive_edge_weight: float = 1.0,
     negative_edge_weight: float = 1.0,
     hard_negative_ratio: float = 0.0,
+    ranking_loss_weight: float = 0.0,
+    ranking_margin: float = 0.2,
+    ranking_samples_per_class: int = 128,
     eval_thresholds: tuple[float, ...] = DEFAULT_REFERENCE_GRAPH_THRESHOLDS,
     conservative_f1_margin: float = 0.005,
 ) -> None:
@@ -170,6 +195,14 @@ def train_reference_graph_merge(
                 positive_edge_weight=float(positive_edge_weight),
                 negative_edge_weight=float(negative_edge_weight),
             )
+            ranking_loss = pairwise_ranking_loss(
+                logits=logits,
+                targets=batch["edge_targets"],
+                valid_mask=train_mask,
+                margin=float(ranking_margin),
+                max_samples_per_class=int(ranking_samples_per_class),
+            )
+            loss = loss + float(ranking_loss_weight) * ranking_loss
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             optimizer.step()
@@ -248,6 +281,9 @@ def train_reference_graph_merge(
         "positive_edge_weight": float(positive_edge_weight),
         "negative_edge_weight": float(negative_edge_weight),
         "hard_negative_ratio": float(hard_negative_ratio),
+        "ranking_loss_weight": float(ranking_loss_weight),
+        "ranking_margin": float(ranking_margin),
+        "ranking_samples_per_class": int(ranking_samples_per_class),
         "loss_total": 0.0 if step_count == 0 else loss_total / float(step_count),
         "edge_accuracy": 0.0 if step_count == 0 else accuracy_total / float(step_count),
         "edge_positive_rate": 0.0 if step_count == 0 else edge_positive_rate_total / float(step_count),

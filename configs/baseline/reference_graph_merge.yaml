@@ -12,6 +12,9 @@ train:
   positive_edge_weight: 1.0
   negative_edge_weight: 3.0
   hard_negative_ratio: 0.0
+  ranking_loss_weight: 0.0
+  ranking_margin: 0.2
+  ranking_samples_per_class: 128
 model:
   reference_image_size: 128
   reference_max_views: 16

@@ -9,7 +9,10 @@ import cv2
 import numpy as np
 import torch
 
+from baseline.reference_graph.eval import DEFAULT_REFERENCE_GRAPH_THRESHOLDS
+from baseline.reference_graph.eval import summarize_threshold_sweep
 from baseline.reference_graph.train import build_edge_training_mask
+from baseline.reference_graph.train import pairwise_ranking_loss
 from baseline.reference_graph.train import train_reference_graph_merge
 
 
@@ -110,6 +113,45 @@ def test_build_edge_training_mask_keeps_hardest_negatives() -> None:
     )
 
     assert selected.tolist() == [True, True, False, False]
+
+
+def test_pairwise_ranking_loss_rewards_margin_between_positive_and_negative_edges() -> None:
+    logits = torch.tensor([0.6, 0.5, 0.1, 0.0], dtype=torch.float32)
+    targets = torch.tensor([1.0, 1.0, 0.0, 0.0], dtype=torch.float32)
+    valid_mask = torch.tensor([True, True, True, True], dtype=torch.bool)
+
+    low_loss = pairwise_ranking_loss(
+        logits=logits,
+        targets=targets,
+        valid_mask=valid_mask,
+        margin=0.2,
+        max_samples_per_class=8,
+    )
+    high_loss = pairwise_ranking_loss(
+        logits=torch.tensor([0.15, 0.1, 0.14, 0.12], dtype=torch.float32),
+        targets=targets,
+        valid_mask=valid_mask,
+        margin=0.2,
+        max_samples_per_class=8,
+    )
+
+    assert float(low_loss.item()) == 0.0
+    assert float(high_loss.item()) > 0.0
+
+
+def test_reference_graph_default_threshold_sweep_captures_fine_margin_region() -> None:
+    logits = torch.tensor([0.024, 0.022, 0.016, 0.015, 0.005, -0.01], dtype=torch.float32)
+    targets = torch.tensor([1.0, 1.0, 1.0, 0.0, 0.0, 0.0], dtype=torch.float32)
+
+    sweep = summarize_threshold_sweep(
+        logits,
+        targets,
+        thresholds=DEFAULT_REFERENCE_GRAPH_THRESHOLDS,
+        conservative_f1_margin=0.01,
+    )
+
+    assert 0.505 in DEFAULT_REFERENCE_GRAPH_THRESHOLDS
+    assert float(sweep["best"]["threshold"]) == 0.505
 
 
 def test_train_reference_graph_merge_supports_single_bank_reference_root(tmp_path: Path) -> None:
