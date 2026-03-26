@@ -129,6 +129,7 @@ def test_build_fragment_graph_cache_exports_graph_ready_samples(tmp_path: Path) 
     assert payload["summary"]["num_fragments"] == 2
     assert payload["summary"]["same_instance_recall"] == 1.0
     assert payload["edge_targets"].tolist() == [1.0]
+    assert payload["edge_type"].tolist() == [0]
 
 
 def test_build_fragment_graph_cache_forwards_graph_purity_threshold(tmp_path: Path, monkeypatch) -> None:

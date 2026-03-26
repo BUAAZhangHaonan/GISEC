@@ -11,6 +11,7 @@ import torch
 
 from baseline.reference_graph.eval import DEFAULT_REFERENCE_GRAPH_THRESHOLDS
 from baseline.reference_graph.eval import summarize_threshold_sweep
+from baseline.reference_graph.dataset import FragmentGraphMergeDataset
 from baseline.reference_graph.train import build_edge_training_mask
 from baseline.reference_graph.train import pairwise_ranking_loss
 from baseline.reference_graph.train import train_reference_graph_merge
@@ -31,7 +32,14 @@ def _write_reference_root(root: Path, *, part_key: str = "partA", num_views: int
         cv2.imwrite(str(bank / "mask" / f"view_{index:03d}.png"), mask)
 
 
-def _write_graph_cache(root: Path, *, split: str = "train", part_key: str | None = "partA", count: int = 2) -> None:
+def _write_graph_cache(
+    root: Path,
+    *,
+    split: str = "train",
+    part_key: str | None = "partA",
+    count: int = 2,
+    edge_type: int = 0,
+) -> None:
     split_dir = root / split
     split_dir.mkdir(parents=True, exist_ok=True)
     for sample_index in range(count):
@@ -57,6 +65,7 @@ def _write_graph_cache(root: Path, *, split: str = "train", part_key: str | None
             ),
             "edge_index": torch.tensor([[0], [1]], dtype=torch.long),
             "edge_features": torch.tensor([[0.1, 0.8, 0.05, 0.02, 0.01, 0.9]], dtype=torch.float32),
+            "edge_type": torch.tensor([int(edge_type)], dtype=torch.long),
             "edge_targets": torch.tensor([1.0], dtype=torch.float32),
             "edge_ignore_mask": torch.tensor([False], dtype=torch.bool),
             "fragment_stats": [
@@ -153,6 +162,26 @@ def test_reference_graph_default_threshold_sweep_captures_fine_margin_region() -
 
     assert 0.505 in DEFAULT_REFERENCE_GRAPH_THRESHOLDS
     assert float(sweep["best"]["threshold"]) == 0.505
+
+
+def test_fragment_graph_merge_dataset_appends_edge_type_one_hot(tmp_path: Path) -> None:
+    cache_root = tmp_path / "graph_cache"
+    reference_root = tmp_path / "references"
+    _write_graph_cache(cache_root, split="train", part_key="partA", count=1, edge_type=1)
+    _write_reference_root(reference_root, part_key="partA")
+
+    dataset = FragmentGraphMergeDataset(
+        cache_root=str(cache_root),
+        reference_root=str(reference_root),
+        split="train",
+        reference_image_size=128,
+        reference_max_views=16,
+        reference_view_sampler="pose_farthest",
+    )
+    sample = dataset[0]
+
+    assert sample["edge_features"].shape == (1, 8)
+    assert torch.allclose(sample["edge_features"][0, -2:], torch.tensor([0.0, 1.0], dtype=torch.float32))
 
 
 def test_graph_edge_scorer_is_symmetric_for_undirected_edge_order() -> None:

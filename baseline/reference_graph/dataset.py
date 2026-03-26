@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
+import torch.nn.functional as F
 from torch.utils.data import Dataset
 
 from gisec.datasets.prototype_bank import PrototypeBank, PrototypeBankSource
@@ -106,6 +107,17 @@ class FragmentGraphMergeDataset(Dataset):
         )
         edge_targets = payload.get("edge_targets")
         edge_ignore_mask = payload.get("edge_ignore_mask")
+        edge_features = payload["edge_features"].float()
+        edge_type = payload.get("edge_type")
+        if edge_type is not None:
+            edge_type = edge_type.long().view(-1)
+            if int(edge_type.numel()) != int(edge_features.shape[0]):
+                raise ValueError(
+                    f"edge_type count {int(edge_type.numel())} does not match edge_features rows {int(edge_features.shape[0])} for {sample_path}"
+                )
+            edge_type = edge_type.clamp(min=0, max=1)
+            edge_type_one_hot = F.one_hot(edge_type, num_classes=2).float()
+            edge_features = torch.cat([edge_features, edge_type_one_hot], dim=1)
         if edge_targets is None:
             edge_targets = torch.zeros((0,), dtype=torch.float32)
         if edge_ignore_mask is None:
@@ -120,7 +132,7 @@ class FragmentGraphMergeDataset(Dataset):
             "reference_features": reference_features.float(),
             "node_features": payload["node_features"].float(),
             "edge_index": payload["edge_index"].long(),
-            "edge_features": payload["edge_features"].float(),
+            "edge_features": edge_features,
             "edge_targets": edge_targets.float(),
             "edge_ignore_mask": edge_ignore_mask.to(torch.bool),
             "summary": summary,

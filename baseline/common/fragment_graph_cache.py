@@ -274,6 +274,7 @@ def build_fragment_graph_cache(
                 "node_features": graph_batch.node_features.detach().cpu(),
                 "edge_index": graph_batch.edge_index.detach().cpu(),
                 "edge_features": graph_batch.edge_features.detach().cpu(),
+                "edge_type": graph_batch.edge_type.detach().cpu(),
                 "edge_targets": None if graph_batch.edge_targets is None else graph_batch.edge_targets.detach().cpu(),
                 "edge_ignore_mask": None if graph_batch.edge_ignore_mask is None else graph_batch.edge_ignore_mask.detach().cpu(),
                 "fragment_stats": [dict(item) for item in graph_batch.fragment_stats],
