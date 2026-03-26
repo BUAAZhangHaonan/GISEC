@@ -84,6 +84,18 @@ def test_prototype_bank_source_loads_matching_part_bank(tmp_path: Path) -> None:
     assert len(bank.view_ids) == 2
 
 
+def test_prototype_bank_source_can_load_bank_by_part_key(tmp_path: Path) -> None:
+    root = tmp_path / "refs"
+    _write_part_bank(root / "150044M155220", ["view_000", "view_001"])
+    _write_part_bank(root / "A-DF15A_KG-T2S_1", ["view_000", "view_001"])
+
+    source = PrototypeBankSource(root, image_size=64, contract_mode="compat")
+    bank = source.load_for_part("A-DF15A_KG-T2S_1")
+
+    assert bank.root == (root / "A-DF15A_KG-T2S_1").resolve()
+    assert len(bank.view_ids) == 2
+
+
 def test_load_prototype_bank_can_limit_view_count_with_sampling(tmp_path: Path) -> None:
     root = _write_part_bank(tmp_path / "refs", ["view_000", "view_001", "view_002", "view_003"])
 

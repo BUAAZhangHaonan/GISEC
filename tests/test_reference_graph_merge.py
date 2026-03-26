@@ -1,0 +1,180 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+import cv2
+import numpy as np
+import torch
+
+from baseline.reference_graph.train import train_reference_graph_merge
+
+
+def _write_reference_root(root: Path, *, part_key: str = "partA", num_views: int = 2) -> None:
+    bank = root / part_key
+    for name in ["rgb", "depth", "mask", "meta"]:
+        (bank / name).mkdir(parents=True, exist_ok=True)
+    for index in range(num_views):
+        rgb = np.zeros((24, 24, 3), dtype=np.uint8)
+        rgb[4:20, 4:20] = (60 + index * 20, 80, 120)
+        cv2.imwrite(str(bank / "rgb" / f"view_{index:03d}.png"), cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
+        np.save(bank / "depth" / f"view_{index:03d}.npy", np.full((24, 24), 0.7 + 0.1 * index, dtype=np.float32))
+        mask = np.zeros((24, 24), dtype=np.uint8)
+        mask[4:20, 4:20] = 255
+        cv2.imwrite(str(bank / "mask" / f"view_{index:03d}.png"), mask)
+
+
+def _write_graph_cache(root: Path, *, split: str = "train", part_key: str | None = "partA", count: int = 2) -> None:
+    split_dir = root / split
+    split_dir.mkdir(parents=True, exist_ok=True)
+    for sample_index in range(count):
+        payload = {
+            "image_id": int(sample_index + 1),
+            "file_name": f"{part_key or 'query'}_scene_{sample_index:04d}.png",
+            "part_key": part_key,
+            "fragments": torch.tensor(
+                [
+                    [0, 0, 0, 0],
+                    [0, 1, 1, 0],
+                    [0, 2, 2, 0],
+                    [0, 0, 0, 0],
+                ],
+                dtype=torch.int16,
+            ),
+            "node_features": torch.tensor(
+                [
+                    [1.0, 0.0, 0.2, 0.1],
+                    [0.9, 0.1, 0.2, 0.1],
+                ],
+                dtype=torch.float32,
+            ),
+            "edge_index": torch.tensor([[0], [1]], dtype=torch.long),
+            "edge_features": torch.tensor([[0.1, 0.8, 0.05, 0.02, 0.01, 0.9]], dtype=torch.float32),
+            "edge_targets": torch.tensor([1.0], dtype=torch.float32),
+            "edge_ignore_mask": torch.tensor([False], dtype=torch.bool),
+            "fragment_stats": [
+                {"gt_instance": 1, "purity": 1.0, "area_ratio": 0.02},
+                {"gt_instance": 1, "purity": 1.0, "area_ratio": 0.02},
+            ],
+            "diagnostics": {"num_fragments": 2, "num_edges": 1},
+            "shape_stats": {"mean_area_ratio": 0.02, "mean_aspect_ratio": 1.0},
+            "summary": {"same_instance_recall": 1.0, "fragment_purity_mean": 1.0},
+        }
+        torch.save(payload, split_dir / f"{sample_index + 1:06d}.pt")
+    (split_dir / "manifest.json").write_text(
+        json.dumps({"split": split, "num_samples": count}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def test_train_reference_graph_merge_writes_summary_and_checkpoint(tmp_path: Path) -> None:
+    cache_root = tmp_path / "graph_cache"
+    reference_root = tmp_path / "references"
+    output_root = tmp_path / "out"
+    _write_graph_cache(cache_root, split="train", part_key="partA", count=2)
+    _write_reference_root(reference_root, part_key="partA")
+
+    train_reference_graph_merge(
+        cache_root=str(cache_root),
+        reference_root=str(reference_root),
+        output_dir=str(output_root),
+        split="train",
+        device=torch.device("cpu"),
+        epochs=1,
+        batch_size=2,
+        num_workers=0,
+        max_train_steps=1,
+    )
+
+    summary = json.loads((output_root / "train_summary.json").read_text(encoding="utf-8"))
+    assert summary["epochs"] == 1
+    assert summary["steps"] == 1
+    assert summary["loss_total"] >= 0.0
+    assert summary["edge_positive_rate"] == 1.0
+    assert (output_root / "model_final.pth").exists()
+
+
+def test_train_reference_graph_merge_supports_single_bank_reference_root(tmp_path: Path) -> None:
+    cache_root = tmp_path / "graph_cache"
+    reference_root = tmp_path / "references"
+    output_root = tmp_path / "out"
+    _write_graph_cache(cache_root, split="train", part_key=None, count=1)
+    _write_reference_root(reference_root, part_key="partA")
+
+    train_reference_graph_merge(
+        cache_root=str(cache_root),
+        reference_root=str(reference_root / "partA"),
+        output_dir=str(output_root),
+        split="train",
+        device=torch.device("cpu"),
+        epochs=1,
+        batch_size=1,
+        num_workers=0,
+        max_train_steps=1,
+    )
+
+    summary = json.loads((output_root / "train_summary.json").read_text(encoding="utf-8"))
+    assert summary["steps"] == 1
+    assert summary["reference_mode"] == "single_bank"
+
+
+def test_train_reference_graph_merge_script_cli_overrides_config(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    cache_root = tmp_path / "graph_cache"
+    reference_root = tmp_path / "references"
+    output_root = tmp_path / "out"
+    config_path = tmp_path / "merge.yaml"
+    _write_graph_cache(cache_root, split="train", part_key="partA", count=2)
+    _write_reference_root(reference_root, part_key="partA")
+    config_path.write_text(
+        "\n".join(
+            [
+                "train:",
+                "  epochs: 5",
+                "  batch_size: 8",
+                "  num_workers: 0",
+                "  max_train_steps: 0",
+                "model:",
+                "  reference_image_size: 64",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    subprocess.run(
+        [
+            sys.executable,
+            "scripts/experiments/train_reference_graph_merge.py",
+            "--config",
+            str(config_path),
+            "--cache-root",
+            str(cache_root),
+            "--reference-root",
+            str(reference_root),
+            "--output-dir",
+            str(output_root),
+            "--split",
+            "train",
+            "--device",
+            "cpu",
+            "--epochs",
+            "1",
+            "--batch-size",
+            "2",
+            "--num-workers",
+            "0",
+            "--max-train-steps",
+            "1",
+        ],
+        cwd=str(repo_root),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    summary = json.loads((output_root / "train_summary.json").read_text(encoding="utf-8"))
+    assert summary["epochs"] == 1
+    assert summary["steps"] == 1

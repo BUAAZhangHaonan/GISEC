@@ -120,8 +120,28 @@ class PrototypeBankSource:
         part_key = extract_query_part_key(file_name, self._available_parts)
         return (self.root / part_key).resolve()
 
+    def resolve_root_for_part(self, part_key: str) -> Path:
+        if self._is_single_bank:
+            return self.root
+        candidate = (self.root / str(part_key)).resolve()
+        if candidate.name not in self._available_parts or not candidate.exists():
+            raise KeyError(f"Unknown part key for prototype bank source: {part_key}")
+        return candidate
+
     def load_for_query(self, file_name: str) -> PrototypeBank:
         resolved_root = self.resolve_root_for_query(file_name)
+        if resolved_root not in self._bank_cache:
+            self._bank_cache[resolved_root] = load_prototype_bank(
+                resolved_root,
+                image_size=self.image_size,
+                contract_mode=self.contract_mode,
+                max_views=self.max_views,
+                view_sampler=self.view_sampler,
+            )
+        return self._bank_cache[resolved_root]
+
+    def load_for_part(self, part_key: str) -> PrototypeBank:
+        resolved_root = self.resolve_root_for_part(part_key)
         if resolved_root not in self._bank_cache:
             self._bank_cache[resolved_root] = load_prototype_bank(
                 resolved_root,
