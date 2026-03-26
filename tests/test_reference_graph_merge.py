@@ -120,6 +120,39 @@ def test_train_reference_graph_merge_supports_single_bank_reference_root(tmp_pat
     assert summary["reference_mode"] == "single_bank"
 
 
+def test_train_reference_graph_merge_writes_val_summary_and_best_checkpoint(tmp_path: Path) -> None:
+    cache_root = tmp_path / "graph_cache"
+    reference_root = tmp_path / "references"
+    output_root = tmp_path / "out"
+    _write_graph_cache(cache_root, split="train", part_key="partA", count=2)
+    _write_graph_cache(cache_root, split="val", part_key="partA", count=1)
+    _write_reference_root(reference_root, part_key="partA")
+
+    train_reference_graph_merge(
+        cache_root=str(cache_root),
+        reference_root=str(reference_root),
+        output_dir=str(output_root),
+        split="train",
+        device=torch.device("cpu"),
+        epochs=2,
+        batch_size=2,
+        num_workers=0,
+        max_train_steps=0,
+        val_split="val",
+        negative_edge_weight=3.0,
+    )
+
+    train_summary = json.loads((output_root / "train_summary.json").read_text(encoding="utf-8"))
+    val_summary = json.loads((output_root / "val_summary.json").read_text(encoding="utf-8"))
+    assert train_summary["best_val_f1"] >= 0.0
+    assert train_summary["negative_edge_weight"] == 3.0
+    assert val_summary["threshold"] == 0.5
+    assert "precision" in val_summary
+    assert "recall" in val_summary
+    assert "f1" in val_summary
+    assert (output_root / "model_best.pth").exists()
+
+
 def test_train_reference_graph_merge_script_cli_overrides_config(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     cache_root = tmp_path / "graph_cache"

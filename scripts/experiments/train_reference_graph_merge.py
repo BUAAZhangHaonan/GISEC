@@ -28,6 +28,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=None)
     parser.add_argument("--num-workers", type=int, default=None)
     parser.add_argument("--max-train-steps", type=int, default=None)
+    parser.add_argument("--val-split", default=None)
+    parser.add_argument("--decision-threshold", type=float, default=None)
+    parser.add_argument("--positive-edge-weight", type=float, default=None)
+    parser.add_argument("--negative-edge-weight", type=float, default=None)
     return parser.parse_args()
 
 
@@ -66,6 +70,10 @@ def main() -> None:
         learning_rate=float(train_cfg.get("learning_rate", 1.0e-3)),
         weight_decay=float(train_cfg.get("weight_decay", 1.0e-4)),
         max_train_steps=int(_resolve_value(args.max_train_steps, train_cfg.get("max_train_steps"), 0)),
+        val_split=_resolve_value(args.val_split, train_cfg.get("val_split"), None),
+        decision_threshold=float(_resolve_value(args.decision_threshold, train_cfg.get("decision_threshold"), 0.5)),
+        positive_edge_weight=float(_resolve_value(args.positive_edge_weight, train_cfg.get("positive_edge_weight"), 1.0)),
+        negative_edge_weight=float(_resolve_value(args.negative_edge_weight, train_cfg.get("negative_edge_weight"), 1.0)),
     )
     summary = json.loads((output_dir / "train_summary.json").read_text(encoding="utf-8"))
     print(json.dumps(summary, ensure_ascii=False))
