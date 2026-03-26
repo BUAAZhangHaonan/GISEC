@@ -9,49 +9,12 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from baseline.reference_graph.dataset import FragmentGraphMergeDataset, collate_fragment_graph_batch
+from baseline.reference_graph.eval import (
+    DEFAULT_REFERENCE_GRAPH_THRESHOLDS,
+    compute_edge_metrics,
+    evaluate_reference_graph_loader,
+)
 from baseline.reference_graph.model import ReferenceGraphMergeModel
-
-
-def _safe_div(num: float, den: float) -> float:
-    return 0.0 if float(den) <= 0.0 else float(num) / float(den)
-
-
-def _valid_edge_metrics(
-    logits: torch.Tensor,
-    targets: torch.Tensor,
-    valid_mask: torch.Tensor,
-    *,
-    threshold: float = 0.5,
-) -> dict[str, float]:
-    if logits.numel() == 0 or not bool(valid_mask.any()):
-        return {
-            "edge_accuracy": 0.0,
-            "edge_positive_rate": 0.0,
-            "pred_positive_rate": 0.0,
-            "precision": 0.0,
-            "recall": 0.0,
-            "f1": 0.0,
-            "num_valid_edges": 0.0,
-        }
-    valid_logits = logits[valid_mask]
-    valid_targets = targets[valid_mask]
-    pred = (torch.sigmoid(valid_logits) >= float(threshold)).float()
-    accuracy = float((pred == valid_targets).float().mean().item())
-    tp = float(((pred == 1.0) & (valid_targets == 1.0)).float().sum().item())
-    fp = float(((pred == 1.0) & (valid_targets == 0.0)).float().sum().item())
-    fn = float(((pred == 0.0) & (valid_targets == 1.0)).float().sum().item())
-    precision = _safe_div(tp, tp + fp)
-    recall = _safe_div(tp, tp + fn)
-    f1 = _safe_div(2.0 * precision * recall, precision + recall)
-    return {
-        "edge_accuracy": accuracy,
-        "edge_positive_rate": float(valid_targets.mean().item()),
-        "pred_positive_rate": float(pred.mean().item()),
-        "precision": float(precision),
-        "recall": float(recall),
-        "f1": float(f1),
-        "num_valid_edges": float(valid_targets.numel()),
-    }
 
 
 def _weighted_edge_loss(
@@ -71,71 +34,6 @@ def _weighted_edge_loss(
         torch.full_like(valid_targets, float(negative_edge_weight)),
     )
     return (per_edge * weights).mean()
-
-
-@torch.no_grad()
-def _evaluate_reference_graph_merge(
-    *,
-    model: ReferenceGraphMergeModel,
-    loader: DataLoader,
-    device: torch.device,
-    threshold: float,
-) -> dict[str, float]:
-    model.eval()
-    metrics_total = {
-        "loss_total": 0.0,
-        "edge_accuracy": 0.0,
-        "edge_positive_rate": 0.0,
-        "pred_positive_rate": 0.0,
-        "precision": 0.0,
-        "recall": 0.0,
-        "f1": 0.0,
-        "num_valid_edges": 0.0,
-    }
-    batch_count = 0
-    for batch in loader:
-        batch = {
-            key: value.to(device) if isinstance(value, torch.Tensor) else value
-            for key, value in batch.items()
-        }
-        logits = model(batch)
-        valid_mask = ~batch["edge_ignore_mask"].to(torch.bool)
-        if logits.numel() == 0 or not bool(valid_mask.any()):
-            continue
-        loss = F.binary_cross_entropy_with_logits(logits[valid_mask], batch["edge_targets"][valid_mask])
-        metrics = _valid_edge_metrics(
-            logits.detach(),
-            batch["edge_targets"].detach(),
-            valid_mask.detach(),
-            threshold=float(threshold),
-        )
-        batch_count += 1
-        metrics_total["loss_total"] += float(loss.item())
-        for key in ["edge_accuracy", "edge_positive_rate", "pred_positive_rate", "precision", "recall", "f1", "num_valid_edges"]:
-            metrics_total[key] += float(metrics[key])
-    if batch_count <= 0:
-        return {
-            "threshold": float(threshold),
-            "loss_total": 0.0,
-            "edge_accuracy": 0.0,
-            "edge_positive_rate": 0.0,
-            "pred_positive_rate": 0.0,
-            "precision": 0.0,
-            "recall": 0.0,
-            "f1": 0.0,
-            "num_valid_edges": 0.0,
-        }
-    return {
-        "threshold": float(threshold),
-        "loss_total": metrics_total["loss_total"] / float(batch_count),
-        "edge_accuracy": metrics_total["edge_accuracy"] / float(batch_count),
-        "edge_positive_rate": metrics_total["edge_positive_rate"] / float(batch_count),
-        "pred_positive_rate": metrics_total["pred_positive_rate"] / float(batch_count),
-        "precision": metrics_total["precision"] / float(batch_count),
-        "recall": metrics_total["recall"] / float(batch_count),
-        "f1": metrics_total["f1"] / float(batch_count),
-        "num_valid_edges": metrics_total["num_valid_edges"] / float(batch_count),
-    }
 
 
 def train_reference_graph_merge(
@@ -160,6 +58,8 @@ def train_reference_graph_merge(
     decision_threshold: float = 0.5,
     positive_edge_weight: float = 1.0,
     negative_edge_weight: float = 1.0,
+    eval_thresholds: tuple[float, ...] = DEFAULT_REFERENCE_GRAPH_THRESHOLDS,
+    conservative_f1_margin: float = 0.005,
 ) -> None:
     artifact_root = Path(output_dir).resolve()
     artifact_root.mkdir(parents=True, exist_ok=True)
@@ -237,10 +137,9 @@ def train_reference_graph_merge(
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             optimizer.step()
-            metrics = _valid_edge_metrics(
-                logits.detach(),
-                batch["edge_targets"].detach(),
-                valid_mask.detach(),
+            metrics = compute_edge_metrics(
+                logits.detach()[valid_mask.detach()].cpu(),
+                batch["edge_targets"].detach()[valid_mask.detach()].cpu(),
                 threshold=float(decision_threshold),
             )
             step_count += 1
@@ -254,12 +153,22 @@ def train_reference_graph_merge(
             if max_train_steps > 0 and step_count >= int(max_train_steps):
                 break
         if val_loader is not None:
-            val_summary = _evaluate_reference_graph_merge(
+            val_eval = evaluate_reference_graph_loader(
                 model=model,
                 loader=val_loader,
                 device=device,
-                threshold=float(decision_threshold),
+                thresholds=eval_thresholds,
+                conservative_f1_margin=float(conservative_f1_margin),
             )
+            val_summary = {
+                **dict(val_eval["best"]),
+                "loss_total": float(val_eval["loss_total"]),
+                "best_threshold": float(dict(val_eval["best"])["threshold"]),
+                "best_conservative_threshold": float(dict(val_eval["best_conservative"])["threshold"]),
+                "best_conservative_f1": float(dict(val_eval["best_conservative"])["f1"]),
+                "best_conservative_precision": float(dict(val_eval["best_conservative"])["precision"]),
+                "best_conservative_pred_positive_rate": float(dict(val_eval["best_conservative"])["pred_positive_rate"]),
+            }
             if (
                 best_val_summary is None
                 or float(val_summary["f1"]) > float(best_val_summary["f1"])
@@ -272,6 +181,20 @@ def train_reference_graph_merge(
                 torch.save(model.state_dict(), artifact_root / "model_best.pth")
                 (artifact_root / "val_summary.json").write_text(
                     json.dumps(best_val_summary, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                (artifact_root / "val_threshold_sweep.json").write_text(
+                    json.dumps(
+                        {
+                            "loss_total": float(val_eval["loss_total"]),
+                            "rows": list(val_eval["rows"]),
+                            "best": dict(val_eval["best"]),
+                            "best_conservative": dict(val_eval["best_conservative"]),
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                    + "\n",
                     encoding="utf-8",
                 )
         if max_train_steps > 0 and step_count >= int(max_train_steps):
@@ -297,6 +220,8 @@ def train_reference_graph_merge(
         "f1": 0.0 if step_count == 0 else f1_total / float(step_count),
         "val_split": None if val_split is None else str(val_split),
         "best_val_f1": 0.0 if best_val_summary is None else float(best_val_summary["f1"]),
+        "best_threshold": None if best_val_summary is None else float(best_val_summary["best_threshold"]),
+        "best_conservative_threshold": None if best_val_summary is None else float(best_val_summary["best_conservative_threshold"]),
         "wall_time_sec": int(time.time() - start),
     }
     (artifact_root / "train_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

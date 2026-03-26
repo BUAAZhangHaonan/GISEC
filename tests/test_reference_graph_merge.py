@@ -144,12 +144,17 @@ def test_train_reference_graph_merge_writes_val_summary_and_best_checkpoint(tmp_
 
     train_summary = json.loads((output_root / "train_summary.json").read_text(encoding="utf-8"))
     val_summary = json.loads((output_root / "val_summary.json").read_text(encoding="utf-8"))
+    val_sweep = json.loads((output_root / "val_threshold_sweep.json").read_text(encoding="utf-8"))
     assert train_summary["best_val_f1"] >= 0.0
     assert train_summary["negative_edge_weight"] == 3.0
-    assert val_summary["threshold"] == 0.5
+    assert "best_threshold" in train_summary
+    assert "best_conservative_threshold" in train_summary
+    assert "best_threshold" in val_summary
+    assert "best_conservative_threshold" in val_summary
     assert "precision" in val_summary
     assert "recall" in val_summary
     assert "f1" in val_summary
+    assert len(val_sweep["rows"]) >= 2
     assert (output_root / "model_best.pth").exists()
 
 
