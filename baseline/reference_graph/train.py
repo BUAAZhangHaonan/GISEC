@@ -36,6 +36,35 @@ def _weighted_edge_loss(
     return (per_edge * weights).mean()
 
 
+def build_edge_training_mask(
+    *,
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    valid_mask: torch.Tensor,
+    hard_negative_ratio: float,
+) -> torch.Tensor:
+    selected = valid_mask.to(torch.bool).clone()
+    ratio = float(hard_negative_ratio)
+    if ratio <= 0.0:
+        return selected
+    positive_mask = selected & (targets > 0.5)
+    negative_mask = selected & ~positive_mask
+    num_positive = int(positive_mask.sum().item())
+    num_negative = int(negative_mask.sum().item())
+    if num_positive <= 0 or num_negative <= 0:
+        return selected
+    max_negative = max(int(num_positive * ratio), 1)
+    if num_negative <= max_negative:
+        return selected
+    negative_indices = torch.nonzero(negative_mask, as_tuple=False).flatten()
+    negative_logits = logits[negative_indices]
+    keep_order = torch.argsort(negative_logits, descending=True)[:max_negative]
+    keep_negative_indices = negative_indices[keep_order]
+    selected = positive_mask.clone()
+    selected[keep_negative_indices] = True
+    return selected
+
+
 def train_reference_graph_merge(
     *,
     cache_root: str,
@@ -58,6 +87,7 @@ def train_reference_graph_merge(
     decision_threshold: float = 0.5,
     positive_edge_weight: float = 1.0,
     negative_edge_weight: float = 1.0,
+    hard_negative_ratio: float = 0.0,
     eval_thresholds: tuple[float, ...] = DEFAULT_REFERENCE_GRAPH_THRESHOLDS,
     conservative_f1_margin: float = 0.005,
 ) -> None:
@@ -127,10 +157,16 @@ def train_reference_graph_merge(
             valid_mask = ~batch["edge_ignore_mask"].to(torch.bool)
             if logits.numel() == 0 or not bool(valid_mask.any()):
                 continue
+            train_mask = build_edge_training_mask(
+                logits=logits.detach(),
+                targets=batch["edge_targets"].detach(),
+                valid_mask=valid_mask.detach(),
+                hard_negative_ratio=float(hard_negative_ratio),
+            ).to(device)
             loss = _weighted_edge_loss(
                 logits,
                 batch["edge_targets"],
-                valid_mask,
+                train_mask,
                 positive_edge_weight=float(positive_edge_weight),
                 negative_edge_weight=float(negative_edge_weight),
             )
@@ -211,6 +247,7 @@ def train_reference_graph_merge(
         "decision_threshold": float(decision_threshold),
         "positive_edge_weight": float(positive_edge_weight),
         "negative_edge_weight": float(negative_edge_weight),
+        "hard_negative_ratio": float(hard_negative_ratio),
         "loss_total": 0.0 if step_count == 0 else loss_total / float(step_count),
         "edge_accuracy": 0.0 if step_count == 0 else accuracy_total / float(step_count),
         "edge_positive_rate": 0.0 if step_count == 0 else edge_positive_rate_total / float(step_count),

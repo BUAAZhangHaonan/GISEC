@@ -11,6 +11,7 @@ train:
   decision_threshold: 0.5
   positive_edge_weight: 1.0
   negative_edge_weight: 3.0
+  hard_negative_ratio: 0.0
 model:
   reference_image_size: 128
   reference_max_views: 16

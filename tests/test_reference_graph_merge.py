@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 import torch
 
+from baseline.reference_graph.train import build_edge_training_mask
 from baseline.reference_graph.train import train_reference_graph_merge
 
 
@@ -94,6 +95,21 @@ def test_train_reference_graph_merge_writes_summary_and_checkpoint(tmp_path: Pat
     assert summary["loss_total"] >= 0.0
     assert summary["edge_positive_rate"] == 1.0
     assert (output_root / "model_final.pth").exists()
+
+
+def test_build_edge_training_mask_keeps_hardest_negatives() -> None:
+    logits = torch.tensor([4.0, 3.0, 1.0, -1.0], dtype=torch.float32)
+    targets = torch.tensor([1.0, 0.0, 0.0, 0.0], dtype=torch.float32)
+    valid_mask = torch.tensor([True, True, True, True], dtype=torch.bool)
+
+    selected = build_edge_training_mask(
+        logits=logits,
+        targets=targets,
+        valid_mask=valid_mask,
+        hard_negative_ratio=1.0,
+    )
+
+    assert selected.tolist() == [True, True, False, False]
 
 
 def test_train_reference_graph_merge_supports_single_bank_reference_root(tmp_path: Path) -> None:

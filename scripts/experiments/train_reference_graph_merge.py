@@ -32,6 +32,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--decision-threshold", type=float, default=None)
     parser.add_argument("--positive-edge-weight", type=float, default=None)
     parser.add_argument("--negative-edge-weight", type=float, default=None)
+    parser.add_argument("--hard-negative-ratio", type=float, default=None)
     return parser.parse_args()
 
 
@@ -74,6 +75,7 @@ def main() -> None:
         decision_threshold=float(_resolve_value(args.decision_threshold, train_cfg.get("decision_threshold"), 0.5)),
         positive_edge_weight=float(_resolve_value(args.positive_edge_weight, train_cfg.get("positive_edge_weight"), 1.0)),
         negative_edge_weight=float(_resolve_value(args.negative_edge_weight, train_cfg.get("negative_edge_weight"), 1.0)),
+        hard_negative_ratio=float(_resolve_value(args.hard_negative_ratio, train_cfg.get("hard_negative_ratio"), 0.0)),
     )
     summary = json.loads((output_dir / "train_summary.json").read_text(encoding="utf-8"))
     print(json.dumps(summary, ensure_ascii=False))
