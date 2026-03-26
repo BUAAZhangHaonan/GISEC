@@ -51,11 +51,12 @@ def test_unet_family_model_factory_builds_expected_variants() -> None:
             decoder_channels=64,
         )
         outputs = model(torch.randn(2, 3, 64, 64))
-        assert set(outputs) == {"fg_logits", "center_heatmap", "offsets", "boundary_logits"}
+        assert set(outputs) == {"fg_logits", "center_heatmap", "offsets", "boundary_logits", "feature_map"}
         assert outputs["fg_logits"].shape == (2, 1, 64, 64)
         assert outputs["center_heatmap"].shape == (2, 1, 64, 64)
         assert outputs["offsets"].shape == (2, 2, 64, 64)
         assert outputs["boundary_logits"].shape == (2, 1, 64, 64)
+        assert outputs["feature_map"].shape == (2, 64, 64, 64)
 
 
 def test_attention_unet_smoke_uses_shared_export_contract(tmp_path: Path) -> None:

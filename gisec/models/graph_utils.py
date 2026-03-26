@@ -362,49 +362,22 @@ class GraphBatch:
         return self.edge_type
 
 
-def build_graph_batch(
+def _build_graph_batch_from_fragment_map(
     *,
     feature_map: torch.Tensor,
-    fg_logits: torch.Tensor,
-    boundary_logits: torch.Tensor,
-    affinity_logits: torch.Tensor | None = None,
-    ownership_offsets: torch.Tensor | None = None,
-    depth_map: torch.Tensor,
-    instance_map: torch.Tensor | None,
+    fragments: np.ndarray,
+    boundary_prob: np.ndarray,
+    affinity_prob: np.ndarray | None,
+    ownership_np: np.ndarray | None,
+    ownership_support: np.ndarray | None,
+    depth_np: np.ndarray,
+    instance_map_np: np.ndarray | None,
     prototype_cache: PrototypeCache | None,
-    variant: str | VariantSpec,
-    fg_threshold: float = 0.5,
-    boundary_threshold: float = 0.5,
-    min_area: int = 8,
-    purity_threshold: float = 0.8,
+    variant_spec: VariantSpec,
+    boundary_threshold: float,
+    purity_threshold: float,
 ) -> GraphBatch:
-    variant_spec = get_variant_spec(variant)
-    feature_map = feature_map.detach()
-    fg_prob = torch.sigmoid(fg_logits.detach())[0, 0].cpu().numpy()
-    boundary_prob = torch.sigmoid(boundary_logits.detach())[0, 0].cpu().numpy()
-    affinity_prob = None
-    if affinity_logits is not None:
-        affinity_prob = torch.sigmoid(affinity_logits.detach())[0].cpu().numpy()
-    ownership_np = None
-    ownership_support = None
-    offset_scale = ownership_offset_scale(fg_prob.shape[0], fg_prob.shape[1])
-    ownership_fragment_offsets = None
-    if variant_spec.use_ownership_supervision and ownership_offsets is not None:
-        ownership_fragment_offsets = ownership_offsets.detach()[0].cpu().numpy() * float(offset_scale)
-    if variant_spec.use_ownership_graph_cues and ownership_fragment_offsets is not None:
-        ownership_np = ownership_fragment_offsets
-        ownership_support = torch.sigmoid(ownership_offsets.detach()).mean(dim=1)[0].cpu().numpy()
-    depth_np = depth_map.detach()[0, 0].cpu().numpy()
-    fragments = fragments_from_logits(
-        fg_prob,
-        boundary_prob,
-        fg_threshold=fg_threshold,
-        boundary_threshold=boundary_threshold,
-        min_area=min_area,
-        ownership_offsets=ownership_fragment_offsets,
-    )
     labels = [int(x) for x in np.unique(fragments).tolist() if int(x) > 0]
-
     empty_edge_index = torch.zeros((2, 0), dtype=torch.long, device=feature_map.device)
     empty_edge_features = feature_map.new_zeros((0, 6))
     empty_edge_type = torch.zeros((0,), dtype=torch.long, device=feature_map.device)
@@ -421,14 +394,22 @@ def build_graph_batch(
             edge_ignore_mask=torch.zeros((0,), dtype=torch.bool, device=feature_map.device),
         )
 
-    instance_map_np = None if instance_map is None else instance_map.cpu().numpy()
     yy, xx = np.indices(fragments.shape, dtype=np.float32)
-
     pooled = []
     fragment_geometry: Dict[int, Dict[str, float | Tuple[int, int, int, int]]] = {}
     sim_cache = None
     routed_depth_proto = None
-    if prototype_cache is not None and variant_spec.use_rgb_prototype_similarity:
+    can_use_rgb_proto = (
+        prototype_cache is not None
+        and variant_spec.use_rgb_prototype_similarity
+        and int(prototype_cache.proto_h.shape[1]) == int(feature_map.shape[1])
+    )
+    can_use_depth_proto = (
+        prototype_cache is not None
+        and variant_spec.use_depth_prototype_similarity
+        and int(prototype_cache.proto_d.shape[1]) > 0
+    )
+    if can_use_rgb_proto:
         topk = int(prototype_cache.routing_meta.get("topk", 2))
         query_descriptor = F.adaptive_avg_pool2d(feature_map, output_size=1).flatten(1)
         routed_proto_h, routing = route_prototype_slots(
@@ -437,7 +418,7 @@ def build_graph_batch(
             topk=topk,
         )
         sim_cache = cosine_similarity_map(feature_map, routed_proto_h)[0, 0]
-        if variant_spec.use_depth_prototype_similarity:
+        if can_use_depth_proto:
             routed_depth_proto = mix_prototype_slots(
                 prototype_cache.proto_d.to(feature_map.device),
                 routing["top_indices"],
@@ -505,6 +486,7 @@ def build_graph_batch(
             if key not in pair_map:
                 pair_map[key] = payload
 
+    shape_stats = prototype_cache.shape_stats if prototype_cache is not None else {}
     if not pair_map:
         return GraphBatch(
             node_features=torch.stack(pooled, dim=0),
@@ -516,7 +498,7 @@ def build_graph_batch(
             edge_type=empty_edge_type,
             edge_ignore_mask=torch.zeros((0,), dtype=torch.bool, device=feature_map.device),
             fragment_stats=[fragment_geometry[label] for label in labels],
-            shape_stats=prototype_cache.shape_stats if prototype_cache is not None else {},
+            shape_stats=shape_stats,
         )
 
     label_to_idx = {label: idx for idx, label in enumerate(labels)}
@@ -525,7 +507,6 @@ def build_graph_batch(
     edge_features = []
     edge_targets = []
     edge_ignore_mask = []
-    shape_stats = prototype_cache.shape_stats if prototype_cache is not None else {}
     mean_area = float(shape_stats.get("mean_area_ratio", 0.0))
     mean_aspect = float(shape_stats.get("mean_aspect_ratio", 1.0))
     ownership_available = variant_spec.use_ownership_graph_cues and ownership_np is not None
@@ -622,6 +603,115 @@ def build_graph_batch(
         edge_ignore_mask=ignore_tensor,
         fragment_stats=[fragment_geometry[label] for label in labels],
         shape_stats=shape_stats,
+    )
+
+
+def build_graph_batch(
+    *,
+    feature_map: torch.Tensor,
+    fg_logits: torch.Tensor,
+    boundary_logits: torch.Tensor,
+    affinity_logits: torch.Tensor | None = None,
+    ownership_offsets: torch.Tensor | None = None,
+    depth_map: torch.Tensor,
+    instance_map: torch.Tensor | None,
+    prototype_cache: PrototypeCache | None,
+    variant: str | VariantSpec,
+    fg_threshold: float = 0.5,
+    boundary_threshold: float = 0.5,
+    min_area: int = 8,
+    purity_threshold: float = 0.8,
+) -> GraphBatch:
+    variant_spec = get_variant_spec(variant)
+    feature_map = feature_map.detach()
+    fg_prob = torch.sigmoid(fg_logits.detach())[0, 0].cpu().numpy()
+    boundary_prob = torch.sigmoid(boundary_logits.detach())[0, 0].cpu().numpy()
+    affinity_prob = None
+    if affinity_logits is not None:
+        affinity_prob = torch.sigmoid(affinity_logits.detach())[0].cpu().numpy()
+    ownership_np = None
+    ownership_support = None
+    offset_scale = ownership_offset_scale(fg_prob.shape[0], fg_prob.shape[1])
+    ownership_fragment_offsets = None
+    if variant_spec.use_ownership_supervision and ownership_offsets is not None:
+        ownership_fragment_offsets = ownership_offsets.detach()[0].cpu().numpy() * float(offset_scale)
+    if variant_spec.use_ownership_graph_cues and ownership_fragment_offsets is not None:
+        ownership_np = ownership_fragment_offsets
+        ownership_support = torch.sigmoid(ownership_offsets.detach()).mean(dim=1)[0].cpu().numpy()
+    depth_np = depth_map.detach()[0, 0].cpu().numpy()
+    fragments = fragments_from_logits(
+        fg_prob,
+        boundary_prob,
+        fg_threshold=fg_threshold,
+        boundary_threshold=boundary_threshold,
+        min_area=min_area,
+        ownership_offsets=ownership_fragment_offsets,
+    )
+    instance_map_np = None if instance_map is None else instance_map.detach().cpu().numpy()
+    if instance_map_np is not None and instance_map_np.ndim == 3:
+        instance_map_np = instance_map_np[0]
+    return _build_graph_batch_from_fragment_map(
+        feature_map=feature_map,
+        fragments=fragments,
+        boundary_prob=boundary_prob,
+        affinity_prob=affinity_prob,
+        ownership_np=ownership_np,
+        ownership_support=ownership_support,
+        depth_np=depth_np,
+        instance_map_np=instance_map_np,
+        prototype_cache=prototype_cache,
+        variant_spec=variant_spec,
+        boundary_threshold=boundary_threshold,
+        purity_threshold=purity_threshold,
+    )
+
+
+def build_graph_batch_from_fragments(
+    *,
+    feature_map: torch.Tensor,
+    fragments: torch.Tensor | np.ndarray,
+    boundary_logits: torch.Tensor,
+    affinity_logits: torch.Tensor | None = None,
+    ownership_offsets: torch.Tensor | None = None,
+    depth_map: torch.Tensor,
+    instance_map: torch.Tensor | None,
+    prototype_cache: PrototypeCache | None,
+    variant: str | VariantSpec,
+    boundary_threshold: float = 0.5,
+    purity_threshold: float = 0.8,
+) -> GraphBatch:
+    variant_spec = get_variant_spec(variant)
+    feature_map = feature_map.detach()
+    boundary_prob = torch.sigmoid(boundary_logits.detach())[0, 0].cpu().numpy()
+    affinity_prob = None
+    if affinity_logits is not None:
+        affinity_prob = torch.sigmoid(affinity_logits.detach())[0].cpu().numpy()
+    ownership_np = None
+    ownership_support = None
+    if variant_spec.use_ownership_supervision and ownership_offsets is not None:
+        offset_scale = ownership_offset_scale(boundary_prob.shape[0], boundary_prob.shape[1])
+        ownership_np = ownership_offsets.detach()[0].cpu().numpy() * float(offset_scale)
+        if variant_spec.use_ownership_graph_cues:
+            ownership_support = torch.sigmoid(ownership_offsets.detach()).mean(dim=1)[0].cpu().numpy()
+    depth_np = depth_map.detach()[0, 0].cpu().numpy()
+    fragments_np = fragments.detach().cpu().numpy() if isinstance(fragments, torch.Tensor) else np.asarray(fragments)
+    fragments_np = fragments_np.astype(np.int32, copy=False)
+    instance_map_np = None if instance_map is None else instance_map.detach().cpu().numpy()
+    if instance_map_np is not None and instance_map_np.ndim == 3:
+        instance_map_np = instance_map_np[0]
+    return _build_graph_batch_from_fragment_map(
+        feature_map=feature_map,
+        fragments=fragments_np,
+        boundary_prob=boundary_prob,
+        affinity_prob=affinity_prob,
+        ownership_np=ownership_np,
+        ownership_support=ownership_support,
+        depth_np=depth_np,
+        instance_map_np=instance_map_np,
+        prototype_cache=prototype_cache,
+        variant_spec=variant_spec,
+        boundary_threshold=boundary_threshold,
+        purity_threshold=purity_threshold,
     )
 
 

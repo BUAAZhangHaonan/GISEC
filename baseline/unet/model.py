@@ -215,6 +215,7 @@ class StrongUNetFamily(nn.Module):
             "center_heatmap": self.center_head(y),
             "offsets": self.offset_head(y),
             "boundary_logits": self.boundary_head(y),
+            "feature_map": y,
         }
 
 
