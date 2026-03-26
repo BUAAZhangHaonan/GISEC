@@ -25,13 +25,13 @@ model:
   encoder_name: resnet34
   pretrained_backbone: true
   task_mode: instance
-  threshold: 0.5
+  threshold: 0.18
   core_erosion_px: 3
   boundary_band_px: 5
   watershed_enabled: true
   use_depth_split_walls: true
   depth_wall_threshold: 0.1
-  center_threshold: 0.5
+  center_threshold: 0.03
   fragment_min_area: 8
   decoder_channels: 64
   render_overlay_limit: 0

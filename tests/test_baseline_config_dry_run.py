@@ -31,6 +31,8 @@ def test_baseline_config_dry_run_emits_instance_training_payload(tmp_path: Path)
     assert payload["task_mode"] == "instance"
     assert payload["encoder_name"] == "resnet34"
     assert payload["input_mode"] == "rgb"
+    assert payload["threshold"] == 0.18
+    assert payload["center_threshold"] == 0.03
     assert payload["amp"] is True
     assert payload["grad_accum_steps"] == 1
 
@@ -82,6 +84,8 @@ def test_baseline_config_dry_run_supports_rgb_depth_wall_variant(tmp_path: Path)
 
     payload = json.loads(result.stdout)
     assert payload["input_mode"] == "rgb"
+    assert payload["threshold"] == 0.18
+    assert payload["center_threshold"] == 0.03
     assert payload["watershed_enabled"] is True
     assert payload["use_depth_split_walls"] is True
     assert payload["core_erosion_px"] == 3
