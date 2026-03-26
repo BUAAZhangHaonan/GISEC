@@ -45,6 +45,22 @@ def test_summarize_baseline_matrix_writes_diagnostics_json(tmp_path: Path) -> No
     (run_dir / "params_trainable.txt").write_text("100\n", encoding="utf-8")
     (run_dir / "wall_time_sec.txt").write_text("17\n", encoding="utf-8")
     (run_dir / "peak_memory_mb.txt").write_text("200.5\n", encoding="utf-8")
+    (run_dir / "fragment_quality_summary.json").write_text(
+        json.dumps(
+            {
+                "fragment_count": 3,
+                "pair_count": 2,
+                "contact_pair_count": 1,
+                "bridge_pair_count": 1,
+                "fragment_purity_mean": 0.9,
+                "fragment_purity_median": 1.0,
+                "same_instance_total_pairs": 1,
+                "same_instance_recalled_pairs": 1,
+                "same_instance_recall": 1.0,
+            }
+        ),
+        encoding="utf-8",
+    )
     payload = {
         "model": "unet",
         "variant": "rgb_full",
@@ -110,6 +126,9 @@ def test_summarize_baseline_matrix_writes_diagnostics_json(tmp_path: Path) -> No
     assert row["median_largest_mask_ratio"] == 0.04
     assert row["train_peak_memory_mb"] == 200.5
     assert row["prep_offline_sec"] == 3.0
+    assert row["fragment_purity_mean"] == 0.9
+    assert row["fragment_purity_median"] == 1.0
+    assert row["same_instance_recall"] == 1.0
 
 
 def test_summarize_baseline_matrix_handles_empty_results(tmp_path: Path) -> None:
@@ -121,6 +140,22 @@ def test_summarize_baseline_matrix_handles_empty_results(tmp_path: Path) -> None
     _write_dataset(dataset_root)
 
     (run_dir / "coco_instances_results.json").write_text("[]\n", encoding="utf-8")
+    (run_dir / "fragment_quality_summary.json").write_text(
+        json.dumps(
+            {
+                "fragment_count": 0,
+                "pair_count": 0,
+                "contact_pair_count": 0,
+                "bridge_pair_count": 0,
+                "fragment_purity_mean": 0.0,
+                "fragment_purity_median": 0.0,
+                "same_instance_total_pairs": 0,
+                "same_instance_recalled_pairs": 0,
+                "same_instance_recall": 0.0,
+            }
+        ),
+        encoding="utf-8",
+    )
     payload = {
         "model": "unet",
         "variant": "rgb_probe",
@@ -182,3 +217,6 @@ def test_summarize_baseline_matrix_handles_empty_results(tmp_path: Path) -> None
     assert row["avg_pred_count"] == 0.0
     assert row["pred_gt_count_ratio"] == 0.0
     assert row["median_largest_mask_ratio"] == 0.0
+    assert row["fragment_purity_mean"] == 0.0
+    assert row["fragment_purity_median"] == 0.0
+    assert row["same_instance_recall"] == 0.0

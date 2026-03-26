@@ -49,6 +49,31 @@ def _read_float(path: Path) -> float | None:
     return float(raw)
 
 
+def _resolve_fragment_quality(run_dir: Path, payload: dict[str, Any]) -> dict[str, float | int | None]:
+    empty = {
+        "fragment_count": None,
+        "pair_count": None,
+        "contact_pair_count": None,
+        "bridge_pair_count": None,
+        "fragment_purity_mean": None,
+        "fragment_purity_median": None,
+        "same_instance_total_pairs": None,
+        "same_instance_recalled_pairs": None,
+        "same_instance_recall": None,
+    }
+    fragment_quality = payload.get("fragment_quality")
+    if isinstance(fragment_quality, dict):
+        resolved = dict(empty)
+        resolved.update(fragment_quality)
+        return resolved
+    summary_path = run_dir / "fragment_quality_summary.json"
+    if not summary_path.exists():
+        return empty
+    resolved = dict(empty)
+    resolved.update(_read_json(summary_path))
+    return resolved
+
+
 def _safe_div(num: float, den: float) -> float:
     return 0.0 if den <= 0.0 else float(num) / float(den)
 
@@ -169,6 +194,7 @@ def main() -> None:
             f1_metrics = _compute_f1_at_50(annotation_path, results_path)
             pathology = _compute_pathology(annotation_path, results_path)
         timing = dict(payload.get("timing", {}))
+        fragment_quality = _resolve_fragment_quality(run_dir, payload)
         rows.append(
             {
                 "model": str(payload.get("model", run_dir.name)),
@@ -196,6 +222,7 @@ def main() -> None:
                 "eval_post_sec": timing.get("eval_post_sec"),
                 "end_to_end_sec": timing.get("end_to_end_sec", payload.get("wall_time_sec")),
                 "path": str(run_dir),
+                **fragment_quality,
                 **pathology,
             }
         )
@@ -223,6 +250,9 @@ def main() -> None:
             "n/a" if row["end_to_end_sec"] is None else f"{float(row['end_to_end_sec']):.4f}",
             "n/a" if row["pred_gt_count_ratio"] is None else f"{float(row['pred_gt_count_ratio']):.4f}",
             "n/a" if row["median_largest_mask_ratio"] is None else f"{float(row['median_largest_mask_ratio']):.4f}",
+            "n/a" if row["fragment_purity_mean"] is None else f"{float(row['fragment_purity_mean']):.4f}",
+            "n/a" if row["fragment_purity_median"] is None else f"{float(row['fragment_purity_median']):.4f}",
+            "n/a" if row["same_instance_recall"] is None else f"{float(row['same_instance_recall']):.4f}",
             row["path"],
         ]
         for row in rows
@@ -256,6 +286,9 @@ def main() -> None:
                     "End-to-End Sec",
                     "Pred/GT Ratio",
                     "Largest Mask Ratio",
+                    "Fragment Purity Mean",
+                    "Fragment Purity Median",
+                    "Same-Instance Recall",
                     "Run Dir",
                 ],
                 table_rows,

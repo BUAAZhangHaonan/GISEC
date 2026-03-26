@@ -14,6 +14,11 @@ from torch.utils.data import DataLoader
 from baseline.common.coco_export import masks_to_coco_results
 from baseline.common.dataset import BaselineInstanceDataset
 from baseline.common.export import build_run_summary_payload
+from baseline.common.fragment_quality import (
+    build_fragment_pair_records,
+    build_fragment_records,
+    summarize_fragment_quality,
+)
 from baseline.rgbd.fusion import prepare_unet_inputs, unet_modality, unet_variant_name
 from gisec.engine.runtime import build_benchmark_payload, evaluate_json, write_json
 from gisec.utils.visualization import render_fragment_merge_preview
@@ -371,7 +376,7 @@ def evaluate_unet_baseline(
         image_size=image_size,
         include_depth=str(input_mode) != "rgb" or bool(use_depth_split_walls),
         include_annotations=False,
-        include_instance_map=False,
+        include_instance_map=str(task_mode) != "semantic_smoke",
         depth_feature_mode="depth_geometry_dense" if str(input_mode) == "depth_geometry_dense" else None,
     )
     loader = DataLoader(
@@ -386,6 +391,8 @@ def evaluate_unet_baseline(
     )
     results: list[dict[str, Any]] = []
     latencies_ms: list[float] = []
+    fragment_rows: list[dict[str, Any]] = []
+    pair_rows: list[dict[str, Any]] = []
     model.eval()
     with torch.no_grad():
         for index, sample in enumerate(loader):
@@ -432,6 +439,19 @@ def evaluate_unet_baseline(
                     float(0.75 * fg_prob[mask.astype(bool)].mean() + 0.25 * center_prob[mask.astype(bool)].max())
                     for mask in masks
                 ]
+                instance_map = None if sample.get("instance_map") is None else sample["instance_map"].cpu().numpy().astype(np.int64, copy=False)
+                image_fragment_rows = build_fragment_records(merged, instance_map)
+                image_pair_rows = build_fragment_pair_records(merged, image_fragment_rows)
+                for row in image_fragment_rows:
+                    enriched = dict(row)
+                    enriched["image_id"] = int(sample["image_id"])
+                    enriched["file_name"] = str(sample["file_name"])
+                    fragment_rows.append(enriched)
+                for row in image_pair_rows:
+                    enriched = dict(row)
+                    enriched["image_id"] = int(sample["image_id"])
+                    enriched["file_name"] = str(sample["file_name"])
+                    pair_rows.append(enriched)
 
             results.extend(
                 masks_to_coco_results(
@@ -453,8 +473,11 @@ def evaluate_unet_baseline(
     results_json.write_text(json.dumps(results, ensure_ascii=False) + "\n", encoding="utf-8")
     metrics = evaluate_json(Path(dataset_root) / "annotations" / "instances_val.json", results_json)
     speed = build_benchmark_payload(latencies_ms, device)
+    fragment_quality = summarize_fragment_quality(fragment_rows, pair_rows) if str(task_mode) != "semantic_smoke" else None
     write_json(artifact_root / "metrics.cocoeval.json", metrics)
     write_json(artifact_root / "inference_speed.json", speed)
+    if fragment_quality is not None:
+        write_json(artifact_root / "fragment_quality_summary.json", fragment_quality)
     summary = build_run_summary_payload(
         model=str(model_name),
         variant=unet_variant_name(
@@ -466,6 +489,15 @@ def evaluate_unet_baseline(
         artifact_root=artifact_root,
         metrics=metrics,
         inference_speed=speed,
+        decode_config={
+            "threshold": float(threshold),
+            "center_threshold": float(center_threshold),
+            "min_area": int(min_area),
+            "watershed_enabled": bool(watershed_enabled),
+            "use_depth_split_walls": bool(use_depth_split_walls),
+            "depth_wall_threshold": float(depth_wall_threshold),
+        },
+        fragment_quality=fragment_quality,
     )
     write_json(artifact_root / "run_summary.json", summary)
     return metrics, speed

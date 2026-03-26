@@ -48,6 +48,8 @@ def build_run_summary_payload(
     training_peak_memory_mb: float | None = None,
     wall_time_sec: int | None = None,
     timing: dict[str, Any] | None = None,
+    decode_config: dict[str, Any] | None = None,
+    fragment_quality: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     artifact_root = Path(artifact_root).resolve()
     resolved_checkpoint = (
@@ -95,6 +97,8 @@ def build_run_summary_payload(
         "training_peak_memory_mb": resolved_training_peak_memory_mb,
         "wall_time_sec": resolved_wall_time_sec,
         "timing": resolved_timing,
+        "decode_config": None if decode_config is None else dict(decode_config),
+        "fragment_quality": None if fragment_quality is None else dict(fragment_quality),
         "metrics": dict(metrics),
         "inference_speed": dict(inference_speed),
     }
