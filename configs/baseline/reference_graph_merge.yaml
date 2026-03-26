@@ -21,3 +21,4 @@ model:
   reference_view_sampler: pose_farthest
   hidden_dim: 64
   reference_hidden_dim: 32
+  graph_bridge_max_gap: 4.0

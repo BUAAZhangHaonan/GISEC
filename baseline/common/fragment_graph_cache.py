@@ -160,6 +160,7 @@ def build_fragment_graph_cache(
     min_area: int = 8,
     boundary_threshold: float = 0.5,
     purity_threshold: float = 0.8,
+    bridge_max_gap: float = 4.0,
     variant: str = "B0",
     use_depth_split_walls: bool = False,
     depth_wall_threshold: float = 0.1,
@@ -249,6 +250,7 @@ def build_fragment_graph_cache(
                 variant=str(variant),
                 boundary_threshold=float(boundary_threshold),
                 purity_threshold=float(purity_threshold),
+                bridge_max_gap=float(bridge_max_gap),
             )
             gt_count = 0
             if sample.get("instance_map") is not None:
@@ -297,6 +299,7 @@ def build_fragment_graph_cache(
         "min_area": int(min_area),
         "boundary_threshold": float(boundary_threshold),
         "purity_threshold": float(purity_threshold),
+        "bridge_max_gap": float(bridge_max_gap),
         "variant": str(variant),
         "use_depth_split_walls": bool(use_depth_split_walls),
         "depth_wall_threshold": float(depth_wall_threshold),

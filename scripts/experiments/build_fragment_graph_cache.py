@@ -55,6 +55,7 @@ def main() -> None:
         min_area=int(model_cfg.get("fragment_min_area", model_cfg.get("min_area", 8))),
         boundary_threshold=float(model_cfg.get("boundary_threshold", 0.5)),
         purity_threshold=float(model_cfg.get("graph_purity_threshold", 0.8)),
+        bridge_max_gap=float(model_cfg.get("graph_bridge_max_gap", 4.0)),
         variant=str(args.variant),
         use_depth_split_walls=bool(model_cfg.get("use_depth_split_walls", False)),
         depth_wall_threshold=float(model_cfg.get("depth_wall_threshold", 0.1)),

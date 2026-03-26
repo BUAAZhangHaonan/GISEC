@@ -376,6 +376,7 @@ def _build_graph_batch_from_fragment_map(
     variant_spec: VariantSpec,
     boundary_threshold: float,
     purity_threshold: float,
+    bridge_max_gap: float,
 ) -> GraphBatch:
     labels = [int(x) for x in np.unique(fragments).tolist() if int(x) > 0]
     empty_edge_index = torch.zeros((2, 0), dtype=torch.long, device=feature_map.device)
@@ -481,7 +482,15 @@ def _build_graph_batch_from_fragment_map(
         boundary_threshold=boundary_threshold,
     )
     if variant_spec.use_bridge_edges:
-        bridge_map = _bridge_fragment_pairs(labels, fragment_geometry, boundary_prob, depth_np, ownership_support, fragments)
+        bridge_map = _bridge_fragment_pairs(
+            labels,
+            fragment_geometry,
+            boundary_prob,
+            depth_np,
+            ownership_support,
+            fragments,
+            max_gap=float(bridge_max_gap),
+        )
         for key, payload in bridge_map.items():
             if key not in pair_map:
                 pair_map[key] = payload
@@ -621,6 +630,7 @@ def build_graph_batch(
     boundary_threshold: float = 0.5,
     min_area: int = 8,
     purity_threshold: float = 0.8,
+    bridge_max_gap: float = 4.0,
 ) -> GraphBatch:
     variant_spec = get_variant_spec(variant)
     feature_map = feature_map.detach()
@@ -663,6 +673,7 @@ def build_graph_batch(
         variant_spec=variant_spec,
         boundary_threshold=boundary_threshold,
         purity_threshold=purity_threshold,
+        bridge_max_gap=bridge_max_gap,
     )
 
 
@@ -679,6 +690,7 @@ def build_graph_batch_from_fragments(
     variant: str | VariantSpec,
     boundary_threshold: float = 0.5,
     purity_threshold: float = 0.8,
+    bridge_max_gap: float = 4.0,
 ) -> GraphBatch:
     variant_spec = get_variant_spec(variant)
     feature_map = feature_map.detach()
@@ -712,6 +724,7 @@ def build_graph_batch_from_fragments(
         variant_spec=variant_spec,
         boundary_threshold=boundary_threshold,
         purity_threshold=purity_threshold,
+        bridge_max_gap=bridge_max_gap,
     )
 
 

@@ -182,3 +182,56 @@ def test_build_fragment_graph_cache_forwards_graph_purity_threshold(tmp_path: Pa
 
     assert captured["purity_threshold"] == 0.6
     assert manifest["purity_threshold"] == 0.6
+
+
+def test_build_fragment_graph_cache_forwards_bridge_max_gap(tmp_path: Path, monkeypatch) -> None:
+    dataset_root = tmp_path / "dataset"
+    output_root = tmp_path / "cache"
+    reference_root = tmp_path / "references"
+    (reference_root / "partA").mkdir(parents=True, exist_ok=True)
+    _write_dataset(dataset_root)
+
+    captured: dict[str, float] = {}
+
+    def _fake_build_graph_batch_from_fragments(**kwargs):
+        captured["bridge_max_gap"] = float(kwargs["bridge_max_gap"])
+        return GraphBatch(
+            node_features=torch.zeros((2, 4), dtype=torch.float32),
+            edge_index=torch.tensor([[0], [1]], dtype=torch.long),
+            edge_features=torch.zeros((1, 6), dtype=torch.float32),
+            edge_targets=torch.tensor([1.0], dtype=torch.float32),
+            fragments=np.zeros((64, 64), dtype=np.int32),
+            diagnostics={"num_fragments": 2, "num_edges": 1},
+            edge_ignore_mask=torch.tensor([False], dtype=torch.bool),
+            fragment_stats=[
+                {"gt_instance": 1, "purity": 1.0, "area_ratio": 0.02},
+                {"gt_instance": 1, "purity": 1.0, "area_ratio": 0.02},
+            ],
+            shape_stats={},
+        )
+
+    monkeypatch.setattr("baseline.common.fragment_graph_cache.build_graph_batch_from_fragments", _fake_build_graph_batch_from_fragments)
+
+    manifest = build_fragment_graph_cache(
+        dataset_root=str(dataset_root),
+        output_root=str(output_root),
+        split="train",
+        image_size=64,
+        device=torch.device("cpu"),
+        model=_DummySplitFirstModel(),
+        model_name="unet",
+        input_mode="rgb",
+        encoder_name="resnet34",
+        decoder_channels=64,
+        fg_threshold=0.18,
+        center_threshold=0.03,
+        min_area=8,
+        boundary_threshold=0.5,
+        bridge_max_gap=6.0,
+        variant="Q2",
+        reference_root=str(reference_root),
+        max_images=1,
+    )
+
+    assert captured["bridge_max_gap"] == 6.0
+    assert manifest["bridge_max_gap"] == 6.0
