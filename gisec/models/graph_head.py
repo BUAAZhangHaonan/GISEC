@@ -36,8 +36,12 @@ class GraphEdgeScorer(nn.Module):
 
         src, dst = edge_index[0], edge_index[1]
         node_hidden = self.node_proj(node_features)
-        edge_hidden = self.edge_msg(
-            torch.cat([node_hidden[src], node_hidden[dst], edge_features], dim=1))
+        edge_inputs_ab = torch.cat([node_hidden[src], node_hidden[dst], edge_features], dim=1)
+        edge_inputs_ba = torch.cat([node_hidden[dst], node_hidden[src], edge_features], dim=1)
+        edge_hidden = 0.5 * (
+            self.edge_msg(edge_inputs_ab)
+            + self.edge_msg(edge_inputs_ba)
+        )
 
         agg = torch.zeros_like(node_hidden)
         counts = torch.zeros(
@@ -51,6 +55,10 @@ class GraphEdgeScorer(nn.Module):
         node_hidden = self.node_upd(
             torch.cat([node_hidden, agg / counts.clamp_min(1.0)], dim=1))
 
-        logits = self.edge_out(
-            torch.cat([node_hidden[src], node_hidden[dst], edge_features], dim=1))
+        edge_outputs_ab = torch.cat([node_hidden[src], node_hidden[dst], edge_features], dim=1)
+        edge_outputs_ba = torch.cat([node_hidden[dst], node_hidden[src], edge_features], dim=1)
+        logits = 0.5 * (
+            self.edge_out(edge_outputs_ab)
+            + self.edge_out(edge_outputs_ba)
+        )
         return logits.squeeze(1)

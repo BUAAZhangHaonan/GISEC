@@ -14,6 +14,7 @@ from baseline.reference_graph.eval import summarize_threshold_sweep
 from baseline.reference_graph.train import build_edge_training_mask
 from baseline.reference_graph.train import pairwise_ranking_loss
 from baseline.reference_graph.train import train_reference_graph_merge
+from gisec.models.graph_head import GraphEdgeScorer
 
 
 def _write_reference_root(root: Path, *, part_key: str = "partA", num_views: int = 2) -> None:
@@ -152,6 +153,30 @@ def test_reference_graph_default_threshold_sweep_captures_fine_margin_region() -
 
     assert 0.505 in DEFAULT_REFERENCE_GRAPH_THRESHOLDS
     assert float(sweep["best"]["threshold"]) == 0.505
+
+
+def test_graph_edge_scorer_is_symmetric_for_undirected_edge_order() -> None:
+    scorer = GraphEdgeScorer(node_dim=3, edge_dim=2, hidden_dim=4)
+    with torch.no_grad():
+        for param_index, param in enumerate(scorer.parameters()):
+            values = torch.arange(1, param.numel() + 1, dtype=param.dtype).reshape(param.shape)
+            param.copy_(values / float(param.numel() + param_index + 1))
+
+    node_features = torch.tensor(
+        [
+            [0.2, 0.5, -0.3],
+            [1.1, -0.7, 0.4],
+        ],
+        dtype=torch.float32,
+    )
+    edge_features = torch.tensor([[0.6, -0.2]], dtype=torch.float32)
+    edge_ab = torch.tensor([[0], [1]], dtype=torch.long)
+    edge_ba = torch.tensor([[1], [0]], dtype=torch.long)
+
+    logit_ab = scorer(node_features=node_features, edge_index=edge_ab, edge_features=edge_features)
+    logit_ba = scorer(node_features=node_features, edge_index=edge_ba, edge_features=edge_features)
+
+    assert torch.allclose(logit_ab, logit_ba, atol=1e-6)
 
 
 def test_train_reference_graph_merge_supports_single_bank_reference_root(tmp_path: Path) -> None:
