@@ -10,25 +10,48 @@ import torch
 from baseline.reference_graph.eval_pipeline import evaluate_reference_graph_merge
 
 
-def _write_dataset(root: Path, *, split: str = "val", file_name: str = "partA_scene_0001.png") -> None:
+def _write_dataset(
+    root: Path,
+    *,
+    split: str = "val",
+    file_name: str = "partA_scene_0001.png",
+    extra_uncovered_image: bool = False,
+) -> None:
     (root / "images" / split).mkdir(parents=True, exist_ok=True)
     (root / "annotations").mkdir(parents=True, exist_ok=True)
     image = np.zeros((32, 32, 3), dtype=np.uint8)
     image[8:24, 8:24] = (80, 120, 160)
     cv2.imwrite(str(root / "images" / split / file_name), cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
-    ann = {
-        "images": [{"id": 1, "file_name": file_name, "width": 32, "height": 32}],
-        "annotations": [
+    images = [{"id": 1, "file_name": file_name, "width": 32, "height": 32}]
+    annotations = [
+        {
+            "id": 1,
+            "image_id": 1,
+            "category_id": 1,
+            "bbox": [8, 8, 16, 16],
+            "area": 256,
+            "iscrowd": 0,
+            "segmentation": [[8, 8, 24, 8, 24, 24, 8, 24]],
+        }
+    ]
+    if extra_uncovered_image:
+        extra_name = "partA_scene_0002.png"
+        cv2.imwrite(str(root / "images" / split / extra_name), cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+        images.append({"id": 2, "file_name": extra_name, "width": 32, "height": 32})
+        annotations.append(
             {
-                "id": 1,
-                "image_id": 1,
+                "id": 2,
+                "image_id": 2,
                 "category_id": 1,
                 "bbox": [8, 8, 16, 16],
                 "area": 256,
                 "iscrowd": 0,
                 "segmentation": [[8, 8, 24, 8, 24, 24, 8, 24]],
             }
-        ],
+        )
+    ann = {
+        "images": images,
+        "annotations": annotations,
         "categories": [{"id": 1, "name": "component"}],
     }
     (root / "annotations" / f"instances_{split}.json").write_text(json.dumps(ann), encoding="utf-8")
@@ -111,3 +134,28 @@ def test_evaluate_reference_graph_merge_writes_metrics_and_results(tmp_path: Pat
     assert summary["num_images"] == 1
     assert (output_root / "metrics.cocoeval.json").exists()
     assert (output_root / "coco_instances_results.json").exists()
+
+
+def test_evaluate_reference_graph_merge_filters_gt_to_cache_images(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "dataset"
+    cache_root = tmp_path / "cache"
+    reference_root = tmp_path / "refs"
+    output_root = tmp_path / "eval"
+    _write_dataset(dataset_root, extra_uncovered_image=True)
+    _write_graph_cache(cache_root)
+    _write_reference_root(reference_root)
+
+    metrics, summary = evaluate_reference_graph_merge(
+        cache_root=str(cache_root),
+        reference_root=str(reference_root),
+        dataset_root=str(dataset_root),
+        output_dir=str(output_root),
+        split="val",
+        device=torch.device("cpu"),
+        threshold=0.5,
+        model=_DummyMergeModel(),
+    )
+
+    assert metrics["segm/AP50"] > 0.9
+    assert summary["num_images"] == 1
+    assert summary["eval_image_count"] == 1

@@ -55,6 +55,24 @@ def _cluster_scores(
     return scores
 
 
+def _filter_coco_annotations_to_image_ids(annotation_path: Path, image_ids: set[int], output_path: Path) -> Path:
+    payload = json.loads(annotation_path.read_text(encoding="utf-8"))
+    if not image_ids:
+        filtered = {
+            "images": [],
+            "annotations": [],
+            "categories": list(payload.get("categories", [])),
+        }
+    else:
+        filtered = {
+            "images": [item for item in payload.get("images", []) if int(item.get("id", 0)) in image_ids],
+            "annotations": [item for item in payload.get("annotations", []) if int(item.get("image_id", 0)) in image_ids],
+            "categories": list(payload.get("categories", [])),
+        }
+    output_path.write_text(json.dumps(filtered, ensure_ascii=False) + "\n", encoding="utf-8")
+    return output_path
+
+
 def evaluate_reference_graph_merge(
     *,
     cache_root: str,
@@ -108,6 +126,7 @@ def evaluate_reference_graph_merge(
 
     results: list[dict[str, Any]] = []
     latencies_ms: list[float] = []
+    eval_image_ids: set[int] = set()
     with torch.no_grad():
         for batch in loader:
             sample_paths = [Path(path) for path in batch["sample_paths"]]
@@ -122,6 +141,7 @@ def evaluate_reference_graph_merge(
             edge_batch = batch["edge_batch"].detach().cpu()
             for sample_index, sample_path in enumerate(sample_paths):
                 payload = torch.load(sample_path, map_location="cpu")
+                eval_image_ids.add(int(payload["image_id"]))
                 sample_scores = edge_scores[edge_batch == int(sample_index)]
                 merged = merge_instances_from_edge_scores(
                     fragments=payload["fragments"].numpy().astype(np.int32, copy=False),
@@ -151,7 +171,13 @@ def evaluate_reference_graph_merge(
                 )
     results_json = artifact_root / "coco_instances_results.json"
     results_json.write_text(json.dumps(results, ensure_ascii=False) + "\n", encoding="utf-8")
-    metrics = evaluate_json(Path(dataset_root) / "annotations" / f"instances_{split}.json", results_json)
+    annotation_path = Path(dataset_root) / "annotations" / f"instances_{split}.json"
+    filtered_annotation_path = _filter_coco_annotations_to_image_ids(
+        annotation_path,
+        eval_image_ids,
+        artifact_root / f"instances_{split}.cache_subset.json",
+    )
+    metrics = evaluate_json(filtered_annotation_path, results_json)
     speed = build_benchmark_payload(latencies_ms, device)
     summary = {
         "cache_root": str(Path(cache_root).resolve()),
@@ -160,6 +186,8 @@ def evaluate_reference_graph_merge(
         "split": str(split),
         "threshold": float(threshold),
         "num_images": int(len(dataset)),
+        "eval_image_count": int(len(eval_image_ids)),
+        "filtered_annotation_path": str(filtered_annotation_path),
         "num_predictions": int(len(results)),
         "metrics": dict(metrics),
         "inference_speed": dict(speed),
