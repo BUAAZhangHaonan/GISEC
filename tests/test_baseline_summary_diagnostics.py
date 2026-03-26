@@ -110,3 +110,75 @@ def test_summarize_baseline_matrix_writes_diagnostics_json(tmp_path: Path) -> No
     assert row["median_largest_mask_ratio"] == 0.04
     assert row["train_peak_memory_mb"] == 200.5
     assert row["prep_offline_sec"] == 3.0
+
+
+def test_summarize_baseline_matrix_handles_empty_results(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    dataset_root = tmp_path / "dataset"
+    suite_root = tmp_path / "baselines"
+    run_dir = suite_root / "unet_rgb_probe"
+    run_dir.mkdir(parents=True)
+    _write_dataset(dataset_root)
+
+    (run_dir / "coco_instances_results.json").write_text("[]\n", encoding="utf-8")
+    payload = {
+        "model": "unet",
+        "variant": "rgb_probe",
+        "modality": "rgb",
+        "artifact_root": str(run_dir),
+        "checkpoint": str(run_dir / "model_best.pth"),
+        "results_json": str(run_dir / "coco_instances_results.json"),
+        "dataset_root": str(dataset_root),
+        "params_trainable": 100,
+        "wall_time_sec": 17,
+        "training_peak_memory_mb": 200.5,
+        "timing": {
+            "prep_offline_sec": 3.0,
+            "train_only_sec": 11.0,
+            "eval_post_sec": 6.0,
+            "end_to_end_sec": 17.0,
+        },
+        "metrics": {
+            "bbox/AP": 0.0,
+            "bbox/AP50": 0.0,
+            "bbox/AP75": 0.0,
+            "segm/AP": 0.0,
+            "segm/AP50": 0.0,
+            "segm/AP75": 0.0,
+        },
+        "inference_speed": {
+            "throughput_fps": 20.0,
+            "inference_peak_memory_mb": 150.0,
+        },
+    }
+    (run_dir / "run_summary.json").write_text(json.dumps(payload), encoding="utf-8")
+    out_md = tmp_path / "baseline_matrix_empty.md"
+    out_json = tmp_path / "baseline_matrix_empty.json"
+
+    subprocess.run(
+        [
+            sys.executable,
+            "scripts/analysis/summarize_baseline_matrix.py",
+            "--input-root",
+            str(suite_root),
+            "--dataset-root",
+            str(dataset_root),
+            "--output",
+            str(out_md),
+            "--output-json",
+            str(out_json),
+        ],
+        cwd=str(repo_root),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    summary = json.loads(out_json.read_text(encoding="utf-8"))
+    row = summary["rows"][0]
+    assert row["F1@50"] == 0.0
+    assert row["P@50"] == 0.0
+    assert row["R@50"] == 0.0
+    assert row["avg_pred_count"] == 0.0
+    assert row["pred_gt_count_ratio"] == 0.0
+    assert row["median_largest_mask_ratio"] == 0.0

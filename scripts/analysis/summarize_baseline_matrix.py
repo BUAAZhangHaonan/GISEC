@@ -63,6 +63,9 @@ def _resolve_dataset_root(payload: dict[str, Any], cli_dataset_root: str | None)
 
 
 def _compute_f1_at_50(annotation_path: Path, results_path: Path) -> dict[str, float]:
+    results = json.loads(results_path.read_text(encoding="utf-8"))
+    if not results:
+        return {"P@50": 0.0, "R@50": 0.0, "F1@50": 0.0}
     coco_gt = COCO(str(annotation_path))
     coco_dt = coco_gt.loadRes(str(results_path))
     evaluator = COCOeval(coco_gt, coco_dt, iouType="segm")
