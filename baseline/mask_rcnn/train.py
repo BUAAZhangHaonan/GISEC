@@ -9,7 +9,8 @@ import torch
 from torch import nn
 from torch.amp import GradScaler, autocast
 from torch.utils.data import DataLoader
-from torchvision.models.detection import MaskRCNN_ResNet50_FPN_Weights, maskrcnn_resnet50_fpn
+from torchvision.models import ResNet50_Weights
+from torchvision.models.detection import maskrcnn_resnet50_fpn
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
 
@@ -47,8 +48,9 @@ def _resolve_loader_perf(
 def _build_mask_rcnn_model(*, backbone_name: str, pretrained_backbone: bool) -> nn.Module:
     if str(backbone_name) != "resnet50_fpn":
         raise ValueError(f"Unsupported Mask R-CNN backbone: {backbone_name}")
-    weights = MaskRCNN_ResNet50_FPN_Weights.DEFAULT if pretrained_backbone else None
-    model = maskrcnn_resnet50_fpn(weights=weights, weights_backbone=None)
+    weights = None
+    weights_backbone = ResNet50_Weights.DEFAULT if pretrained_backbone else None
+    model = maskrcnn_resnet50_fpn(weights=weights, weights_backbone=weights_backbone)
     in_features = model.roi_heads.box_predictor.cls_score.in_features
     model.roi_heads.box_predictor = FastRCNNPredictor(in_features, 2)
     in_features_mask = model.roi_heads.mask_predictor.conv5_mask.in_channels
