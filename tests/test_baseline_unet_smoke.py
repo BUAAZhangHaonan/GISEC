@@ -67,7 +67,10 @@ def test_unet_rgb_baseline_smoke_exports_shared_artifacts(tmp_path: Path) -> Non
     assert (output_root / "params_trainable.txt").exists()
     assert (output_root / "wall_time_sec.txt").exists()
     assert (output_root / "peak_memory_mb.txt").exists()
+    assert (output_root / "history.jsonl").exists()
     assert list((output_root / "visualizations" / "overlay").glob("*.png"))
+    assert (output_root / "visualizations" / "progress" / "training_curves.png").exists()
+    assert (output_root / "visualizations" / "progress" / "latest.png").exists()
 
     summary = json.loads((output_root / "run_summary.json").read_text(encoding="utf-8"))
     assert summary["model"] == "unet"

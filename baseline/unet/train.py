@@ -5,12 +5,20 @@ import time
 import shutil
 from pathlib import Path
 
+import cv2
 import torch
 import torch.nn.functional as F
 from torch.amp import GradScaler, autocast
 from torch.utils.data import DataLoader
 
 from baseline.common.export import build_run_summary_payload
+from baseline.common.training_artifacts import (
+    append_history_row,
+    load_history_rows,
+    prune_checkpoint_files,
+    render_image_contact_sheet,
+    render_training_curves,
+)
 from baseline.common.dataset import BaselineInstanceDataset, collate_baseline_batch
 from baseline.common.instance_targets import resolve_instance_target_cache_dir
 from baseline.rgbd.depth_cache import resolve_depth_feature_cache_dir
@@ -254,6 +262,9 @@ def train_unet_baseline(
         prefetch_factor=loader_prefetch_factor,
     )
     start = time.time()
+    history_path = artifact_root / "history.jsonl"
+    progress_dir = artifact_root / "visualizations" / "progress"
+    curves_path = progress_dir / "training_curves.png"
     if device.type == "cuda" and torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats(device)
         torch.backends.cudnn.benchmark = True
@@ -307,6 +318,8 @@ def train_unet_baseline(
         model.train()
         optimizer.zero_grad(set_to_none=True)
         epoch_train_start = time.perf_counter()
+        epoch_loss_total = 0.0
+        epoch_batches = 0
         for batch in loader:
             inputs = prepare_unet_batch_inputs(batch, input_mode=str(input_mode)).to(
                 device,
@@ -329,6 +342,8 @@ def train_unet_baseline(
                     loss = _reduce_instance_losses(_instance_losses(outputs, targets), loss_weights=loss_weights)
                 loss = loss / float(grad_accum)
             scaler.scale(loss).backward()
+            epoch_loss_total += float(loss.item()) * float(grad_accum)
+            epoch_batches += 1
             step_count += 1
             if step_count % grad_accum == 0:
                 scaler.step(optimizer)
@@ -382,10 +397,45 @@ def train_unet_baseline(
                 best_inference_speed = dict(inference_speed)
                 torch.save(best_state_dict, artifact_root / "model_best.pth")
                 _snapshot_best_eval_artifacts()
+            history_row = {
+                "epoch": int(epoch_index + 1),
+                "train_loss": 0.0 if epoch_batches <= 0 else float(epoch_loss_total) / float(epoch_batches),
+                "segm_ap": float(metrics.get("segm/AP", 0.0)),
+                "bbox_ap": float(metrics.get("bbox/AP", 0.0)),
+                "threshold": float(threshold),
+                "fps": float(inference_speed.get("throughput_fps", 0.0)),
+            }
+            append_history_row(history_path, history_row)
+            render_training_curves(
+                load_history_rows(history_path),
+                curves_path,
+                panels=[
+                    ("Loss", ["train_loss"]),
+                    ("AP", ["segm_ap", "bbox_ap"]),
+                    ("Runtime", ["fps", "threshold"]),
+                ],
+            )
+            overlay_dir = artifact_root / "visualizations" / "overlay"
+            overlay_paths = sorted(overlay_dir.glob("*.png"))
+            if overlay_paths:
+                previews = []
+                titles = []
+                for overlay_path in overlay_paths[: max(int(render_overlay_limit), 1)]:
+                    image = cv2.imread(str(overlay_path), cv2.IMREAD_COLOR)
+                    if image is None:
+                        continue
+                    previews.append(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+                    titles.append(overlay_path.name)
+                if previews:
+                    latest_preview = progress_dir / "latest.png"
+                    epoch_preview = progress_dir / f"epoch_{int(epoch_index + 1):03d}.png"
+                    render_image_contact_sheet(previews, epoch_preview, columns=2, titles=titles)
+                    latest_preview.write_bytes(epoch_preview.read_bytes())
         if max_train_steps > 0 and step_count >= int(max_train_steps):
             break
 
     torch.save(model.state_dict(), artifact_root / "model_final.pth")
+    prune_checkpoint_files(artifact_root)
     if best_state_dict is not None and best_metrics is not None and best_inference_speed is not None:
         model.load_state_dict(best_state_dict)
         _restore_best_eval_artifacts()
@@ -403,6 +453,19 @@ def train_unet_baseline(
     (artifact_root / "peak_memory_mb.txt").write_text(f"{peak_memory_mb:.4f}\n", encoding="utf-8")
     wall_time_sec = int(time.time() - start)
     (artifact_root / "wall_time_sec.txt").write_text(f"{wall_time_sec}\n", encoding="utf-8")
+    if not history_path.exists():
+        append_history_row(
+            history_path,
+            {
+                "epoch": int(epochs),
+                "train_loss": 0.0 if step_count == 0 else float(train_only_sec) / float(max(step_count, 1)),
+            },
+        )
+        render_training_curves(
+            load_history_rows(history_path),
+            curves_path,
+            panels=[("Loss", ["train_loss"])],
+        )
     write_json(
         artifact_root / "run_summary.json",
         build_run_summary_payload(
