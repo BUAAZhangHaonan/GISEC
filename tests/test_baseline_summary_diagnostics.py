@@ -82,6 +82,7 @@ def test_summarize_baseline_matrix_writes_diagnostics_json(tmp_path: Path) -> No
             "bbox/AP": 1.0,
             "bbox/AP50": 1.0,
             "bbox/AP75": 1.0,
+            "boundary/IoU": 0.8,
             "segm/AP": 1.0,
             "segm/AP50": 1.0,
             "segm/AP75": 1.0,
@@ -90,6 +91,20 @@ def test_summarize_baseline_matrix_writes_diagnostics_json(tmp_path: Path) -> No
             "throughput_fps": 20.0,
             "inference_peak_memory_mb": 150.0,
         },
+        "benchmark": {
+            "model_family": "mask_rcnn",
+            "backbone_name": "resnet50_fpn",
+            "resolution": 1024,
+            "input_mode": "rgb",
+            "fusion_mode": "rgb",
+            "refine_mode": "none",
+            "pretrained": True,
+            "amp": True,
+            "batch_size": 4,
+            "grad_accum_steps": 1,
+            "inference_defaults_locked": True,
+        },
+        "decode_config": {"score_threshold": 0.5},
     }
     (run_dir / "run_summary.json").write_text(json.dumps(payload), encoding="utf-8")
     out_md = tmp_path / "baseline_matrix.md"
@@ -117,6 +132,7 @@ def test_summarize_baseline_matrix_writes_diagnostics_json(tmp_path: Path) -> No
     summary = json.loads(out_json.read_text(encoding="utf-8"))
     assert summary["num_runs"] == 1
     row = summary["rows"][0]
+    assert row["boundary_iou"] == 0.8
     assert row["F1@50"] == 1.0
     assert row["P@50"] == 1.0
     assert row["R@50"] == 1.0
@@ -177,6 +193,7 @@ def test_summarize_baseline_matrix_handles_empty_results(tmp_path: Path) -> None
             "bbox/AP": 0.0,
             "bbox/AP50": 0.0,
             "bbox/AP75": 0.0,
+            "boundary/IoU": 0.0,
             "segm/AP": 0.0,
             "segm/AP50": 0.0,
             "segm/AP75": 0.0,
@@ -185,6 +202,20 @@ def test_summarize_baseline_matrix_handles_empty_results(tmp_path: Path) -> None
             "throughput_fps": 20.0,
             "inference_peak_memory_mb": 150.0,
         },
+        "benchmark": {
+            "model_family": "mask2former",
+            "backbone_name": "swin_t",
+            "resolution": 512,
+            "input_mode": "rgb",
+            "fusion_mode": "rgb",
+            "refine_mode": "none",
+            "pretrained": True,
+            "amp": True,
+            "batch_size": 2,
+            "grad_accum_steps": 1,
+            "inference_defaults_locked": True,
+        },
+        "decode_config": {"score_threshold": 0.5},
     }
     (run_dir / "run_summary.json").write_text(json.dumps(payload), encoding="utf-8")
     out_md = tmp_path / "baseline_matrix_empty.md"
@@ -211,6 +242,7 @@ def test_summarize_baseline_matrix_handles_empty_results(tmp_path: Path) -> None
 
     summary = json.loads(out_json.read_text(encoding="utf-8"))
     row = summary["rows"][0]
+    assert row["boundary_iou"] == 0.0
     assert row["F1@50"] == 0.0
     assert row["P@50"] == 0.0
     assert row["R@50"] == 0.0

@@ -20,6 +20,8 @@ REQUIRED_RUN_SUMMARY_KEYS = (
     "params_trainable",
     "wall_time_sec",
     "training_peak_memory_mb",
+    "benchmark",
+    "decode_config",
     "timing",
     "metrics",
     "inference_speed",

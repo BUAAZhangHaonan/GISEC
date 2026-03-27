@@ -97,3 +97,30 @@ def test_baseline_runner_dry_run_lists_splitfirst_mainline_anchor() -> None:
     assert "mode=dry-run" in text
     assert "unet_rgb_full" in text
     assert "unet_rgb_depth_wall_full" not in text
+
+
+def test_baseline_runner_dry_run_lists_phase_a_rgb_short_matrix() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [
+            "bash",
+            "scripts/experiments/run_baseline_benchmarks.sh",
+            "--group",
+            "phase_a_rgb_short",
+            "--dry-run",
+        ],
+        cwd=str(repo_root),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    text = result.stdout
+    assert "[baseline-bench]" in text
+    assert "mode=dry-run" in text
+    assert "mask_rcnn_r50_256_phasea_short" in text
+    assert "mask_rcnn_r50_512_phasea_short" in text
+    assert "mask_rcnn_r50_1024_phasea_short" in text
+    assert "mask2former_swin_t_256_phasea_short" in text
+    assert "mask2former_swin_t_512_phasea_short" in text
+    assert "mask2former_swin_t_1024_phasea_short" in text

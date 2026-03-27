@@ -46,6 +46,28 @@ def sample_to_mask2former_inputs(
     )
 
 
+def batch_to_mask2former_inputs(
+    samples: list[dict[str, Any]],
+    *,
+    processor: Mask2FormerImageProcessor,
+) -> dict[str, Any]:
+    ignore_index = getattr(processor, "ignore_index", 255)
+    instance_maps = []
+    mappings = []
+    images = []
+    for sample in samples:
+        instance_map, mapping = sample_to_instance_map(sample, ignore_index=int(ignore_index))
+        instance_maps.append(instance_map)
+        mappings.append(mapping)
+        images.append(sample["image"])
+    return processor(
+        images=images,
+        segmentation_maps=instance_maps,
+        instance_id_to_semantic_id=mappings,
+        return_tensors="pt",
+    )
+
+
 def move_mask2former_inputs_to_device(encoded: dict[str, Any], device: torch.device) -> dict[str, Any]:
     moved = {
         "pixel_values": encoded["pixel_values"].to(device),

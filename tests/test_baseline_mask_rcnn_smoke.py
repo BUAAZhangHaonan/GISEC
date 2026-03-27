@@ -55,6 +55,12 @@ def test_mask_rcnn_rgb_baseline_smoke_exports_shared_artifacts(tmp_path: Path) -
         max_train_steps=1,
         max_val_images=1,
         score_threshold=0.05,
+        variant="rgb_phasea_test",
+        backbone_name="resnet50_fpn",
+        pretrained_backbone=False,
+        amp=False,
+        eval_every_epochs=1,
+        render_overlay_limit=2,
     )
 
     assert (output_root / "run_summary.json").exists()
@@ -64,9 +70,16 @@ def test_mask_rcnn_rgb_baseline_smoke_exports_shared_artifacts(tmp_path: Path) -
     assert (output_root / "params_trainable.txt").exists()
     assert (output_root / "wall_time_sec.txt").exists()
     assert (output_root / "peak_memory_mb.txt").exists()
+    assert (output_root / "model_best.pth").exists()
+    assert (output_root / "model_final.pth").exists()
+    assert (output_root / "visualizations" / "progress" / "training_curves.png").exists()
     assert list((output_root / "visualizations" / "overlay").glob("*.png"))
 
     summary = json.loads((output_root / "run_summary.json").read_text(encoding="utf-8"))
     assert summary["model"] == "mask_rcnn"
-    assert summary["variant"] == "rgb_smoke"
+    assert summary["variant"] == "rgb_phasea_test"
     assert summary["modality"] == "rgb"
+    assert summary["benchmark"]["model_family"] == "mask_rcnn"
+    assert summary["benchmark"]["backbone_name"] == "resnet50_fpn"
+    assert summary["decode_config"]["score_threshold"] == 0.05
+    assert "boundary/IoU" in summary["metrics"]

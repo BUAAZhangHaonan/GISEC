@@ -23,6 +23,8 @@ def test_baseline_contract_defines_required_artifacts_and_summary_keys() -> None
     assert "artifact_root" in REQUIRED_RUN_SUMMARY_KEYS
     assert "timing" in REQUIRED_RUN_SUMMARY_KEYS
     assert "training_peak_memory_mb" in REQUIRED_RUN_SUMMARY_KEYS
+    assert "benchmark" in REQUIRED_RUN_SUMMARY_KEYS
+    assert "decode_config" in REQUIRED_RUN_SUMMARY_KEYS
 
 
 def test_baseline_export_builds_run_summary_payload(tmp_path: Path) -> None:
@@ -42,6 +44,20 @@ def test_baseline_export_builds_run_summary_payload(tmp_path: Path) -> None:
         metrics={"segm/AP": 71.5},
         inference_speed={"throughput_fps": 12.0},
         dataset_root="/tmp/dataset",
+        benchmark={
+            "model_family": "mask_rcnn",
+            "backbone_name": "resnet50_fpn",
+            "resolution": 1024,
+            "input_mode": "rgb",
+            "fusion_mode": "rgb",
+            "refine_mode": "none",
+            "pretrained": True,
+            "amp": True,
+            "batch_size": 4,
+            "grad_accum_steps": 1,
+            "inference_defaults_locked": True,
+        },
+        decode_config={"score_threshold": 0.5},
         timing={"prep_offline_sec": 3.0, "train_only_sec": 11.0, "eval_post_sec": 6.0, "end_to_end_sec": 17.0},
     )
 
@@ -55,6 +71,9 @@ def test_baseline_export_builds_run_summary_payload(tmp_path: Path) -> None:
     assert payload["wall_time_sec"] == 17
     assert payload["dataset_root"] == "/tmp/dataset"
     assert payload["training_peak_memory_mb"] == 321.5
+    assert payload["benchmark"]["model_family"] == "mask_rcnn"
+    assert payload["benchmark"]["resolution"] == 1024
+    assert payload["decode_config"]["score_threshold"] == 0.5
     assert payload["timing"]["prep_offline_sec"] == 3.0
     assert payload["timing"]["train_only_sec"] == 11.0
     assert payload["timing"]["eval_post_sec"] == 6.0

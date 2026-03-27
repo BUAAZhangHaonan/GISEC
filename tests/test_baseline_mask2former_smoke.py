@@ -106,6 +106,11 @@ def test_mask2former_rgb_baseline_smoke_exports_shared_artifacts(tmp_path: Path)
         num_attention_heads=4,
         num_queries=8,
         train_num_points=256,
+        variant="rgb_phasea_test",
+        backbone_name="swin_t",
+        amp=False,
+        eval_every_epochs=1,
+        render_overlay_limit=2,
     )
 
     assert (output_root / "run_summary.json").exists()
@@ -115,9 +120,16 @@ def test_mask2former_rgb_baseline_smoke_exports_shared_artifacts(tmp_path: Path)
     assert (output_root / "params_trainable.txt").exists()
     assert (output_root / "wall_time_sec.txt").exists()
     assert (output_root / "peak_memory_mb.txt").exists()
+    assert (output_root / "model_best.pth").exists()
+    assert (output_root / "model_final.pth").exists()
+    assert (output_root / "visualizations" / "progress" / "training_curves.png").exists()
     assert list((output_root / "visualizations" / "overlay").glob("*.png"))
 
     summary = json.loads((output_root / "run_summary.json").read_text(encoding="utf-8"))
     assert summary["model"] == "mask2former"
-    assert summary["variant"] == "rgb_smoke"
+    assert summary["variant"] == "rgb_phasea_test"
     assert summary["modality"] == "rgb"
+    assert summary["benchmark"]["model_family"] == "mask2former"
+    assert summary["benchmark"]["backbone_name"] == "swin_t"
+    assert summary["decode_config"]["score_threshold"] == 0.0
+    assert "boundary/IoU" in summary["metrics"]

@@ -171,3 +171,65 @@ model:
     assert payload["persistent_workers"] is True
     assert payload["prefetch_factor"] == 6
     assert payload["eval_every_epochs"] == 4
+
+
+def test_baseline_config_dry_run_supports_mask_rcnn_phase_a_short(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [
+            "python",
+            "scripts/experiments/run_baseline_config.py",
+            "--config",
+            "configs/baseline/mask_rcnn_r50_256_phasea_short.yaml",
+            "--dataset-root",
+            str(tmp_path / "dataset"),
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--dry-run",
+        ],
+        cwd=str(repo_root),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(result.stdout)
+    assert payload["model_family"] == "mask_rcnn"
+    assert payload["backbone_name"] == "resnet50_fpn"
+    assert payload["resolution"] == 256
+    assert payload["input_mode"] == "rgb"
+    assert payload["pretrained"] is True
+    assert payload["amp"] is True
+    assert payload["batch_size"] == 4
+    assert payload["inference_defaults_locked"] is True
+
+
+def test_baseline_config_dry_run_supports_mask2former_phase_a_short(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [
+            "python",
+            "scripts/experiments/run_baseline_config.py",
+            "--config",
+            "configs/baseline/mask2former_swin_t_512_phasea_short.yaml",
+            "--dataset-root",
+            str(tmp_path / "dataset"),
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--dry-run",
+        ],
+        cwd=str(repo_root),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(result.stdout)
+    assert payload["model_family"] == "mask2former"
+    assert payload["backbone_name"] == "swin_t"
+    assert payload["resolution"] == 512
+    assert payload["input_mode"] == "rgb"
+    assert payload["pretrained"] is True
+    assert payload["amp"] is True
+    assert payload["batch_size"] == 2
+    assert payload["inference_defaults_locked"] is True
