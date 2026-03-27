@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import subprocess
+import sys
 
 import cv2
 import numpy as np
 import torch
 
+from baseline.reference_graph.dataset import FragmentGraphMergeDataset
 from baseline.reference_graph.eval_pipeline import evaluate_reference_graph_merge
 from baseline.reference_graph.eval_pipeline import render_reference_graph_preview_sheet
+from baseline.reference_graph.model import ReferenceGraphMergeModel
 
 
 def _write_dataset(
@@ -188,3 +192,93 @@ def test_evaluate_reference_graph_merge_filters_gt_to_cache_images(tmp_path: Pat
     assert metrics["segm/AP50"] > 0.9
     assert summary["num_images"] == 1
     assert summary["eval_image_count"] == 1
+
+
+def test_eval_reference_graph_merge_script_cli_uses_best_threshold(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    dataset_root = tmp_path / "dataset"
+    cache_root = tmp_path / "cache"
+    reference_root = tmp_path / "refs"
+    model_dir = tmp_path / "model"
+    output_root = tmp_path / "eval_cli"
+    config_path = tmp_path / "merge_eval.yaml"
+    _write_dataset(dataset_root)
+    _write_graph_cache(cache_root)
+    _write_reference_root(reference_root)
+    model_dir.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "common:",
+                "  device: cpu",
+                "train:",
+                "  batch_size: 1",
+                "  num_workers: 0",
+                "  decision_threshold: 0.5",
+                "model:",
+                "  reference_image_size: 128",
+                "  reference_max_views: 16",
+                "  reference_view_sampler: pose_farthest",
+                "  hidden_dim: 64",
+                "  reference_hidden_dim: 32",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    dataset = FragmentGraphMergeDataset(
+        cache_root=str(cache_root),
+        reference_root=str(reference_root),
+        split="val",
+        reference_image_size=128,
+        reference_max_views=16,
+        reference_view_sampler="pose_farthest",
+    )
+    probe = dataset[0]
+    model = ReferenceGraphMergeModel(
+        node_dim=int(probe["node_features"].shape[1]),
+        edge_dim=int(probe["edge_features"].shape[1]),
+        reference_dim=int(probe["reference_features"].shape[0]),
+        hidden_dim=64,
+        reference_hidden_dim=32,
+    )
+    for parameter in model.parameters():
+        torch.nn.init.constant_(parameter, 0.0)
+    torch.save(model.state_dict(), model_dir / "model_best.pth")
+    (model_dir / "train_summary.json").write_text(
+        json.dumps({"best_threshold": 0.42}, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/experiments/eval_reference_graph_merge.py",
+            "--config",
+            str(config_path),
+            "--cache-root",
+            str(cache_root),
+            "--reference-root",
+            str(reference_root),
+            "--dataset-root",
+            str(dataset_root),
+            "--model-dir",
+            str(model_dir),
+            "--output-dir",
+            str(output_root),
+            "--split",
+            "val",
+            "--device",
+            "cpu",
+        ],
+        cwd=str(repo_root),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(result.stdout.strip().splitlines()[-1])
+    assert payload["summary"]["threshold"] == 0.42
+    assert payload["metrics"]["segm/AP50"] > 0.9
+    assert (output_root / "metrics.cocoeval.json").exists()
+    assert (output_root / "coco_instances_results.json").exists()
