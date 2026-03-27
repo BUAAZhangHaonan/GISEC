@@ -276,3 +276,32 @@ def test_baseline_config_dry_run_supports_phase_a_full_configs(tmp_path: Path) -
         assert payload["epochs"] == 20
         assert payload["max_train_steps"] == 0
         assert payload["max_val_images"] == 0
+
+
+def test_baseline_config_dry_run_supports_mask_rcnn_rgbd_concat_short(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [
+            "python",
+            "scripts/experiments/run_baseline_config.py",
+            "--config",
+            "configs/baseline/mask_rcnn_r50_1024_rgbd_concat_phaseb_short.yaml",
+            "--dataset-root",
+            str(tmp_path / "dataset"),
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--dry-run",
+        ],
+        cwd=str(repo_root),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(result.stdout)
+    assert payload["model_family"] == "mask_rcnn"
+    assert payload["backbone_name"] == "resnet50_fpn"
+    assert payload["input_mode"] == "rgbd"
+    assert payload["fusion_mode"] == "rgbd_concat"
+    assert payload["variant"] == "rgbd_concat_short_1024"
+    assert payload["resolution"] == 1024

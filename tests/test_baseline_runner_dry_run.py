@@ -147,3 +147,26 @@ def test_baseline_runner_dry_run_lists_phase_a_rgb_full_matrix() -> None:
     assert "mode=dry-run" in text
     assert "mask_rcnn_r50_1024_phasea_full" in text
     assert "mask2former_swin_t_1024_phasea_full" in text
+
+
+def test_baseline_runner_dry_run_lists_phase_b_mask_rcnn_short_matrix() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [
+            "bash",
+            "scripts/experiments/run_baseline_benchmarks.sh",
+            "--group",
+            "phase_b_maskrcnn_short",
+            "--dry-run",
+        ],
+        cwd=str(repo_root),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    text = result.stdout
+    assert "[baseline-bench]" in text
+    assert "mode=dry-run" in text
+    assert "mask_rcnn_r50_1024_rgb_phaseb_short" in text
+    assert "mask_rcnn_r50_1024_rgbd_concat_phaseb_short" in text

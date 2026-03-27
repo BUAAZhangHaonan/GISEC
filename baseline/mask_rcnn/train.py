@@ -24,7 +24,7 @@ from baseline.common.training_artifacts import (
 )
 from baseline.common.dataset import BaselineInstanceDataset
 from baseline.common.export import build_run_summary_payload
-from baseline.mask_rcnn.adapter import sample_to_mask_rcnn_target
+from baseline.mask_rcnn.adapter import sample_to_mask_rcnn_image, sample_to_mask_rcnn_target
 from baseline.mask_rcnn.eval import evaluate_mask_rcnn_baseline
 from gisec.engine.runtime import write_json
 
@@ -46,7 +46,36 @@ def _resolve_loader_perf(
     return resolved_pin_memory, resolved_persistent_workers, resolved_prefetch_factor
 
 
-def _build_mask_rcnn_model(*, backbone_name: str, pretrained_backbone: bool) -> nn.Module:
+def _adapt_input_conv(conv: nn.Conv2d, in_channels: int) -> nn.Conv2d:
+    if int(conv.in_channels) == int(in_channels):
+        return conv
+    new_conv = nn.Conv2d(
+        in_channels,
+        conv.out_channels,
+        kernel_size=conv.kernel_size,
+        stride=conv.stride,
+        padding=conv.padding,
+        bias=conv.bias is not None,
+    )
+    with torch.no_grad():
+        reference = conv.weight.mean(dim=1, keepdim=True)
+        new_conv.weight.copy_(reference.repeat(1, in_channels, 1, 1))
+        if conv.in_channels >= 3 and in_channels >= 3:
+            new_conv.weight[:, :3].copy_(conv.weight)
+        if new_conv.bias is not None and conv.bias is not None:
+            new_conv.bias.copy_(conv.bias)
+    return new_conv
+
+
+def _resolve_transform_stats(input_channels: int) -> tuple[list[float], list[float]]:
+    if int(input_channels) == 3:
+        return [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
+    if int(input_channels) == 4:
+        return [0.485, 0.456, 0.406, 0.5], [0.229, 0.224, 0.225, 0.25]
+    raise ValueError(f"Unsupported Mask R-CNN input_channels: {input_channels}")
+
+
+def _build_mask_rcnn_model(*, backbone_name: str, pretrained_backbone: bool, input_channels: int = 3) -> nn.Module:
     if str(backbone_name) != "resnet50_fpn":
         raise ValueError(f"Unsupported Mask R-CNN backbone: {backbone_name}")
     if pretrained_backbone:
@@ -65,6 +94,10 @@ def _build_mask_rcnn_model(*, backbone_name: str, pretrained_backbone: bool) -> 
             model.backbone.body.load_state_dict(filtered, strict=False)
     else:
         model = maskrcnn_resnet50_fpn(weights=None, weights_backbone=None)
+    model.backbone.body.conv1 = _adapt_input_conv(model.backbone.body.conv1, int(input_channels))
+    image_mean, image_std = _resolve_transform_stats(int(input_channels))
+    model.transform.image_mean = image_mean
+    model.transform.image_std = image_std
     in_features = model.roi_heads.box_predictor.cls_score.in_features
     model.roi_heads.box_predictor = FastRCNNPredictor(in_features, 2)
     in_features_mask = model.roi_heads.mask_predictor.conv5_mask.in_channels
@@ -118,6 +151,7 @@ def train_mask_rcnn_baseline(
     model = _build_mask_rcnn_model(
         backbone_name=str(backbone_name),
         pretrained_backbone=bool(pretrained_backbone),
+        input_channels=4 if str(input_mode) == "rgbd" else 3,
     ).to(device)
     optimizer = torch.optim.SGD(
         model.parameters(),
@@ -134,7 +168,12 @@ def train_mask_rcnn_baseline(
         persistent_workers=persistent_workers,
         prefetch_factor=prefetch_factor,
     )
-    dataset = BaselineInstanceDataset(dataset_root=dataset_root, split="train", image_size=image_size, include_depth=False)
+    dataset = BaselineInstanceDataset(
+        dataset_root=dataset_root,
+        split="train",
+        image_size=image_size,
+        include_depth=str(input_mode) != "rgb",
+    )
     loader = DataLoader(
         dataset,
         batch_size=max(int(batch_size), 1),
@@ -200,7 +239,10 @@ def train_mask_rcnn_baseline(
         epoch_batches = 0
         for batch in loader:
             images = [
-                sample["image"].to(device, non_blocking=loader_pin_memory and device.type == "cuda")
+                sample_to_mask_rcnn_image(
+                    sample,
+                    input_mode=str(input_mode),
+                ).to(device, non_blocking=loader_pin_memory and device.type == "cuda")
                 for sample in batch
             ]
             targets = []

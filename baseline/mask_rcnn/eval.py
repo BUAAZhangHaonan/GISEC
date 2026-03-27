@@ -13,7 +13,7 @@ from baseline.common.boundary_metrics import compute_boundary_iou
 from baseline.common.coco_export import masks_to_coco_results
 from baseline.common.dataset import BaselineInstanceDataset
 from baseline.common.export import build_run_summary_payload
-from baseline.mask_rcnn.adapter import outputs_to_instance_masks
+from baseline.mask_rcnn.adapter import outputs_to_instance_masks, sample_to_mask_rcnn_image
 from gisec.engine.runtime import build_benchmark_payload, evaluate_json, write_json
 from gisec.utils.visualization import render_fragment_merge_preview
 
@@ -79,7 +79,7 @@ def evaluate_mask_rcnn_baseline(
         dataset_root=dataset_root,
         split="val",
         image_size=image_size,
-        include_depth=False,
+        include_depth=str(modality) != "rgb",
         include_annotations=True,
     )
     loader = DataLoader(
@@ -100,7 +100,7 @@ def evaluate_mask_rcnn_baseline(
         for index, sample in enumerate(loader):
             if max_images > 0 and index >= int(max_images):
                 break
-            image = sample["image"].to(device)
+            image = sample_to_mask_rcnn_image(sample, input_mode=str(modality)).to(device)
             start = time.perf_counter()
             output = model([image])[0]
             latencies_ms.append((time.perf_counter() - start) * 1000.0)

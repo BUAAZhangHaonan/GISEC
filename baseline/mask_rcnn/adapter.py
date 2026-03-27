@@ -38,3 +38,25 @@ def outputs_to_instance_masks(output: dict, *, score_threshold: float) -> tuple[
         masks.append(binary)
         scores.append(float(score))
     return masks, scores
+
+
+def _normalize_depth(depth: torch.Tensor) -> torch.Tensor:
+    depth = depth.float()
+    min_value = float(depth.min())
+    max_value = float(depth.max())
+    if max_value - min_value <= 1.0e-6:
+        return torch.zeros_like(depth)
+    return (depth - min_value) / (max_value - min_value)
+
+
+def sample_to_mask_rcnn_image(sample: dict, *, input_mode: str) -> torch.Tensor:
+    mode = str(input_mode)
+    image = sample["image"].float()
+    if mode == "rgb":
+        return image
+    if mode == "rgbd":
+        depth = sample.get("depth")
+        if depth is None:
+            raise ValueError("Depth input is required for input_mode=rgbd")
+        return torch.cat([image, _normalize_depth(depth.float())], dim=0)
+    raise ValueError(f"Unsupported Mask R-CNN input_mode: {input_mode}")

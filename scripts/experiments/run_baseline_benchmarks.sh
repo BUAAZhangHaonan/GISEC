@@ -52,6 +52,10 @@ PHASE_A_RGB_FULL_CONFIGS=(
   "mask_rcnn_r50_1024_phasea_full.yaml"
   "mask2former_swin_t_1024_phasea_full.yaml"
 )
+PHASE_B_MASKRCNN_SHORT_CONFIGS=(
+  "mask_rcnn_r50_1024_rgb_phaseb_short.yaml"
+  "mask_rcnn_r50_1024_rgbd_concat_phaseb_short.yaml"
+)
 RGBD_STANDALONE_CONFIGS=(
   "unet_rgbd_full.yaml"
   "unet_depth_geometry_full.yaml"
@@ -70,6 +74,7 @@ case "${GROUP}" in
   rgb_standalone) CONFIGS=("${RGB_STANDALONE_CONFIGS[@]}") ;;
   phase_a_rgb_short) CONFIGS=("${PHASE_A_RGB_SHORT_CONFIGS[@]}") ;;
   phase_a_rgb_full) CONFIGS=("${PHASE_A_RGB_FULL_CONFIGS[@]}") ;;
+  phase_b_maskrcnn_short) CONFIGS=("${PHASE_B_MASKRCNN_SHORT_CONFIGS[@]}") ;;
   rgbd_standalone) CONFIGS=("${RGBD_STANDALONE_CONFIGS[@]}") ;;
   splitfirst_probe) CONFIGS=("${SPLITFIRST_PROBE_CONFIGS[@]}") ;;
   splitfirst_mainline) CONFIGS=("${SPLITFIRST_MAINLINE_CONFIGS[@]}") ;;

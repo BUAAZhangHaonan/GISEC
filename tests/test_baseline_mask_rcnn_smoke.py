@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 import torch
 
-from baseline.mask_rcnn.train import train_mask_rcnn_baseline
+from baseline.mask_rcnn.train import _build_mask_rcnn_model, train_mask_rcnn_baseline
 
 
 def _write_dataset(root: Path, *, file_name: str = "000001.png") -> None:
@@ -83,3 +83,47 @@ def test_mask_rcnn_rgb_baseline_smoke_exports_shared_artifacts(tmp_path: Path) -
     assert summary["benchmark"]["backbone_name"] == "resnet50_fpn"
     assert summary["decode_config"]["score_threshold"] == 0.05
     assert "boundary/IoU" in summary["metrics"]
+
+
+def test_mask_rcnn_rgbd_baseline_smoke_exports_shared_artifacts(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "dataset"
+    output_root = tmp_path / "out_rgbd"
+    _write_dataset(dataset_root)
+
+    train_mask_rcnn_baseline(
+        dataset_root=str(dataset_root),
+        output_dir=str(output_root),
+        image_size=64,
+        device=torch.device("cpu"),
+        epochs=1,
+        batch_size=1,
+        num_workers=0,
+        max_train_steps=1,
+        max_val_images=1,
+        score_threshold=0.05,
+        variant="rgbd_phaseb_test",
+        backbone_name="resnet50_fpn",
+        input_mode="rgbd",
+        pretrained_backbone=False,
+        amp=False,
+        eval_every_epochs=1,
+        render_overlay_limit=2,
+    )
+
+    summary = json.loads((output_root / "run_summary.json").read_text(encoding="utf-8"))
+    assert summary["model"] == "mask_rcnn"
+    assert summary["variant"] == "rgbd_phaseb_test"
+    assert summary["modality"] == "rgbd"
+    assert summary["benchmark"]["input_mode"] == "rgbd"
+    assert summary["benchmark"]["fusion_mode"] == "rgbd"
+    assert "boundary/IoU" in summary["metrics"]
+
+
+def test_mask_rcnn_builder_switches_to_four_channel_stem_for_rgbd() -> None:
+    model = _build_mask_rcnn_model(
+        backbone_name="resnet50_fpn",
+        pretrained_backbone=False,
+        input_channels=4,
+    )
+
+    assert int(model.backbone.body.conv1.in_channels) == 4
