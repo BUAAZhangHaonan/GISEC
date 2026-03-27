@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import subprocess
+import sys
 
 import cv2
 import numpy as np
@@ -95,4 +97,63 @@ def test_train_reference_splitter_alpha_writes_summary_and_checkpoint(tmp_path: 
     assert summary["epochs"] == 1
     assert summary["steps"] == 2
     assert summary["loss_total"] >= 0.0
+    assert (output_root / "model_final.pth").exists()
+
+
+def test_train_reference_splitter_script_cli_overrides_config(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    cache_root = tmp_path / "split_cache"
+    reference_root = tmp_path / "references"
+    output_root = tmp_path / "out_cli"
+    config_path = tmp_path / "splitter.yaml"
+    _write_split_cache(cache_root)
+    _write_reference_root(reference_root)
+    config_path.write_text(
+        """
+common:
+  device: cpu
+train:
+  epochs: 3
+  batch_size: 2
+  num_workers: 0
+  learning_rate: 1.0e-3
+  max_train_steps: 0
+model:
+  roi_size: 32
+  reference_image_size: 32
+  slot_count: 6
+""".strip(),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/experiments/train_reference_splitter.py",
+            "--config",
+            str(config_path),
+            "--cache-root",
+            str(cache_root),
+            "--reference-root",
+            str(reference_root),
+            "--output-dir",
+            str(output_root),
+            "--split",
+            "train",
+            "--epochs",
+            "1",
+            "--batch-size",
+            "1",
+            "--max-train-steps",
+            "2",
+        ],
+        cwd=str(repo_root),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    summary = json.loads(result.stdout)
+    assert summary["epochs"] == 1
+    assert summary["steps"] == 2
     assert (output_root / "model_final.pth").exists()
