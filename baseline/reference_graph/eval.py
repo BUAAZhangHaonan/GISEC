@@ -8,6 +8,18 @@ from torch.utils.data import DataLoader
 
 
 DEFAULT_REFERENCE_GRAPH_THRESHOLDS: tuple[float, ...] = (
+    0.10,
+    0.125,
+    0.15,
+    0.175,
+    0.20,
+    0.225,
+    0.25,
+    0.275,
+    0.30,
+    0.35,
+    0.40,
+    0.45,
     0.50,
     0.505,
     0.51,

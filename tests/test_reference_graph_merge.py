@@ -164,6 +164,21 @@ def test_reference_graph_default_threshold_sweep_captures_fine_margin_region() -
     assert float(sweep["best"]["threshold"]) == 0.505
 
 
+def test_reference_graph_default_threshold_sweep_supports_low_probability_region() -> None:
+    logits = torch.tensor([-1.20, -1.25, -1.28, -1.45, -1.50, -1.55], dtype=torch.float32)
+    targets = torch.tensor([1.0, 1.0, 1.0, 0.0, 0.0, 0.0], dtype=torch.float32)
+
+    sweep = summarize_threshold_sweep(
+        logits,
+        targets,
+        thresholds=DEFAULT_REFERENCE_GRAPH_THRESHOLDS,
+        conservative_f1_margin=0.01,
+    )
+
+    assert 0.2 in DEFAULT_REFERENCE_GRAPH_THRESHOLDS
+    assert float(sweep["best"]["threshold"]) < 0.5
+
+
 def test_fragment_graph_merge_dataset_appends_edge_type_one_hot(tmp_path: Path) -> None:
     cache_root = tmp_path / "graph_cache"
     reference_root = tmp_path / "references"
