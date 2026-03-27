@@ -48,6 +48,10 @@ PHASE_A_RGB_SHORT_CONFIGS=(
   "mask2former_swin_t_512_phasea_short.yaml"
   "mask2former_swin_t_1024_phasea_short.yaml"
 )
+PHASE_A_RGB_FULL_CONFIGS=(
+  "mask_rcnn_r50_1024_phasea_full.yaml"
+  "mask2former_swin_t_1024_phasea_full.yaml"
+)
 RGBD_STANDALONE_CONFIGS=(
   "unet_rgbd_full.yaml"
   "unet_depth_geometry_full.yaml"
@@ -65,6 +69,7 @@ case "${GROUP}" in
   rgbd_smoke) CONFIGS=("${RGBD_SMOKE_CONFIGS[@]}") ;;
   rgb_standalone) CONFIGS=("${RGB_STANDALONE_CONFIGS[@]}") ;;
   phase_a_rgb_short) CONFIGS=("${PHASE_A_RGB_SHORT_CONFIGS[@]}") ;;
+  phase_a_rgb_full) CONFIGS=("${PHASE_A_RGB_FULL_CONFIGS[@]}") ;;
   rgbd_standalone) CONFIGS=("${RGBD_STANDALONE_CONFIGS[@]}") ;;
   splitfirst_probe) CONFIGS=("${SPLITFIRST_PROBE_CONFIGS[@]}") ;;
   splitfirst_mainline) CONFIGS=("${SPLITFIRST_MAINLINE_CONFIGS[@]}") ;;

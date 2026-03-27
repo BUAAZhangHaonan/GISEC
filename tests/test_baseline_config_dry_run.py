@@ -233,3 +233,46 @@ def test_baseline_config_dry_run_supports_mask2former_phase_a_short(tmp_path: Pa
     assert payload["amp"] is True
     assert payload["batch_size"] == 2
     assert payload["inference_defaults_locked"] is True
+
+
+def test_baseline_config_dry_run_supports_phase_a_full_configs(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    checks = [
+        (
+            "configs/baseline/mask_rcnn_r50_1024_phasea_full.yaml",
+            "mask_rcnn",
+            "resnet50_fpn",
+        ),
+        (
+            "configs/baseline/mask2former_swin_t_1024_phasea_full.yaml",
+            "mask2former",
+            "swin_t",
+        ),
+    ]
+
+    for config_path, model_family, backbone_name in checks:
+        result = subprocess.run(
+            [
+                "python",
+                "scripts/experiments/run_baseline_config.py",
+                "--config",
+                config_path,
+                "--dataset-root",
+                str(tmp_path / "dataset"),
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--dry-run",
+            ],
+            cwd=str(repo_root),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        payload = json.loads(result.stdout)
+        assert payload["model_family"] == model_family
+        assert payload["backbone_name"] == backbone_name
+        assert payload["resolution"] == 1024
+        assert payload["epochs"] == 20
+        assert payload["max_train_steps"] == 0
+        assert payload["max_val_images"] == 0

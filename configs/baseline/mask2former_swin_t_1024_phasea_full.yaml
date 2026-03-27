@@ -1,0 +1,29 @@
+common:
+  image_size: 1024
+  batch: 1
+  num_workers: 4
+  device: cuda
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 4
+  eval_every_epochs: 1
+train:
+  epochs: 20
+  max_train_steps: 0
+  max_val_images: 0
+  amp: true
+  grad_accum_steps: 2
+  learning_rate: 1.0e-4
+  weight_decay: 1.0e-4
+model:
+  model_family: mask2former
+  backbone_name: swin_t
+  input_mode: rgb
+  variant: rgb_full_1024
+  pretrained: true
+  pretrained_model_name: facebook/mask2former-swin-tiny-coco-instance
+  score_threshold: 0.5
+  mask_threshold: 0.5
+  refine_mode: none
+  inference_defaults_locked: true
+  render_overlay_limit: 8
