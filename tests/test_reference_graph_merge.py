@@ -108,6 +108,8 @@ def test_train_reference_graph_merge_writes_summary_and_checkpoint(tmp_path: Pat
     assert summary["loss_total"] >= 0.0
     assert summary["edge_positive_rate"] == 1.0
     assert (output_root / "model_final.pth").exists()
+    assert (output_root / "history.jsonl").exists()
+    assert (output_root / "visualizations" / "progress" / "training_curves.png").exists()
 
 
 def test_build_edge_training_mask_keeps_hardest_negatives() -> None:
@@ -283,6 +285,8 @@ def test_train_reference_graph_merge_writes_val_summary_and_best_checkpoint(tmp_
     assert "f1" in val_summary
     assert len(val_sweep["rows"]) >= 2
     assert (output_root / "model_best.pth").exists()
+    assert (output_root / "history.jsonl").exists()
+    assert (output_root / "visualizations" / "progress" / "training_curves.png").exists()
 
 
 def test_train_reference_graph_merge_script_cli_overrides_config(tmp_path: Path) -> None:

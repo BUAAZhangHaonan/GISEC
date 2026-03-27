@@ -8,12 +8,19 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
+from baseline.common.training_artifacts import (
+    append_history_row,
+    load_history_rows,
+    prune_checkpoint_files,
+    render_training_curves,
+)
 from baseline.reference_graph.dataset import FragmentGraphMergeDataset, collate_fragment_graph_batch
 from baseline.reference_graph.eval import (
     DEFAULT_REFERENCE_GRAPH_THRESHOLDS,
     compute_edge_metrics,
     evaluate_reference_graph_loader,
 )
+from baseline.reference_graph.eval_pipeline import render_reference_graph_preview_sheet
 from baseline.reference_graph.model import ReferenceGraphMergeModel
 
 
@@ -115,6 +122,7 @@ def train_reference_graph_merge(
     ranking_samples_per_class: int = 128,
     eval_thresholds: tuple[float, ...] = DEFAULT_REFERENCE_GRAPH_THRESHOLDS,
     conservative_f1_margin: float = 0.005,
+    render_preview_limit: int = 4,
 ) -> None:
     artifact_root = Path(output_dir).resolve()
     artifact_root.mkdir(parents=True, exist_ok=True)
@@ -161,6 +169,9 @@ def train_reference_graph_merge(
     optimizer = torch.optim.AdamW(model.parameters(), lr=float(learning_rate), weight_decay=float(weight_decay))
 
     start = time.time()
+    history_path = artifact_root / "history.jsonl"
+    curves_path = artifact_root / "visualizations" / "progress" / "training_curves.png"
+    progress_dir = artifact_root / "visualizations" / "progress"
     step_count = 0
     loss_total = 0.0
     accuracy_total = 0.0
@@ -170,9 +181,18 @@ def train_reference_graph_merge(
     recall_total = 0.0
     f1_total = 0.0
     best_val_summary: dict[str, float] | None = None
+    manifest_path = Path(cache_root).resolve() / (str(val_split) if val_split is not None else str(split)) / "manifest.json"
+    manifest_dataset_root: str | None = None
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        dataset_root_value = manifest.get("dataset_root")
+        if dataset_root_value:
+            manifest_dataset_root = str(dataset_root_value)
 
-    for _epoch in range(int(epochs)):
+    for epoch_index in range(int(epochs)):
         model.train()
+        epoch_loss_total = 0.0
+        epoch_batches = 0
         for batch in loader:
             batch = {
                 key: value.to(device) if isinstance(value, torch.Tensor) else value
@@ -213,6 +233,8 @@ def train_reference_graph_merge(
             )
             step_count += 1
             loss_total += float(loss.item())
+            epoch_loss_total += float(loss.item())
+            epoch_batches += 1
             accuracy_total += float(metrics["edge_accuracy"])
             edge_positive_rate_total += float(metrics["edge_positive_rate"])
             pred_positive_rate_total += float(metrics["pred_positive_rate"])
@@ -266,10 +288,53 @@ def train_reference_graph_merge(
                     + "\n",
                     encoding="utf-8",
                 )
+            history_row = {
+                "epoch": int(epoch_index + 1),
+                "train_loss": 0.0 if epoch_batches <= 0 else float(epoch_loss_total) / float(epoch_batches),
+                "val_loss": float(val_eval["loss_total"]),
+                "val_f1": float(val_summary["f1"]),
+                "val_precision": float(val_summary["precision"]),
+                "val_recall": float(val_summary["recall"]),
+                "val_threshold": float(val_summary["best_threshold"]),
+                "val_pred_positive_rate": float(val_summary["pred_positive_rate"]),
+            }
+            append_history_row(history_path, history_row)
+            render_training_curves(
+                load_history_rows(history_path),
+                curves_path,
+                panels=[
+                    ("Loss", ["train_loss", "val_loss"]),
+                    ("Val", ["val_f1", "val_precision", "val_recall"]),
+                    ("Threshold", ["val_threshold", "val_pred_positive_rate"]),
+                ],
+            )
+            if manifest_dataset_root is not None:
+                latest_preview = progress_dir / "latest.png"
+                epoch_preview = progress_dir / f"epoch_{int(epoch_index + 1):03d}.png"
+                rendered = render_reference_graph_preview_sheet(
+                    cache_root=cache_root,
+                    reference_root=reference_root,
+                    dataset_root=manifest_dataset_root,
+                    split=str(val_split),
+                    output_path=epoch_preview,
+                    device=device,
+                    threshold=float(val_summary["best_threshold"]),
+                    model=model,
+                    batch_size=batch_size,
+                    num_workers=num_workers,
+                    reference_image_size=reference_image_size,
+                    reference_max_views=reference_max_views,
+                    reference_view_sampler=reference_view_sampler,
+                    limit=int(render_preview_limit),
+                )
+                if rendered is not None and rendered.exists():
+                    latest_preview.parent.mkdir(parents=True, exist_ok=True)
+                    latest_preview.write_bytes(rendered.read_bytes())
         if max_train_steps > 0 and step_count >= int(max_train_steps):
             break
 
     torch.save(model.state_dict(), artifact_root / "model_final.pth")
+    prune_checkpoint_files(artifact_root)
     summary = {
         "cache_root": str(Path(cache_root).resolve()),
         "reference_root": str(Path(reference_root).resolve()),
@@ -297,4 +362,17 @@ def train_reference_graph_merge(
         "best_conservative_threshold": None if best_val_summary is None else float(best_val_summary["best_conservative_threshold"]),
         "wall_time_sec": int(time.time() - start),
     }
+    if not history_path.exists():
+        append_history_row(
+            history_path,
+            {
+                "epoch": int(epochs),
+                "train_loss": 0.0 if step_count == 0 else loss_total / float(max(step_count, 1)),
+            },
+        )
+        render_training_curves(
+            load_history_rows(history_path),
+            curves_path,
+            panels=[("Loss", ["train_loss"])],
+        )
     (artifact_root / "train_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

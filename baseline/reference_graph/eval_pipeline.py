@@ -5,15 +5,18 @@ import time
 from pathlib import Path
 from typing import Any
 
+import cv2
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
 from baseline.common.coco_export import masks_to_coco_results
+from baseline.common.training_artifacts import render_image_contact_sheet
 from baseline.reference_graph.dataset import FragmentGraphMergeDataset, collate_fragment_graph_batch
 from baseline.reference_graph.model import ReferenceGraphMergeModel
 from gisec.engine.runtime import build_benchmark_payload, evaluate_json, write_json
 from gisec.models.graph_utils import merge_instances_from_edge_scores
+from gisec.utils.visualization import render_fragment_merge_preview
 
 
 def _masks_from_label_map(label_map: np.ndarray) -> list[np.ndarray]:
@@ -71,6 +74,92 @@ def _filter_coco_annotations_to_image_ids(annotation_path: Path, image_ids: set[
         }
     output_path.write_text(json.dumps(filtered, ensure_ascii=False) + "\n", encoding="utf-8")
     return output_path
+
+
+def render_reference_graph_preview_sheet(
+    *,
+    cache_root: str,
+    reference_root: str,
+    dataset_root: str,
+    split: str,
+    output_path: str | Path,
+    device: torch.device,
+    threshold: float,
+    model: torch.nn.Module,
+    batch_size: int = 8,
+    num_workers: int = 0,
+    reference_image_size: int = 128,
+    reference_max_views: int = 16,
+    reference_view_sampler: str = "pose_farthest",
+    limit: int = 4,
+) -> Path | None:
+    preview_limit = max(int(limit), 0)
+    if preview_limit <= 0:
+        return None
+    dataset = FragmentGraphMergeDataset(
+        cache_root=cache_root,
+        reference_root=reference_root,
+        split=split,
+        reference_image_size=int(reference_image_size),
+        reference_max_views=int(reference_max_views),
+        reference_view_sampler=str(reference_view_sampler),
+    )
+    loader = DataLoader(
+        dataset,
+        batch_size=max(int(batch_size), 1),
+        shuffle=False,
+        num_workers=int(num_workers),
+        collate_fn=collate_fragment_graph_batch,
+    )
+    output = Path(output_path)
+    previews: list[np.ndarray] = []
+    titles: list[str] = []
+    model = model.to(device)
+    model.eval()
+    with torch.no_grad():
+        for batch in loader:
+            sample_paths = [Path(path) for path in batch["sample_paths"]]
+            batch_device = {
+                key: value.to(device) if isinstance(value, torch.Tensor) else value
+                for key, value in batch.items()
+            }
+            logits = model(batch_device)
+            edge_scores = torch.sigmoid(logits.detach().cpu())
+            edge_batch = batch["edge_batch"].detach().cpu()
+            for sample_index, sample_path in enumerate(sample_paths):
+                payload = torch.load(sample_path, map_location="cpu")
+                sample_scores = edge_scores[edge_batch == int(sample_index)]
+                merged = merge_instances_from_edge_scores(
+                    fragments=payload["fragments"].numpy().astype(np.int32, copy=False),
+                    edge_index=payload["edge_index"].long(),
+                    edge_scores=sample_scores.float(),
+                    threshold=float(threshold),
+                    constrained=True,
+                    fragment_stats=payload.get("fragment_stats"),
+                    shape_stats=payload.get("shape_stats"),
+                    edge_features=payload.get("edge_features"),
+                    edge_ignore_mask=payload.get("edge_ignore_mask"),
+                )
+                image_path = Path(dataset_root) / "images" / str(split) / str(payload["file_name"])
+                image_bgr = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
+                if image_bgr is None:
+                    continue
+                image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+                previews.append(
+                    render_fragment_merge_preview(
+                        image=image_rgb,
+                        fragments=payload["fragments"].numpy().astype(np.int32, copy=False),
+                        merged=merged,
+                    )
+                )
+                titles.append(f"{payload['file_name']} @ {float(threshold):.3f}")
+                if len(previews) >= preview_limit:
+                    render_image_contact_sheet(previews, output, columns=2, titles=titles)
+                    return output
+    if previews:
+        render_image_contact_sheet(previews, output, columns=2, titles=titles)
+        return output
+    return None
 
 
 def evaluate_reference_graph_merge(

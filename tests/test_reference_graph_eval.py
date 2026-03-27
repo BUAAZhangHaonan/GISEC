@@ -8,6 +8,7 @@ import numpy as np
 import torch
 
 from baseline.reference_graph.eval_pipeline import evaluate_reference_graph_merge
+from baseline.reference_graph.eval_pipeline import render_reference_graph_preview_sheet
 
 
 def _write_dataset(
@@ -134,6 +135,34 @@ def test_evaluate_reference_graph_merge_writes_metrics_and_results(tmp_path: Pat
     assert summary["num_images"] == 1
     assert (output_root / "metrics.cocoeval.json").exists()
     assert (output_root / "coco_instances_results.json").exists()
+
+
+def test_render_reference_graph_preview_sheet_writes_progress_png(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "dataset"
+    cache_root = tmp_path / "cache"
+    reference_root = tmp_path / "refs"
+    output_root = tmp_path / "preview"
+    _write_dataset(dataset_root)
+    _write_graph_cache(cache_root)
+    _write_reference_root(reference_root)
+
+    output_path = output_root / "latest.png"
+    rendered = render_reference_graph_preview_sheet(
+        cache_root=str(cache_root),
+        reference_root=str(reference_root),
+        dataset_root=str(dataset_root),
+        split="val",
+        output_path=output_path,
+        device=torch.device("cpu"),
+        threshold=0.5,
+        model=_DummyMergeModel(),
+        batch_size=1,
+        num_workers=0,
+        limit=1,
+    )
+
+    assert rendered == output_path
+    assert output_path.exists()
 
 
 def test_evaluate_reference_graph_merge_filters_gt_to_cache_images(tmp_path: Path) -> None:
