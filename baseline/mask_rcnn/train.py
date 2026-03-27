@@ -6,6 +6,7 @@ from pathlib import Path
 
 import cv2
 import torch
+from torch.hub import load_state_dict_from_url
 from torch import nn
 from torch.amp import GradScaler, autocast
 from torch.utils.data import DataLoader
@@ -48,9 +49,22 @@ def _resolve_loader_perf(
 def _build_mask_rcnn_model(*, backbone_name: str, pretrained_backbone: bool) -> nn.Module:
     if str(backbone_name) != "resnet50_fpn":
         raise ValueError(f"Unsupported Mask R-CNN backbone: {backbone_name}")
-    weights = None
-    weights_backbone = ResNet50_Weights.DEFAULT if pretrained_backbone else None
-    model = maskrcnn_resnet50_fpn(weights=weights, weights_backbone=weights_backbone)
+    if pretrained_backbone:
+        try:
+            model = maskrcnn_resnet50_fpn(weights=None, weights_backbone=ResNet50_Weights.DEFAULT)
+        except RuntimeError as exc:
+            if "invalid hash value" not in str(exc):
+                raise
+            model = maskrcnn_resnet50_fpn(weights=None, weights_backbone=None)
+            state_dict = load_state_dict_from_url(
+                ResNet50_Weights.DEFAULT.url,
+                progress=True,
+                check_hash=False,
+            )
+            filtered = {key: value for key, value in state_dict.items() if not key.startswith("fc.")}
+            model.backbone.body.load_state_dict(filtered, strict=False)
+    else:
+        model = maskrcnn_resnet50_fpn(weights=None, weights_backbone=None)
     in_features = model.roi_heads.box_predictor.cls_score.in_features
     model.roi_heads.box_predictor = FastRCNNPredictor(in_features, 2)
     in_features_mask = model.roi_heads.mask_predictor.conv5_mask.in_channels
