@@ -19,6 +19,7 @@ from gisec.models.prototype_cache import (
 
 EDGE_TYPE_CONTACT = 0
 EDGE_TYPE_BRIDGE = 1
+EDGE_FEATURE_DIM = 8
 
 
 def sigmoid_np(logits: np.ndarray) -> np.ndarray:
@@ -380,7 +381,7 @@ def _build_graph_batch_from_fragment_map(
 ) -> GraphBatch:
     labels = [int(x) for x in np.unique(fragments).tolist() if int(x) > 0]
     empty_edge_index = torch.zeros((2, 0), dtype=torch.long, device=feature_map.device)
-    empty_edge_features = feature_map.new_zeros((0, 6))
+    empty_edge_features = feature_map.new_zeros((0, EDGE_FEATURE_DIM))
     empty_edge_type = torch.zeros((0,), dtype=torch.long, device=feature_map.device)
 
     if not labels:
@@ -396,6 +397,7 @@ def _build_graph_batch_from_fragment_map(
         )
 
     yy, xx = np.indices(fragments.shape, dtype=np.float32)
+    spatial_scale = float(max(fragments.shape[0], fragments.shape[1], 1))
     pooled = []
     fragment_geometry: Dict[int, Dict[str, float | Tuple[int, int, int, int]]] = {}
     sim_cache = None
@@ -537,6 +539,20 @@ def _build_graph_batch_from_fragment_map(
         depth_delta = abs(float(fragment_geometry[a]["depth_mean"]) - float(fragment_geometry[b]["depth_mean"]))
         area_delta = abs(float(fragment_geometry[a]["area_ratio"]) - float(fragment_geometry[b]["area_ratio"]))
         aspect_delta = abs(float(fragment_geometry[a]["aspect_ratio"]) - float(fragment_geometry[b]["aspect_ratio"]))
+        landing_distance = float(
+            np.hypot(
+                float(fragment_geometry[a]["landing_x"]) - float(fragment_geometry[b]["landing_x"]),
+                float(fragment_geometry[a]["landing_y"]) - float(fragment_geometry[b]["landing_y"]),
+            )
+            / spatial_scale
+        )
+        centroid_distance = float(
+            np.hypot(
+                float(fragment_geometry[a]["centroid"][0]) - float(fragment_geometry[b]["centroid"][0]),
+                float(fragment_geometry[a]["centroid"][1]) - float(fragment_geometry[b]["centroid"][1]),
+            )
+            / spatial_scale
+        )
         shape_consistency = 1.0 - min(
             1.0,
             abs(float(fragment_geometry[a]["area_ratio"]) - mean_area)
@@ -561,6 +577,8 @@ def _build_graph_batch_from_fragment_map(
                     area_delta,
                     aspect_delta,
                     shape_consistency if variant_spec.use_shape_stats else 0.0,
+                    landing_distance,
+                    centroid_distance,
                 ]
             )
         )

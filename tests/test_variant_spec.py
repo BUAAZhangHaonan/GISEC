@@ -149,9 +149,11 @@ def test_build_graph_batch_only_enables_shape_feature_for_variants_that_request_
         min_area=2,
     )
 
-    assert b0_batch.edge_features.shape[1] == 6
+    assert b0_batch.edge_features.shape[1] == 8
     assert torch.allclose(b0_batch.edge_features[:, 5], torch.zeros_like(b0_batch.edge_features[:, 5]))
     assert torch.any(g2_batch.edge_features[:, 5] > 0.0)
+    assert torch.any(b0_batch.edge_features[:, 6] > 0.0)
+    assert torch.any(b0_batch.edge_features[:, 7] > 0.0)
 
 
 def test_graph_refiner_merge_is_noop_for_q0() -> None:
