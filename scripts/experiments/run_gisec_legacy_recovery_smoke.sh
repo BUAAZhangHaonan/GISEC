@@ -69,7 +69,7 @@ for variant in Q0 Q1 Q2; do
   VARIANT_CONFIG="${REPO_ROOT}/configs/variant/${variant,,}.yaml"
   OUT="${OUTPUT_ROOT}/${variant}"
   runner_log "${MODE}" "${RUN_LOG}" "[gisec-recovery-smoke] variant=${variant}"
-  runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${LAUNCH_PREFIX} -m gisec.cli.train \
+  runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${LAUNCH_PREFIX} -m gisec.cli.train_legacy \
     ${CONFIG_ARGS[*]} \
     --config '${VARIANT_CONFIG}' \
     ${DATASET_ARG} \

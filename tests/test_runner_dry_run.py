@@ -35,7 +35,7 @@ def test_gisec_runner_dry_run_is_reproducible(tmp_path: Path) -> None:
     assert "mode=dry-run" in res.stdout
     assert "variant=G5" in res.stdout
     assert "prototype_root=" in res.stdout
-    assert "python -m gisec.cli.train" in res.stdout
+    assert "python -m gisec.cli.train_legacy" in res.stdout
     assert "conda run -n magformer" not in res.stdout
 
 
@@ -134,7 +134,7 @@ def test_gisec_runner_dry_run_supports_torchrun_launcher(tmp_path: Path) -> None
         text=True,
     )
 
-    assert "torchrun --standalone --nnodes 1 --nproc-per-node 6 --master-port 29610 -m gisec.cli.train" in res.stdout
+    assert "torchrun --standalone --nnodes 1 --nproc-per-node 6 --master-port 29610 -m gisec.cli.train_legacy" in res.stdout
 
 
 def test_gisec_runner_dry_run_supports_torchrun_launch(tmp_path: Path) -> None:
@@ -169,7 +169,7 @@ def test_gisec_runner_dry_run_supports_torchrun_launch(tmp_path: Path) -> None:
         text=True,
     )
 
-    assert "torchrun --standalone --nnodes 1 --nproc-per-node 4 --master-port 29655 -m gisec.cli.train" in res.stdout
+    assert "torchrun --standalone --nnodes 1 --nproc-per-node 4 --master-port 29655 -m gisec.cli.train_legacy" in res.stdout
     assert "--launcher 'torchrun'" in res.stdout or "--launcher torchrun" in res.stdout
 
 

@@ -30,7 +30,7 @@ def test_gisec_eval_runner_dry_run_is_reproducible(tmp_path: Path) -> None:
     )
 
     assert "mode=dry-run" in result.stdout
-    assert "python -m gisec.cli.eval" in result.stdout
+    assert "python -m gisec.cli.eval_legacy" in result.stdout
 
 
 def test_gisec_infer_runner_dry_run_is_reproducible(tmp_path: Path) -> None:
@@ -59,4 +59,4 @@ def test_gisec_infer_runner_dry_run_is_reproducible(tmp_path: Path) -> None:
     )
 
     assert "mode=dry-run" in result.stdout
-    assert "python -m gisec.cli.infer" in result.stdout
+    assert "python -m gisec.cli.infer_legacy" in result.stdout

@@ -66,7 +66,7 @@ if [[ "${SAVE_GRAPH_DIAGNOSTICS}" == "1" ]]; then
   EXTRA_ARGS+=(--save-graph-diagnostics --diagnostics-limit "${DIAGNOSTICS_LIMIT}")
 fi
 
-runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${PYTHON_CMD} -m gisec.cli.infer \
+runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${PYTHON_CMD} -m gisec.cli.infer_legacy \
   --dataset-root '${DATASET_ROOT}' \
   --prototype-root '${PROTOTYPE_ROOT}' \
   --output-dir '${OUT}' \

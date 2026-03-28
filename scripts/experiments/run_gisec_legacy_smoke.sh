@@ -68,7 +68,7 @@ runner_log "${MODE}" "${RUN_LOG}" "[gisec-method-smoke] config_stack=${CONFIG_AR
 for variant in A0 A1; do
   OUT="${OUTPUT_ROOT}/${variant}"
   runner_log "${MODE}" "${RUN_LOG}" "[gisec-method-smoke] variant=${variant}"
-  runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${LAUNCH_PREFIX} -m gisec.cli.train \
+  runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${LAUNCH_PREFIX} -m gisec.cli.train_legacy \
     ${CONFIG_ARGS[*]} \
     ${DATASET_ARG} \
     ${PROTOTYPE_ARG} \

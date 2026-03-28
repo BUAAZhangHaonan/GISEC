@@ -64,7 +64,7 @@ runner_log "${MODE}" "${RUN_LOG}" "[gisec-all] config_stack=${CONFIG_ARGS[*]}"
 
 for variant in A0 A1 B0 G1 G2 G3 G4 G5; do
   runner_log "${MODE}" "${RUN_LOG}" "[gisec-all] START ${variant}"
-  runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${LAUNCH_PREFIX} -m gisec.cli.train \
+  runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${LAUNCH_PREFIX} -m gisec.cli.train_legacy \
     ${CONFIG_ARGS[*]} \
     ${DATASET_ARG} \
     ${PROTOTYPE_ARG} \
@@ -74,7 +74,7 @@ for variant in A0 A1 B0 G1 G2 G3 G4 G5; do
     --nproc-per-node ${NPROC_PER_NODE:-1} \
     --master-port ${MASTER_PORT} \
     --contract-mode '${CONTRACT_MODE}'"
-  runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${PYTHON_CMD} -m gisec.cli.eval \
+  runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${PYTHON_CMD} -m gisec.cli.eval_legacy \
     ${CONFIG_ARGS[*]} \
     ${DATASET_ARG} \
     ${PROTOTYPE_ARG} \

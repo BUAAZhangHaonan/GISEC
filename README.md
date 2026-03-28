@@ -1,9 +1,15 @@
 # GISEC: Graph-based Instance Segmentation for Electronic Components
 
-`GISEC` now has two explicit lines:
+`GISEC` now has one clean active front line and a quarantined legacy archive.
 
-- `GISEC v1.5 legacy`: the historical `fragment-first` line kept for reproduction and failure analysis
-- `GISEC Query Alpha`: the new `object-first` line that starts from a query-only backbone before `reference and graph remain required later modules`
+- **Active instance-first surface (current focus).** Mask2Former Swin-T @1024 is the fixed Phase A winner. The pipeline now runs through a strong backbone (RGB, RGB-D concat, RGB-D + mask) and optional crop-local refine / reference / graph stages, with failure diagnostics and export hygiene matching the active story. The canonical active variants are:
+  - `base_rgb_1024`
+  - `base_rgbd_1024`
+  - `base_rgbd_1024_refine`
+  - `base_rgbd_1024_refine_ref`
+  - `base_rgbd_1024_refine_ref_graph`
+  - Active configs live under `configs/active/`, and `scripts/experiments/run_gisec_active.sh` is the dedicated runner for that surface.
+- **Legacy archive.** The former fragment-first stack (`GISEC v1.5 legacy` and variants `A*/B*/G*/Q*`) plus the narrow `GISEC Query Alpha` path remain runnable for reproduction, diagnostics, and query-only experiments, but they are explicitly labeled as legacy. The README sections below document both the new active line and the preserved archives.
 
 ## Why This Repo Exists
 
@@ -13,19 +19,7 @@ The lightweight RGB-D line in `magformer` has already established a stable basel
 - a lightweight `U-Net-first` backbone can predict fragment-level cues cheaply
 - a dedicated `GraphRefiner` can merge fragments more reliably than heuristic grouping under occlusion-heavy clutter
 
-This repository is intentionally independent from the `magformer` training stack. The current reset is explicit: `GISEC v1.5 legacy` remains runnable as the historical baseline, while `GISEC Query Alpha` becomes the active `object-first` implementation target.
-
-## Current Scope
-
-- independent Python package: `gisec`
-- reserved next-generation package surface: formal `gisec` `query_*` modules
-- `GISEC v1.5 legacy` remains the historical `fragment-first` baseline
-- `GISEC Query Alpha` is the active `object-first` implementation target
-- explicit variant interface: `A0/A1/B0/G1/G2/G3/G4/G5`
-- recovery debug interface: `Q0/Q1/Q2`
-- prototype bank contract with `compat` and `strict` validation modes
-- `train`, `eval`, and `infer` CLI entrypoints
-- experiment runners with configurable Python / conda execution
+This repository is intentionally independent from the `magformer` training stack. The active line lives under `gisec` `train/eval/infer` with the strong backbone, while the legacy scripts (`run_gisec_legacy*.sh`, `run_gisec_query_uq.sh`, `scripts/experiments/run_legacy_1k_20ep_1024_gisec*.sh`) stay available for historical comparison and query-only diagnostics.
 
 ## External Inputs
 
@@ -73,41 +67,61 @@ The environment file is intentionally biased toward the newest supported stack:
 
 The project still works in `compat` mode with prototype-bank exports that are missing `shape_stats.json` and preview artifacts required by the stricter contract.
 
-### Train
+### Active Train
 
 ```bash
 python -m gisec.cli.train \
   --dataset-root /home/k100/zhn/electronic-components-grasp-and-segment/magformer_datasets/0831_1K \
-  --prototype-root /home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/20260318_1K_13440_reference/150044M155220 \
-  --output-dir output/experiments/gisec_0831/G5 \
-  --variant G5 \
-  --contract-mode compat
+  --config configs/active/base_rgb_1024.yaml \
+  --output-dir output/experiments/gisec_active/base_rgb_1024
 ```
 
-### Eval
+### Active Eval
 
 ```bash
 python -m gisec.cli.eval \
   --dataset-root /home/k100/zhn/electronic-components-grasp-and-segment/magformer_datasets/0831_1K \
-  --prototype-root /home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/20260318_1K_13440_reference/150044M155220 \
-  --output-dir output/experiments/gisec_0831/G5 \
-  --variant G5 \
-  --checkpoint output/experiments/gisec_0831/G5/model_best.pth \
-  --contract-mode compat
+  --config configs/active/base_rgbd_1024_refine_ref_graph.yaml \
+  --prototype-root /home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/20260318_1K_13440_reference \
+  --output-dir output/experiments/gisec_active/base_rgbd_1024_refine_ref_graph \
+  --checkpoint output/experiments/gisec_active/base_rgbd_1024_refine_ref_graph/model_best.pth
 ```
 
-### Runner
+### Active Runner
 
 ```bash
-bash scripts/experiments/run_legacy_1k_20ep_1024_gisec.sh \
+bash scripts/experiments/run_gisec_active.sh \
   --dataset-root /home/k100/zhn/electronic-components-grasp-and-segment/magformer_datasets/0831_1K \
-  --prototype-root /home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/20260318_1K_13440_reference/150044M155220 \
-  --output-root output/experiments/gisec_0831 \
-  --contract-mode compat \
+  --output-root output/experiments/gisec_active \
+  --group base_rgbd_1024_refine_ref_graph \
+  --prototype-root /home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/20260318_1K_13440_reference \
   --run
 ```
 
 Use `GISEC_CONDA_ENV=gisec` or `GISEC_PYTHON=/path/to/python` to control how the shell runners invoke Python.
+
+The instance-first active surface is driven by `configs/active/*.yaml` and the helper script:
+
+```bash
+bash scripts/experiments/run_gisec_active.sh \
+  --dataset-root /home/k100/zhn/electronic-components-grasp-and-segment/magformer_datasets/0831_1K \
+  --output-root output/experiments/gisec_active \
+  --group base_rgbd_1024_refine_ref_graph \
+  --prototype-root /home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/20260318_1K_13440_reference \
+  --run
+```
+
+The script iterates through the canonical active configs, toggles between `train` and `eval`, and optionally switches to `dry-run` mode. Prototype roots are only required once reference or graph rescue enters the chain.
+
+### Legacy Train / Eval
+
+Use the explicit legacy wrappers when the goal is to reproduce the archived fragment-first line:
+
+```bash
+python -m gisec.cli.train_legacy --variant G5 --prototype-root /path/to/reference_bank ...
+python -m gisec.cli.eval_legacy --variant G5 --prototype-root /path/to/reference_bank ...
+python -m gisec.cli.infer_legacy --variant G5 --prototype-root /path/to/reference_bank ...
+```
 
 ### Configs
 
@@ -195,6 +209,7 @@ The historical Stage 1 story remains documented for `v1.5 legacy`:
 
 The active direction is different:
 
-- `GISEC Query Alpha` is `object-first`
-- the first executable phase is `query-only`
+- the first executable phase is `Mask2Former @1024`
+- the active surface grows in order: `base_rgb_1024 -> base_rgbd_1024 -> refine -> reference -> graph`
 - `reference and graph remain required later modules`
+- `GISEC Query Alpha` stays available as an experimental object-first archive, not the default repo face

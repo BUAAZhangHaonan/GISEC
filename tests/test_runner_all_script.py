@@ -34,8 +34,8 @@ def test_gisec_all_runner_adds_post_train_eval_visualization_export(tmp_path: Pa
         text=True,
     )
 
-    assert "python -m gisec.cli.train" in result.stdout
-    assert "python -m gisec.cli.eval" in result.stdout
+    assert "python -m gisec.cli.train_legacy" in result.stdout
+    assert "python -m gisec.cli.eval_legacy" in result.stdout
     assert "eval_vis" in result.stdout
 
 
@@ -50,8 +50,8 @@ def test_new_cli_modules_expose_train_eval_infer_help() -> None:
             text=True,
         )
         assert result.returncode == 0
-        assert "A0" in result.stdout
-        assert "A1" in result.stdout
+        assert "base_rgb_1024" in result.stdout
+        assert "base_rgbd_1024_refine_ref_graph" in result.stdout
 
 
 def test_gisec_eval_and_infer_runner_scripts_exist() -> None:

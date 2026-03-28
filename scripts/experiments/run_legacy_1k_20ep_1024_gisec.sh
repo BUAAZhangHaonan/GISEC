@@ -85,7 +85,7 @@ if [[ "${SAVE_GRAPH_DIAGNOSTICS}" == "1" ]]; then
   EXTRA_ARGS+=(--save-graph-diagnostics --diagnostics-limit "${DIAGNOSTICS_LIMIT}")
 fi
 
-runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${LAUNCH_PREFIX} -m gisec.cli.train \
+runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${LAUNCH_PREFIX} -m gisec.cli.train_legacy \
   ${CONFIG_ARGS[*]} \
   ${DATASET_ARG} \
   ${PROTOTYPE_ARG} \
