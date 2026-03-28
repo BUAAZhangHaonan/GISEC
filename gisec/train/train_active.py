@@ -34,6 +34,7 @@ from gisec.active.model import (
     mask_bbox,
     paste_mask_from_crop,
     prepare_active_input_batch,
+    prepare_reference_depth,
 )
 from gisec.active.runtime import select_refinement_instances
 from gisec.config.io import extract_argparse_defaults, load_yaml_config, merge_config_dicts
@@ -72,6 +73,7 @@ MODEL_DEFAULTS = {
     "reference_max_views": 16,
     "reference_view_sampler": "pose_farthest",
     "prototype_root": "",
+    "init_checkpoint": "",
     "checkpoint": "",
     "split": "val",
     "dry_run": False,
@@ -124,6 +126,7 @@ def _common_parser(*, mode: str, argv: list[str] | None) -> argparse.ArgumentPar
     parser.add_argument("--dataset-root")
     parser.add_argument("--output-dir")
     parser.add_argument("--prototype-root", default="")
+    parser.add_argument("--init-checkpoint", default="")
     parser.add_argument("--variant", choices=list(active_variant_names()), default="base_rgb_1024")
     parser.add_argument("--image-size", type=int, default=1024)
     parser.add_argument("--batch", type=int, default=1)
@@ -173,6 +176,8 @@ def _validate_variant_requirements(parser: argparse.ArgumentParser, args: argpar
     variant_spec = get_active_variant_spec(args.variant)
     if variant_spec.requires_prototype_root and getattr(args, "prototype_root", "") in ("", None):
         parser.error(f"--prototype-root is required for active variant {variant_spec.name}")
+    if (not is_eval) and variant_spec.use_local_refine and getattr(args, "init_checkpoint", "") in ("", None):
+        parser.error(f"--init-checkpoint is required for active variant {variant_spec.name}")
     if is_eval and getattr(args, "checkpoint", "") in ("", None):
         parser.error("--checkpoint is required for eval/infer")
 
@@ -233,6 +238,7 @@ def _model_payload(args: argparse.Namespace) -> dict[str, Any]:
         "reference_max_views": int(args.reference_max_views),
         "reference_view_sampler": str(args.reference_view_sampler),
         "prototype_root": str(getattr(args, "prototype_root", "")),
+        "init_checkpoint": str(getattr(args, "init_checkpoint", "")),
         "checkpoint": str(getattr(args, "checkpoint", "")),
         "split": str(getattr(args, "split", "val")),
         "max_train_steps": int(getattr(args, "max_train_steps", 0)),
@@ -254,6 +260,19 @@ def _extract_state_dict(payload: dict[str, Any], *, prefix_backbone: bool = Fals
         if state_dict and not any(key.startswith("backbone.") for key in state_dict):
             state_dict = {f"backbone.{key}": value for key, value in state_dict.items()}
     return state_dict
+
+
+def _filter_compatible_state_dict(source_state: dict[str, Any], target_state: dict[str, Any]) -> dict[str, Any]:
+    filtered: dict[str, Any] = {}
+    for key, value in source_state.items():
+        if key not in target_state:
+            continue
+        target_value = target_state[key]
+        if hasattr(value, "shape") and hasattr(target_value, "shape"):
+            if tuple(value.shape) != tuple(target_value.shape):
+                continue
+        filtered[key] = value
+    return filtered
 
 
 def _resolve_input_channels(depth_mode: str) -> int:
@@ -294,6 +313,21 @@ def _build_active_model(args: argparse.Namespace) -> ActiveInstanceModel:
         refiner_hidden_dim=int(args.refiner_hidden_dim),
         graph_hidden_dim=int(args.graph_hidden_dim),
     )
+
+
+def _configure_model_for_stage(model: nn.Module, args: argparse.Namespace) -> None:
+    variant_spec = get_active_variant_spec(args.variant)
+    if not variant_spec.use_local_refine:
+        return
+    for param in model.backbone.parameters():
+        param.requires_grad = False
+    init_checkpoint = Path(str(args.init_checkpoint)).resolve()
+    if not init_checkpoint.exists():
+        raise FileNotFoundError(init_checkpoint)
+    checkpoint_payload = torch.load(str(init_checkpoint), map_location="cpu")
+    state_dict = _extract_state_dict(checkpoint_payload, prefix_backbone=True)
+    compatible_state = _filter_compatible_state_dict(state_dict, model.state_dict())
+    model.load_state_dict(compatible_state, strict=False)
 
 
 def _build_loader(*, dataset_root: str, split: str, image_size: int, batch_size: int, num_workers: int, include_depth: bool, train: bool) -> DataLoader:
@@ -420,9 +454,13 @@ def _prepare_reference_tensors(
     if source is None:
         return None, None, None
     bank = source.load_for_query(str(sample["file_name"]))
+    normalized_ref_depth = prepare_reference_depth(
+        depth=bank.depths.float(),
+        mask=bank.masks.float(),
+    )
     return (
         F.interpolate(bank.images.float().to(device), size=(crop_size, crop_size), mode="bilinear", align_corners=False).unsqueeze(0),
-        F.interpolate(bank.depths.float().to(device), size=(crop_size, crop_size), mode="bilinear", align_corners=False).unsqueeze(0),
+        F.interpolate(normalized_ref_depth.to(device), size=(crop_size, crop_size), mode="bilinear", align_corners=False).unsqueeze(0),
         F.interpolate(bank.masks.float().to(device), size=(crop_size, crop_size), mode="nearest").unsqueeze(0),
     )
 
@@ -918,6 +956,7 @@ def train_active(args: argparse.Namespace) -> None:
         train=False,
     )
     model = _build_active_model(args).to(device)
+    _configure_model_for_stage(model, args)
     prototype_source = None
     if variant_spec.requires_prototype_root:
         prototype_source = PrototypeBankSource(

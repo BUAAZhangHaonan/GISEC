@@ -327,6 +327,7 @@ def test_active_cli_minibatch_runs_refine_reference_graph_variant_with_prototype
     repo_root = Path(__file__).resolve().parents[1]
     dataset_root = tmp_path / "dataset"
     prototype_root = tmp_path / "prototype_bank"
+    base_root = tmp_path / "base_out"
     output_root = tmp_path / "out"
     _write_split_like_dataset(dataset_root)
     _write_prototype_bank(prototype_root)
@@ -336,9 +337,24 @@ def test_active_cli_minibatch_runs_refine_reference_graph_variant_with_prototype
             sys.executable,
             "-m",
             "gisec.cli.train",
+            *_active_args(dataset_root, base_root, variant="base_rgbd_1024"),
+        ],
+        cwd=str(repo_root),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gisec.cli.train",
             *_active_args(dataset_root, output_root, variant="base_rgbd_1024_refine_ref_graph"),
             "--prototype-root",
             str(prototype_root),
+            "--init-checkpoint",
+            str(base_root / "model_final.pth"),
         ],
         cwd=str(repo_root),
         check=True,

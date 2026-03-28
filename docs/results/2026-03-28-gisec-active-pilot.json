@@ -1,0 +1,67 @@
+{
+  "num_runs": 5,
+  "best_variant": "base_rgb_1024",
+  "best_segm_ap": 0.5450772353135926,
+  "rows": [
+    {
+      "variant": "base_rgb_1024",
+      "segm/AP": 0.5450772353135926,
+      "bbox/AP": 0.49337000524805646,
+      "boundary/IoU": 0.1893520703200649,
+      "split_gt_count": 593,
+      "merge_pred_count": 668,
+      "refinement_invocation_rate": 0.0,
+      "local_graph_invocation_rate": 0.0,
+      "throughput_fps": 9.6067824571516,
+      "path": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/output/experiments/gisec_active/base_rgb_1024_eval_from_phasea_full/run_summary.json"
+    },
+    {
+      "variant": "base_rgbd_1024",
+      "segm/AP": 0.23166010819461252,
+      "bbox/AP": 0.27667068503075987,
+      "boundary/IoU": 0.12328488103882293,
+      "split_gt_count": 1537,
+      "merge_pred_count": 1393,
+      "refinement_invocation_rate": 0.0,
+      "local_graph_invocation_rate": 0.0,
+      "throughput_fps": 10.387695896277497,
+      "path": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/output/experiments/gisec_active_pilot_20260328/base_rgbd_1024_eval_full/run_summary.json"
+    },
+    {
+      "variant": "base_rgbd_1024_refine",
+      "segm/AP": 0.3392572048220353,
+      "bbox/AP": 0.3703718169382499,
+      "boundary/IoU": 0.12346694475217915,
+      "split_gt_count": 4588,
+      "merge_pred_count": 2138,
+      "refinement_invocation_rate": 0.1,
+      "local_graph_invocation_rate": 0.0,
+      "throughput_fps": 9.449429914783623,
+      "path": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/output/experiments/gisec_active_pilot_20260328/base_rgbd_1024_refine_eval_full/run_summary.json"
+    },
+    {
+      "variant": "base_rgbd_1024_refine_ref",
+      "segm/AP": 0.006930693069306931,
+      "bbox/AP": 0.0099009900990099,
+      "boundary/IoU": 4.107546852209659e-05,
+      "split_gt_count": 0,
+      "merge_pred_count": 0,
+      "refinement_invocation_rate": 0.3333333333333333,
+      "local_graph_invocation_rate": 0.0,
+      "throughput_fps": 11.248555862965675,
+      "path": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/output/experiments/gisec_active_pilot_20260328/base_rgbd_1024_refine_ref_eval_full/run_summary.json"
+    },
+    {
+      "variant": "base_rgbd_1024_refine_ref_graph",
+      "segm/AP": 0.010702377516436868,
+      "bbox/AP": 0.009553954158600705,
+      "boundary/IoU": 0.04413317418018124,
+      "split_gt_count": 5794,
+      "merge_pred_count": 1383,
+      "refinement_invocation_rate": 0.1437091735302471,
+      "local_graph_invocation_rate": 0.0,
+      "throughput_fps": 10.816396931172422,
+      "path": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/output/experiments/gisec_active_pilot_20260328/base_rgbd_1024_refine_ref_graph_eval_full/run_summary.json"
+    }
+  ]
+}

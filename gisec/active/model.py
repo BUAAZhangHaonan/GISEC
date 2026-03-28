@@ -22,6 +22,22 @@ def normalize_depth(depth: torch.Tensor) -> torch.Tensor:
     return torch.where(finite, normalized, torch.zeros_like(normalized))
 
 
+def prepare_reference_depth(*, depth: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    if depth.shape != mask.shape:
+        raise ValueError(f"Expected depth and mask to share shape, got {tuple(depth.shape)} and {tuple(mask.shape)}")
+    valid = (mask > 0.5) & torch.isfinite(depth) & (depth < 1.0e9)
+    safe_depth = torch.where(valid, depth.float(), torch.zeros_like(depth.float()))
+    masked_sum = safe_depth.flatten(2).sum(dim=2, keepdim=True)
+    masked_count = valid.float().flatten(2).sum(dim=2, keepdim=True).clamp_min(1.0)
+    masked_min = torch.where(valid, safe_depth, torch.full_like(safe_depth, float("inf"))).flatten(2).amin(dim=2, keepdim=True)
+    masked_max = torch.where(valid, safe_depth, torch.full_like(safe_depth, float("-inf"))).flatten(2).amax(dim=2, keepdim=True)
+    masked_min = torch.where(torch.isfinite(masked_min), masked_min, torch.zeros_like(masked_min)).view(depth.shape[0], depth.shape[1], 1, 1)
+    masked_max = torch.where(torch.isfinite(masked_max), masked_max, torch.ones_like(masked_max)).view(depth.shape[0], depth.shape[1], 1, 1)
+    normalized = (safe_depth - masked_min) / (masked_max - masked_min).clamp_min(1.0e-6)
+    normalized = torch.where(valid, normalized, torch.zeros_like(normalized))
+    return normalized
+
+
 def prepare_active_input_batch(
     *,
     images: torch.Tensor,
