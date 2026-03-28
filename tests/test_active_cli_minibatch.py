@@ -7,6 +7,9 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import torch
+
+from gisec.train.train_active import _query_instances_from_outputs
 
 
 def _write_dataset(root: Path) -> None:
@@ -146,6 +149,28 @@ def _active_args(dataset_root: Path, output_root: Path, *, variant: str) -> list
         "--train-num-points",
         "64",
     ]
+
+
+def test_active_query_export_keeps_foreground_queries_even_when_label_index_is_one() -> None:
+    class_logits = torch.tensor(
+        [
+            [-8.0, 4.0, -2.0],
+            [-7.5, 3.5, -1.0],
+        ],
+        dtype=torch.float32,
+    )
+    mask_logits = torch.full((2, 8, 8), 8.0, dtype=torch.float32)
+
+    rows = _query_instances_from_outputs(
+        class_logits=class_logits,
+        mask_logits=mask_logits,
+        image_shape=(8, 8),
+        score_threshold=0.5,
+        mask_threshold=0.5,
+    )
+
+    assert len(rows) == 2
+    assert all(int(row["binary_mask"].sum().item()) == 64 for row in rows)
 
 
 def test_active_cli_minibatch_runs_train_eval_infer_for_base_rgb(tmp_path: Path) -> None:

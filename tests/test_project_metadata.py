@@ -50,10 +50,11 @@ def test_project_docs_freeze_v15_and_query_alpha_boundaries() -> None:
     assert "GISEC Query Alpha" in readme_text
     assert "fragment-first" in readme_text
     assert "object-first" in readme_text
-    assert "reference and graph remain required later modules" in readme_text
+    assert "base_rgb_1024" in readme_text
     assert "v1.5 legacy" in method_readme
     assert "query-alpha object-first" in method_readme
-    assert "query-alpha" in results_readme
+    assert "active benchmark surface" in results_readme
+    assert "2026-03-28-active-surface-pilot-summary.md" in results_readme
 
 
 def test_project_metadata_includes_formal_gisec_query_surface() -> None:
