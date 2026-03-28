@@ -79,6 +79,8 @@ MODEL_DEFAULTS = {
     "dry_run": False,
 }
 
+ACTIVE_DEPTH_MODES = ("rgb", "rgbd_concat", "rgbd_concat_valid_mask")
+
 
 def _config_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(add_help=False)
@@ -106,6 +108,7 @@ def _load_parser_defaults(argv: list[str] | None, *, mode: str) -> dict[str, Any
         "num_attention_heads",
         "num_queries",
         "train_num_points",
+        "depth_mode",
         "refiner_hidden_dim",
         "graph_hidden_dim",
         "crop_size",
@@ -128,6 +131,7 @@ def _common_parser(*, mode: str, argv: list[str] | None) -> argparse.ArgumentPar
     parser.add_argument("--prototype-root", default="")
     parser.add_argument("--init-checkpoint", default="")
     parser.add_argument("--variant", choices=list(active_variant_names()), default="base_rgb_1024")
+    parser.add_argument("--depth-mode", choices=list(ACTIVE_DEPTH_MODES), default="")
     parser.add_argument("--image-size", type=int, default=1024)
     parser.add_argument("--batch", type=int, default=1)
     parser.add_argument("--num-workers", type=int, default=4)
@@ -174,6 +178,13 @@ def _validate_required_args(parser: argparse.ArgumentParser, args: argparse.Name
 
 def _validate_variant_requirements(parser: argparse.ArgumentParser, args: argparse.Namespace, *, is_eval: bool) -> None:
     variant_spec = get_active_variant_spec(args.variant)
+    depth_mode = str(getattr(args, "depth_mode", "") or variant_spec.depth_mode)
+    if variant_spec.depth_mode == "rgb":
+        if depth_mode != "rgb":
+            parser.error(f"--depth-mode {depth_mode} is not allowed for active variant {variant_spec.name}")
+    elif depth_mode not in {"rgbd_concat", "rgbd_concat_valid_mask"}:
+        parser.error(f"--depth-mode {depth_mode} is not allowed for active variant {variant_spec.name}")
+    args.depth_mode = depth_mode
     if variant_spec.requires_prototype_root and getattr(args, "prototype_root", "") in ("", None):
         parser.error(f"--prototype-root is required for active variant {variant_spec.name}")
     if (not is_eval) and variant_spec.use_local_refine and getattr(args, "init_checkpoint", "") in ("", None):
@@ -210,7 +221,7 @@ def _model_payload(args: argparse.Namespace) -> dict[str, Any]:
     variant_spec = get_active_variant_spec(args.variant)
     return {
         "variant": variant_spec.name,
-        "depth_mode": variant_spec.depth_mode,
+        "depth_mode": str(args.depth_mode),
         "use_local_refine": variant_spec.use_local_refine,
         "use_reference_rescue": variant_spec.use_reference_rescue,
         "use_graph_rescue": variant_spec.use_graph_rescue,
@@ -287,7 +298,7 @@ def _resolve_input_channels(depth_mode: str) -> int:
 
 def _build_active_model(args: argparse.Namespace) -> ActiveInstanceModel:
     variant_spec = get_active_variant_spec(args.variant)
-    input_channels = _resolve_input_channels(variant_spec.depth_mode)
+    input_channels = _resolve_input_channels(str(args.depth_mode))
     backbone = build_mask2former_model(
         image_size=int(args.image_size),
         pretrained_model_name=None if str(args.pretrained_model_name).strip().lower() in {"", "none"} else str(args.pretrained_model_name),
@@ -739,9 +750,9 @@ def _evaluate_active(
     boundary_band_width: int,
     max_images: int,
     save_raw: bool,
+    depth_mode: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     variant_spec = get_active_variant_spec(variant_name)
-    depth_mode = variant_spec.depth_mode
     model.eval()
     processor = build_mask2former_processor()
     results: list[dict[str, Any]] = []
@@ -759,7 +770,7 @@ def _evaluate_active(
                 break
             images = torch.stack([sample["image"].float() for sample in samples], dim=0).to(device)
             depths = None
-            if variant_spec.depth_mode != "rgb":
+            if str(depth_mode) != "rgb":
                 depths = torch.stack([sample["depth"].float() for sample in samples], dim=0).to(device)
             pixel_values = prepare_active_input_batch(images=images, depths=depths, depth_mode=depth_mode)
             pixel_mask = _build_pixel_mask(pixel_values)
@@ -936,7 +947,7 @@ def train_active(args: argparse.Namespace) -> None:
     device = build_device(str(args.device))
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    include_depth = variant_spec.depth_mode != "rgb"
+    include_depth = str(args.depth_mode) != "rgb"
     train_loader = _build_loader(
         dataset_root=str(args.dataset_root),
         split="train",
@@ -985,7 +996,7 @@ def train_active(args: argparse.Namespace) -> None:
             depths = None
             if include_depth:
                 depths = torch.stack([sample["depth"].float() for sample in samples], dim=0).to(device)
-            pixel_values = prepare_active_input_batch(images=images, depths=depths, depth_mode=variant_spec.depth_mode)
+            pixel_values = prepare_active_input_batch(images=images, depths=depths, depth_mode=str(args.depth_mode))
             pixel_mask = _build_pixel_mask(pixel_values)
             mask_labels, class_labels = _build_label_targets(samples, device=device)
             with autocast(device_type=device.type, enabled=bool(device.type == "cuda")):
@@ -1031,6 +1042,7 @@ def train_active(args: argparse.Namespace) -> None:
             boundary_band_width=int(args.boundary_band_width),
             max_images=int(args.max_val_images),
             save_raw=False,
+            depth_mode=str(args.depth_mode),
         )
         segm_ap = float(metrics.get("segm/AP", 0.0))
         if segm_ap >= best_ap:
@@ -1052,10 +1064,11 @@ def train_active(args: argparse.Namespace) -> None:
         mask_threshold=float(args.mask_threshold),
         crop_size=int(args.crop_size),
         crop_pad=int(args.crop_pad),
-        boundary_band_width=int(args.boundary_band_width),
-        max_images=int(args.max_val_images),
-        save_raw=False,
-    )
+            boundary_band_width=int(args.boundary_band_width),
+            max_images=int(args.max_val_images),
+            save_raw=False,
+            depth_mode=str(args.depth_mode),
+        )
     peak_memory_mb = 0.0
     if device.type == "cuda" and torch.cuda.is_available():
         peak_memory_mb = float(torch.cuda.max_memory_allocated(device) / (1024.0 * 1024.0))
@@ -1065,7 +1078,7 @@ def train_active(args: argparse.Namespace) -> None:
     summary = build_run_summary_payload(
         model="mask2former",
         variant=variant_spec.name,
-        modality=variant_spec.depth_mode,
+        modality=str(args.depth_mode),
         artifact_root=output_dir,
         metrics=metrics,
         inference_speed=speed,
@@ -1074,7 +1087,7 @@ def train_active(args: argparse.Namespace) -> None:
         params_trainable=params_trainable,
         training_peak_memory_mb=peak_memory_mb,
         wall_time_sec=wall_time_sec,
-        benchmark=_active_benchmark_payload(variant_spec.name, variant_spec.depth_mode),
+        benchmark=_active_benchmark_payload(variant_spec.name, str(args.depth_mode)),
         decode_config={
             "score_threshold": float(args.score_threshold),
             "mask_threshold": float(args.mask_threshold),
@@ -1111,7 +1124,7 @@ def eval_active(args: argparse.Namespace) -> None:
         image_size=int(args.image_size),
         batch_size=1,
         num_workers=int(args.num_workers),
-        include_depth=variant_spec.depth_mode != "rgb",
+        include_depth=str(args.depth_mode) != "rgb",
         train=False,
     )
     ann_file = Path(args.dataset_root).resolve() / "annotations" / f"instances_{args.split}.json"
@@ -1130,17 +1143,18 @@ def eval_active(args: argparse.Namespace) -> None:
         boundary_band_width=int(args.boundary_band_width),
         max_images=int(args.max_images),
         save_raw=False,
+        depth_mode=str(args.depth_mode),
     )
     summary = build_run_summary_payload(
         model="mask2former",
         variant=variant_spec.name,
-        modality=variant_spec.depth_mode,
+        modality=str(args.depth_mode),
         artifact_root=output_dir,
         metrics=metrics,
         inference_speed=speed,
         checkpoint=Path(str(args.checkpoint)).resolve(),
         dataset_root=str(Path(args.dataset_root).resolve()),
-        benchmark=_active_benchmark_payload(variant_spec.name, variant_spec.depth_mode),
+        benchmark=_active_benchmark_payload(variant_spec.name, str(args.depth_mode)),
         decode_config={
             "score_threshold": float(args.score_threshold),
             "mask_threshold": float(args.mask_threshold),
@@ -1177,7 +1191,7 @@ def infer_active(args: argparse.Namespace) -> None:
         image_size=int(args.image_size),
         batch_size=1,
         num_workers=int(args.num_workers),
-        include_depth=variant_spec.depth_mode != "rgb",
+        include_depth=str(args.depth_mode) != "rgb",
         train=False,
     )
     ann_file = Path(args.dataset_root).resolve() / "annotations" / f"instances_{args.split}.json"
@@ -1196,17 +1210,18 @@ def infer_active(args: argparse.Namespace) -> None:
         boundary_band_width=int(args.boundary_band_width),
         max_images=int(args.max_images),
         save_raw=True,
+        depth_mode=str(args.depth_mode),
     )
     summary = build_run_summary_payload(
         model="mask2former",
         variant=variant_spec.name,
-        modality=variant_spec.depth_mode,
+        modality=str(args.depth_mode),
         artifact_root=output_dir,
         metrics=metrics,
         inference_speed=speed,
         checkpoint=Path(str(args.checkpoint)).resolve(),
         dataset_root=str(Path(args.dataset_root).resolve()),
-        benchmark=_active_benchmark_payload(variant_spec.name, variant_spec.depth_mode),
+        benchmark=_active_benchmark_payload(variant_spec.name, str(args.depth_mode)),
         decode_config={
             "score_threshold": float(args.score_threshold),
             "mask_threshold": float(args.mask_threshold),

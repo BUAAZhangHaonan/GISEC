@@ -95,3 +95,31 @@ def test_active_runner_dry_run_forwards_init_checkpoint_and_prototype_root(tmp_p
     assert "gisec.cli.train" in result.stdout
     assert f"--init-checkpoint '{checkpoint}'" in result.stdout or f"--init-checkpoint {checkpoint}" in result.stdout
     assert f"--prototype-root '{tmp_path / 'prototype_bank'}'" in result.stdout or f"--prototype-root {tmp_path / 'prototype_bank'}" in result.stdout
+
+
+def test_active_runner_dry_run_forwards_depth_mode_override(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    script = repo_root / "scripts" / "experiments" / "run_gisec_active.sh"
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(script),
+            "--dataset-root",
+            str(tmp_path / "dataset"),
+            "--output-root",
+            str(tmp_path / "out"),
+            "--group",
+            "base_rgbd_1024",
+            "--depth-mode",
+            "rgbd_concat_valid_mask",
+            "--dry-run",
+        ],
+        cwd=str(tmp_path),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "gisec.cli.train" in result.stdout
+    assert "--depth-mode 'rgbd_concat_valid_mask'" in result.stdout or "--depth-mode rgbd_concat_valid_mask" in result.stdout

@@ -12,6 +12,7 @@ DATASET_ROOT="${ACTIVE_DATASET_ROOT:-/home/k100/zhn/electronic-components-grasp-
 OUTPUT_ROOT="${REPO_ROOT}/output/experiments/gisec_active"
 PROTOTYPE_ROOT="${ACTIVE_PROTOTYPE_ROOT:-}"
 INIT_CHECKPOINT="${ACTIVE_INIT_CHECKPOINT:-}"
+DEPTH_MODE="${ACTIVE_DEPTH_MODE:-}"
 PYTHON_CMD="$(runner_python_cmd)"
 
 ACTIVE_CONFIGS=(
@@ -30,6 +31,7 @@ while [[ $# -gt 0 ]]; do
     --dataset-root) DATASET_ROOT="$2"; shift 2 ;;
     --prototype-root) PROTOTYPE_ROOT="$2"; shift 2 ;;
     --init-checkpoint) INIT_CHECKPOINT="$2"; shift 2 ;;
+    --depth-mode) DEPTH_MODE="$2"; shift 2 ;;
     --run) MODE="run"; shift ;;
     --dry-run) MODE="dry-run"; shift ;;
     --python) PYTHON_CMD="$2"; shift 2 ;;
@@ -56,6 +58,7 @@ runner_log "${MODE}" "${RUN_LOG}" "[gisec-active] dataset_root=${DATASET_ROOT}"
 runner_log "${MODE}" "${RUN_LOG}" "[gisec-active] output_root=${OUTPUT_ROOT}"
 runner_log "${MODE}" "${RUN_LOG}" "[gisec-active] prototype_root=${PROTOTYPE_ROOT}"
 runner_log "${MODE}" "${RUN_LOG}" "[gisec-active] init_checkpoint=${INIT_CHECKPOINT}"
+runner_log "${MODE}" "${RUN_LOG}" "[gisec-active] depth_mode=${DEPTH_MODE}"
 
 for config_stem in "${CONFIGS[@]}"; do
   config_path="${REPO_ROOT}/configs/active/${config_stem}.yaml"
@@ -77,6 +80,9 @@ for config_stem in "${CONFIGS[@]}"; do
   fi
   if [[ -n "${INIT_CHECKPOINT}" ]]; then
     args+=("--init-checkpoint" "${INIT_CHECKPOINT}")
+  fi
+  if [[ -n "${DEPTH_MODE}" ]]; then
+    args+=("--depth-mode" "${DEPTH_MODE}")
   fi
   if [[ "${COMMAND}" == "eval" ]]; then
     args+=("--checkpoint" "${output_dir}/model_best.pth" "--split" "val")
