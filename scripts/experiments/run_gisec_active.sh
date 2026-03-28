@@ -11,6 +11,7 @@ COMMAND="train"
 DATASET_ROOT="${ACTIVE_DATASET_ROOT:-/home/k100/zhn/electronic-components-grasp-and-segment/datasets/0831_1K}"
 OUTPUT_ROOT="${REPO_ROOT}/output/experiments/gisec_active"
 PROTOTYPE_ROOT="${ACTIVE_PROTOTYPE_ROOT:-}"
+INIT_CHECKPOINT="${ACTIVE_INIT_CHECKPOINT:-}"
 PYTHON_CMD="$(runner_python_cmd)"
 
 ACTIVE_CONFIGS=(
@@ -28,6 +29,7 @@ while [[ $# -gt 0 ]]; do
     --output-root) OUTPUT_ROOT="$2"; shift 2 ;;
     --dataset-root) DATASET_ROOT="$2"; shift 2 ;;
     --prototype-root) PROTOTYPE_ROOT="$2"; shift 2 ;;
+    --init-checkpoint) INIT_CHECKPOINT="$2"; shift 2 ;;
     --run) MODE="run"; shift ;;
     --dry-run) MODE="dry-run"; shift ;;
     --python) PYTHON_CMD="$2"; shift 2 ;;
@@ -53,6 +55,7 @@ runner_log "${MODE}" "${RUN_LOG}" "[gisec-active] command=${COMMAND}"
 runner_log "${MODE}" "${RUN_LOG}" "[gisec-active] dataset_root=${DATASET_ROOT}"
 runner_log "${MODE}" "${RUN_LOG}" "[gisec-active] output_root=${OUTPUT_ROOT}"
 runner_log "${MODE}" "${RUN_LOG}" "[gisec-active] prototype_root=${PROTOTYPE_ROOT}"
+runner_log "${MODE}" "${RUN_LOG}" "[gisec-active] init_checkpoint=${INIT_CHECKPOINT}"
 
 for config_stem in "${CONFIGS[@]}"; do
   config_path="${REPO_ROOT}/configs/active/${config_stem}.yaml"
@@ -71,6 +74,9 @@ for config_stem in "${CONFIGS[@]}"; do
   )
   if [[ -n "${PROTOTYPE_ROOT}" && "${config_stem}" == *"_ref"* ]]; then
     args+=("--prototype-root" "${PROTOTYPE_ROOT}")
+  fi
+  if [[ -n "${INIT_CHECKPOINT}" ]]; then
+    args+=("--init-checkpoint" "${INIT_CHECKPOINT}")
   fi
   if [[ "${COMMAND}" == "eval" ]]; then
     args+=("--checkpoint" "${output_dir}/model_best.pth" "--split" "val")

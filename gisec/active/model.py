@@ -27,8 +27,6 @@ def prepare_reference_depth(*, depth: torch.Tensor, mask: torch.Tensor) -> torch
         raise ValueError(f"Expected depth and mask to share shape, got {tuple(depth.shape)} and {tuple(mask.shape)}")
     valid = (mask > 0.5) & torch.isfinite(depth) & (depth < 1.0e9)
     safe_depth = torch.where(valid, depth.float(), torch.zeros_like(depth.float()))
-    masked_sum = safe_depth.flatten(2).sum(dim=2, keepdim=True)
-    masked_count = valid.float().flatten(2).sum(dim=2, keepdim=True).clamp_min(1.0)
     masked_min = torch.where(valid, safe_depth, torch.full_like(safe_depth, float("inf"))).flatten(2).amin(dim=2, keepdim=True)
     masked_max = torch.where(valid, safe_depth, torch.full_like(safe_depth, float("-inf"))).flatten(2).amax(dim=2, keepdim=True)
     masked_min = torch.where(torch.isfinite(masked_min), masked_min, torch.zeros_like(masked_min)).view(depth.shape[0], depth.shape[1], 1, 1)
