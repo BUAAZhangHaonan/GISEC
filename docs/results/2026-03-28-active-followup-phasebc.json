@@ -1,0 +1,55 @@
+{
+  "num_runs": 4,
+  "best_variant": "base_rgbd_1024_refine stagewise",
+  "best_segm_ap": 0.5509708228787751,
+  "rows": [
+    {
+      "variant": "base_rgb_1024",
+      "segm/AP": 0.5450772353135926,
+      "bbox/AP": 0.49337000524805646,
+      "boundary/IoU": 0.1893520703200649,
+      "split_gt_count": 593,
+      "merge_pred_count": 668,
+      "refinement_invocation_rate": 0.0,
+      "local_graph_invocation_rate": 0.0,
+      "throughput_fps": 9.6067824571516,
+      "path": "/tmp/tmpzy1t06se/0.json"
+    },
+    {
+      "variant": "base_rgbd_1024 + valid_mask",
+      "segm/AP": 0.3520998237407085,
+      "bbox/AP": 0.3111336739808082,
+      "boundary/IoU": 0.12796417705119026,
+      "split_gt_count": 929,
+      "merge_pred_count": 876,
+      "refinement_invocation_rate": 0.0,
+      "local_graph_invocation_rate": 0.0,
+      "throughput_fps": 10.375625903796225,
+      "path": "/tmp/tmpzy1t06se/2.json"
+    },
+    {
+      "variant": "base_rgbd_1024 concat",
+      "segm/AP": 0.5230882172209788,
+      "bbox/AP": 0.4630674810239521,
+      "boundary/IoU": 0.17826709280377828,
+      "split_gt_count": 474,
+      "merge_pred_count": 651,
+      "refinement_invocation_rate": 0.0,
+      "local_graph_invocation_rate": 0.0,
+      "throughput_fps": 10.778977587358968,
+      "path": "/tmp/tmpzy1t06se/1.json"
+    },
+    {
+      "variant": "base_rgbd_1024_refine stagewise",
+      "segm/AP": 0.5509708228787751,
+      "bbox/AP": 0.4699624397322617,
+      "boundary/IoU": 0.2085716204383067,
+      "split_gt_count": 1031,
+      "merge_pred_count": 765,
+      "refinement_invocation_rate": 0.13592010102169672,
+      "local_graph_invocation_rate": 0.0,
+      "throughput_fps": 11.149599336905082,
+      "path": "/tmp/tmpzy1t06se/3.json"
+    }
+  ]
+}
