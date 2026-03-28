@@ -113,6 +113,8 @@ bash scripts/experiments/run_gisec_active.sh \
 
 The script iterates through the canonical active configs, toggles between `train` and `eval`, and optionally switches to `dry-run` mode. Prototype roots are only required once reference or graph rescue enters the chain.
 
+Use `--depth-mode rgbd_concat_valid_mask` when the active `base_rgbd_*` chain should include the extra valid-depth mask channel without changing the canonical family names.
+
 ### Legacy Train / Eval
 
 Use the explicit legacy wrappers when the goal is to reproduce the archived fragment-first line:
