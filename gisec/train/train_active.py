@@ -10,6 +10,7 @@ from typing import Any
 import cv2
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from torch.amp import GradScaler, autocast
 from torch.utils.data import DataLoader
@@ -18,7 +19,11 @@ from baseline.common.boundary_metrics import compute_boundary_iou
 from baseline.common.coco_export import masks_to_coco_results
 from baseline.common.dataset import BaselineInstanceDataset
 from baseline.common.export import build_run_summary_payload
-from baseline.mask2former.adapter import build_mask2former_model
+from baseline.mask2former.adapter import (
+    build_mask2former_model,
+    build_mask2former_processor,
+    outputs_to_instance_masks,
+)
 from gisec.active.config import active_variant_names, get_active_variant_spec
 from gisec.active.metrics import compute_split_merge_counts
 from gisec.active.model import (
@@ -240,6 +245,17 @@ def _model_payload(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def _extract_state_dict(payload: dict[str, Any], *, prefix_backbone: bool = False) -> dict[str, Any]:
+    if "state_dict" in payload and isinstance(payload["state_dict"], dict):
+        state_dict = dict(payload["state_dict"])
+    else:
+        state_dict = dict(payload)
+    if prefix_backbone:
+        if state_dict and not any(key.startswith("backbone.") for key in state_dict):
+            state_dict = {f"backbone.{key}": value for key, value in state_dict.items()}
+    return state_dict
+
+
 def _resolve_input_channels(depth_mode: str) -> int:
     if str(depth_mode) == "rgb":
         return 3
@@ -266,9 +282,10 @@ def _build_active_model(args: argparse.Namespace) -> ActiveInstanceModel:
         num_queries=int(args.num_queries),
         train_num_points=int(args.train_num_points),
     )
+    feature_channels = int(getattr(backbone.config, "hidden_dim", int(args.feature_size)))
     return ActiveInstanceModel(
         backbone=backbone,
-        feature_channels=int(args.feature_size),
+        feature_channels=feature_channels,
         refine_feature_channels=16,
         query_channels=int(input_channels),
         use_local_refine=variant_spec.use_local_refine,
@@ -341,15 +358,17 @@ def _query_instances_from_outputs(
     if int(class_prob.shape[-1]) < 2:
         return []
     fg_prob = class_prob[:, :-1]
+    component_class_index = max(0, min(1, int(fg_prob.shape[1]) - 1))
     scores, class_ids = fg_prob.max(dim=-1)
     upsampled_mask_logits = _upscale_mask_logits(mask_logits, image_shape=image_shape)
     mask_probs = torch.sigmoid(upsampled_mask_logits)
     rows: list[dict[str, Any]] = []
     for query_index in range(int(mask_probs.shape[0])):
-        score = float(scores[query_index].item())
-        category_id = int(class_ids[query_index].item()) + 1
-        if category_id != 1 or score < float(score_threshold):
+        predicted_class = int(class_ids[query_index].item())
+        score = float(fg_prob[query_index, component_class_index].item())
+        if predicted_class != component_class_index or score < float(score_threshold):
             continue
+        category_id = 1
         binary = mask_probs[query_index] >= float(mask_threshold)
         if int(binary.sum().item()) <= 0:
             continue
@@ -364,6 +383,11 @@ def _query_instances_from_outputs(
         )
     rows.sort(key=lambda item: item["score"], reverse=True)
     return rows
+
+
+def _uses_baseline_decode(variant_name: str) -> bool:
+    variant_spec = get_active_variant_spec(variant_name)
+    return not bool(variant_spec.use_local_refine)
 
 
 def _scale_bbox(
@@ -634,6 +658,33 @@ def _active_benchmark_payload(variant_name: str, depth_mode: str) -> dict[str, A
     }
 
 
+def _graph_rescue_training_loss(
+    *,
+    graph_head: nn.Module,
+    crop_features: torch.Tensor,
+    refined_mask_logits: torch.Tensor,
+    depth_crop: torch.Tensor | None,
+) -> torch.Tensor:
+    refined_prob = torch.sigmoid(refined_mask_logits.detach())
+    component_map = _connected_components((refined_prob >= 0.5).cpu().numpy())
+    if int(component_map.max()) <= 1:
+        return crop_features.sum() * 0.0
+    node_features, edge_index, edge_features = _build_local_graph_inputs(
+        component_map=component_map,
+        feature_crop=crop_features,
+        mask_prob_crop=refined_prob,
+        depth_crop=depth_crop,
+    )
+    if edge_index.numel() == 0:
+        return crop_features.sum() * 0.0
+    edge_logits = graph_head(
+        node_features=node_features,
+        edge_index=edge_index,
+        edge_features=edge_features,
+    )
+    return F.binary_cross_entropy_with_logits(edge_logits, torch.ones_like(edge_logits))
+
+
 def _evaluate_active(
     *,
     model: ActiveInstanceModel,
@@ -654,6 +705,7 @@ def _evaluate_active(
     variant_spec = get_active_variant_spec(variant_name)
     depth_mode = variant_spec.depth_mode
     model.eval()
+    processor = build_mask2former_processor()
     results: list[dict[str, Any]] = []
     raw_rows: list[dict[str, Any]] = []
     latencies_ms: list[float] = []
@@ -676,33 +728,53 @@ def _evaluate_active(
             start = time.perf_counter()
             outputs = _run_backbone(model=model, pixel_values=pixel_values, pixel_mask=pixel_mask)
             latencies_ms.append((time.perf_counter() - start) * 1000.0)
-            feature_map = model.feature_proj(outputs.pixel_decoder_last_hidden_state)
             for sample_offset, sample in enumerate(samples):
                 image_shape = (int(sample["image"].shape[-2]), int(sample["image"].shape[-1]))
-                predictions = _query_instances_from_outputs(
-                    class_logits=outputs.class_queries_logits[sample_offset],
-                    mask_logits=outputs.masks_queries_logits[sample_offset],
-                    image_shape=image_shape,
-                    score_threshold=float(score_threshold),
-                    mask_threshold=float(mask_threshold),
-                )
-                predictions, refine_count, graph_count = _apply_local_rescue(
-                    model=model,
-                    variant_name=variant_name,
-                    sample=sample,
-                    full_input=pixel_values[sample_offset],
-                    feature_map=outputs.pixel_decoder_last_hidden_state[sample_offset],
-                    predictions=predictions,
-                    crop_size=int(crop_size),
-                    crop_pad=int(crop_pad),
-                    mask_threshold=float(mask_threshold),
-                    boundary_band_width=int(boundary_band_width),
-                    prototype_source=prototype_source,
-                )
+                if _uses_baseline_decode(variant_name):
+                    pred_masks, pred_scores = outputs_to_instance_masks(
+                        outputs,
+                        processor=processor,
+                        target_size=image_shape,
+                        score_threshold=float(score_threshold),
+                        mask_threshold=float(mask_threshold),
+                    )
+                    predictions = [
+                        {
+                            "query_index": int(index),
+                            "score": float(score),
+                            "category_id": 1,
+                            "binary_mask": torch.from_numpy(mask.astype(np.float32)),
+                            "mask_probs": torch.from_numpy(mask.astype(np.float32)),
+                        }
+                        for index, (mask, score) in enumerate(zip(pred_masks, pred_scores))
+                    ]
+                    refine_count = 0
+                    graph_count = 0
+                else:
+                    predictions = _query_instances_from_outputs(
+                        class_logits=outputs.class_queries_logits[sample_offset],
+                        mask_logits=outputs.masks_queries_logits[sample_offset],
+                        image_shape=image_shape,
+                        score_threshold=float(score_threshold),
+                        mask_threshold=float(mask_threshold),
+                    )
+                    predictions, refine_count, graph_count = _apply_local_rescue(
+                        model=model,
+                        variant_name=variant_name,
+                        sample=sample,
+                        full_input=pixel_values[sample_offset],
+                        feature_map=outputs.pixel_decoder_last_hidden_state[sample_offset],
+                        predictions=predictions,
+                        crop_size=int(crop_size),
+                        crop_pad=int(crop_pad),
+                        mask_threshold=float(mask_threshold),
+                        boundary_band_width=int(boundary_band_width),
+                        prototype_source=prototype_source,
+                    )
+                    pred_masks = [row["binary_mask"].detach().cpu().numpy().astype(np.uint8) for row in predictions]
+                    pred_scores = [float(row["score"]) for row in predictions]
                 refinement_invocations += int(refine_count)
                 graph_invocations += int(graph_count)
-                pred_masks = [row["binary_mask"].detach().cpu().numpy().astype(np.uint8) for row in predictions]
-                pred_scores = [float(row["score"]) for row in predictions]
                 total_predictions += len(pred_masks)
                 results.extend(
                     masks_to_coco_results(
@@ -804,6 +876,13 @@ def _train_local_modules(
             if variant_spec.use_reference_rescue and refined["reference_match_logits"] is not None:
                 target = torch.ones_like(refined["reference_match_logits"])
                 loss = loss + 0.1 * F.binary_cross_entropy_with_logits(refined["reference_match_logits"], target)
+            if variant_spec.use_graph_rescue and model.graph_head is not None:
+                loss = loss + 0.1 * _graph_rescue_training_loss(
+                    graph_head=model.graph_head,
+                    crop_features=refined["crop_features"][0],
+                    refined_mask_logits=refined["refined_mask_logits"][0, 0],
+                    depth_crop=None if query_crop.shape[1] <= 3 else query_crop[0, 3:4],
+                )
             losses.append(loss)
     if not losses:
         return pixel_values.sum() * 0.0
@@ -975,7 +1054,8 @@ def eval_active(args: argparse.Namespace) -> None:
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     model = _build_active_model(args).to(device)
-    state_dict = torch.load(str(args.checkpoint), map_location=device)
+    checkpoint_payload = torch.load(str(args.checkpoint), map_location=device)
+    state_dict = _extract_state_dict(checkpoint_payload, prefix_backbone=True)
     model.load_state_dict(state_dict, strict=False)
     prototype_source = None
     if variant_spec.requires_prototype_root:
@@ -1040,7 +1120,8 @@ def infer_active(args: argparse.Namespace) -> None:
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     model = _build_active_model(args).to(device)
-    state_dict = torch.load(str(args.checkpoint), map_location=device)
+    checkpoint_payload = torch.load(str(args.checkpoint), map_location=device)
+    state_dict = _extract_state_dict(checkpoint_payload, prefix_backbone=True)
     model.load_state_dict(state_dict, strict=False)
     prototype_source = None
     if variant_spec.requires_prototype_root:

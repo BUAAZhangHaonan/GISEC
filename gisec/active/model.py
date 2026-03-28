@@ -281,7 +281,7 @@ class ActiveInstanceModel(nn.Module):
         )
         self.graph_head = (
             LocalGraphRescueHead(
-                node_dim=int(refine_feature_channels) + 4,
+                node_dim=int(refiner_hidden_dim) + 4,
                 edge_dim=4,
                 hidden_dim=int(graph_hidden_dim),
             )
