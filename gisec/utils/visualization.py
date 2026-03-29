@@ -59,6 +59,15 @@ def _render_label_map(image: np.ndarray, label_map: np.ndarray, *, alpha: float)
     return out
 
 
+def _resize_image_to_label_map(image: np.ndarray, label_map: np.ndarray) -> np.ndarray:
+    if image.ndim != 3 or int(image.shape[2]) != 3:
+        raise ValueError(f"Expected RGB image with shape (H, W, 3), got {tuple(image.shape)}")
+    target_shape = tuple(int(v) for v in np.asarray(label_map).shape[:2])
+    if tuple(int(v) for v in image.shape[:2]) == target_shape:
+        return image
+    return cv2.resize(image, (int(target_shape[1]), int(target_shape[0])), interpolation=cv2.INTER_LINEAR)
+
+
 def render_fragment_merge_preview(
     *,
     image: np.ndarray,
@@ -67,12 +76,17 @@ def render_fragment_merge_preview(
     output_path: str | Path | None = None,
     alpha: float = 0.35,
 ) -> np.ndarray:
-    frag_panel = _render_label_map(image, fragments, alpha=alpha)
-    merged_panel = _render_label_map(image, merged, alpha=alpha)
-    title_band = np.full((24, image.shape[1] * 2, 3), 255, dtype=np.uint8)
+    if tuple(int(v) for v in np.asarray(fragments).shape[:2]) != tuple(int(v) for v in np.asarray(merged).shape[:2]):
+        raise ValueError(
+            f"Expected fragments and merged maps to share shape, got {tuple(np.asarray(fragments).shape)} and {tuple(np.asarray(merged).shape)}"
+        )
+    preview_image = _resize_image_to_label_map(image, fragments)
+    frag_panel = _render_label_map(preview_image, fragments, alpha=alpha)
+    merged_panel = _render_label_map(preview_image, merged, alpha=alpha)
+    title_band = np.full((24, preview_image.shape[1] * 2, 3), 255, dtype=np.uint8)
     cv2.putText(title_band, "Fragments", (8, 16),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (20, 20, 20), 1, cv2.LINE_AA)
-    cv2.putText(title_band, "Merged", (image.shape[1] + 8, 16),
+    cv2.putText(title_band, "Merged", (preview_image.shape[1] + 8, 16),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (20, 20, 20), 1, cv2.LINE_AA)
     preview = cv2.vconcat(
         [title_band, cv2.hconcat([frag_panel, merged_panel])])

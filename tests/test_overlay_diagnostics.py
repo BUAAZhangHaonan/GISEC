@@ -7,6 +7,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from gisec.utils.visualization import render_fragment_merge_preview
+
 
 def test_overlay_diagnostics_writes_preview(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
@@ -47,4 +49,29 @@ def test_overlay_diagnostics_writes_preview(tmp_path: Path) -> None:
         text=True,
     )
 
+    assert output_path.exists()
+
+
+def test_render_fragment_merge_preview_handles_feature_scale_label_maps(tmp_path: Path) -> None:
+    image = np.zeros((1024, 1024, 3), dtype=np.uint8)
+    image[256:768, 256:768] = (90, 120, 160)
+
+    fragments = np.zeros((200, 200), dtype=np.int32)
+    fragments[40:120, 50:90] = 1
+    fragments[60:140, 100:150] = 2
+
+    merged = np.zeros((200, 200), dtype=np.int32)
+    merged[40:140, 50:150] = 1
+
+    output_path = tmp_path / "feature_scale_overlay.png"
+
+    preview = render_fragment_merge_preview(
+        image=image,
+        fragments=fragments,
+        merged=merged,
+        output_path=output_path,
+    )
+
+    assert preview.ndim == 3
+    assert preview.shape[1] == 400
     assert output_path.exists()
