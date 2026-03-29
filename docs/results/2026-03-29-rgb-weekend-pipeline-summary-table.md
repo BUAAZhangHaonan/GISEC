@@ -8,7 +8,7 @@
 
 ## Stage 3
 
-| Model | Best Threshold | Val F1 | Val Precision | Val Recall | Eval segm/AP | Eval bbox/AP | Eval FPS | Predictions |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Mask R-CNN | 0.10 | 0.3529 | 0.4138 | 0.3077 | 0.0000 | 0.0000 | 51.91 | 9024 |
-| Mask2Former | 0.15 | 0.5614 | 0.4772 | 0.6815 | 0.0000 | 0.0000 | 50.86 | 8465 |
+| Model | Val F1 | Eval Threshold | segm/AP Before Fix | segm/AP After Fix | bbox/AP After Fix | Eval FPS | Predictions |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Mask R-CNN RGB | 0.6078 | 0.125 | 0.0000 | 0.2327 | 0.2760 | 52.41 | 8695 |
+| Mask2Former RGB | 0.5527 | 0.100 | 0.0000 | 0.3552 | 0.3514 | 51.95 | 8539 |
