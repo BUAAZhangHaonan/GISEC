@@ -51,10 +51,14 @@ def test_project_docs_freeze_v15_and_query_alpha_boundaries() -> None:
     assert "fragment-first" in readme_text
     assert "object-first" in readme_text
     assert "base_rgb_1024" in readme_text
+    assert "Mask2Former RGB @1024" in readme_text
+    assert "Mask R-CNN RGB @1024" in readme_text
+    assert "RGB-D is deferred" in readme_text
     assert "v1.5 legacy" in method_readme
     assert "query-alpha object-first" in method_readme
     assert "active benchmark surface" in results_readme
     assert "2026-03-28-active-surface-pilot-summary.md" in results_readme
+    assert "2026-03-29-rgb-phase1-backbone-summary.md" in results_readme
 
 
 def test_project_metadata_includes_formal_gisec_query_surface() -> None:

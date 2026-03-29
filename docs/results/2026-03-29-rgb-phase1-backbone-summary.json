@@ -1,0 +1,106 @@
+{
+  "num_short_runs": 6,
+  "num_full_runs": 2,
+  "phase1_winner": "Mask2Former",
+  "phase1_winner_segm_ap": 0.5459287039944549,
+  "short_rows": [
+    {
+      "model_label": "Mask R-CNN",
+      "friendly_name": "Mask R-CNN rgb 256",
+      "variant": "rgb_short_256",
+      "input_mode": "rgb",
+      "resolution": 256,
+      "segm/AP": 0.0,
+      "bbox/AP": 0.0,
+      "boundary/IoU": 0.1905154229656475,
+      "fps": 7.605031265175307,
+      "path": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/output/experiments/baselines/phase_a_rgb_short_20260327/mask_rcnn_r50_256_phasea_short/run_summary.json"
+    },
+    {
+      "model_label": "Mask2Former",
+      "friendly_name": "Mask2Former rgb 256",
+      "variant": "rgb_short_256",
+      "input_mode": "rgb",
+      "resolution": 256,
+      "segm/AP": 0.0,
+      "bbox/AP": 0.0,
+      "boundary/IoU": 0.20872130105520315,
+      "fps": 13.547587255902807,
+      "path": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/output/experiments/baselines/phase_a_rgb_short_20260327/mask2former_swin_t_256_phasea_short/run_summary.json"
+    },
+    {
+      "model_label": "Mask R-CNN",
+      "friendly_name": "Mask R-CNN rgb 512",
+      "variant": "rgb_short_512",
+      "input_mode": "rgb",
+      "resolution": 512,
+      "segm/AP": 0.0,
+      "bbox/AP": 0.0,
+      "boundary/IoU": 0.12142981047627431,
+      "fps": 7.993348266457811,
+      "path": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/output/experiments/baselines/phase_a_rgb_short_20260327/mask_rcnn_r50_512_phasea_short/run_summary.json"
+    },
+    {
+      "model_label": "Mask2Former",
+      "friendly_name": "Mask2Former rgb 512",
+      "variant": "rgb_short_512",
+      "input_mode": "rgb",
+      "resolution": 512,
+      "segm/AP": 0.0,
+      "bbox/AP": 0.0,
+      "boundary/IoU": 0.16925498343388343,
+      "fps": 13.664350976325952,
+      "path": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/output/experiments/baselines/phase_a_rgb_short_20260327/mask2former_swin_t_512_phasea_short/run_summary.json"
+    },
+    {
+      "model_label": "Mask R-CNN",
+      "friendly_name": "Mask R-CNN rgb 1024",
+      "variant": "rgb_short_1024",
+      "input_mode": "rgb",
+      "resolution": 1024,
+      "segm/AP": 0.051112548607949164,
+      "bbox/AP": 0.11847606936283514,
+      "boundary/IoU": 0.07527912793711415,
+      "fps": 7.980053728652832,
+      "path": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/output/experiments/baselines/phase_a_rgb_short_20260327/mask_rcnn_r50_1024_phasea_short/run_summary.json"
+    },
+    {
+      "model_label": "Mask2Former",
+      "friendly_name": "Mask2Former rgb 1024",
+      "variant": "rgb_short_1024",
+      "input_mode": "rgb",
+      "resolution": 1024,
+      "segm/AP": 0.2534311561773834,
+      "bbox/AP": 0.3045905636620677,
+      "boundary/IoU": 0.11617916611511112,
+      "fps": 10.498618698551722,
+      "path": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/output/experiments/baselines/phase_a_rgb_short_20260327/mask2former_swin_t_1024_phasea_short/run_summary.json"
+    }
+  ],
+  "full_rows": [
+    {
+      "model_label": "Mask R-CNN",
+      "friendly_name": "Mask R-CNN rgb 1024",
+      "variant": "rgb_full_1024",
+      "input_mode": "rgb",
+      "resolution": 1024,
+      "segm/AP": 0.5193555239581855,
+      "bbox/AP": 0.4907554431975703,
+      "boundary/IoU": 0.14701984212901936,
+      "fps": 11.441814090706282,
+      "path": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/output/experiments/baselines/phase_a_rgb_full_20260327/mask_rcnn_r50_1024_phasea_full/run_summary.json"
+    },
+    {
+      "model_label": "Mask2Former",
+      "friendly_name": "Mask2Former rgb 1024",
+      "variant": "rgb_full_1024",
+      "input_mode": "rgb",
+      "resolution": 1024,
+      "segm/AP": 0.5459287039944549,
+      "bbox/AP": 0.4933413851136059,
+      "boundary/IoU": 0.18939477982578767,
+      "fps": 11.688680425285513,
+      "path": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/output/experiments/baselines/phase_a_rgb_full_20260327/mask2former_swin_t_1024_phasea_full/run_summary.json"
+    }
+  ]
+}

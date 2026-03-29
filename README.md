@@ -2,7 +2,8 @@
 
 `GISEC` now has one clean active front line and a quarantined legacy archive.
 
-- **Active instance-first surface (current focus).** Mask2Former Swin-T @1024 is the fixed Phase A winner. The pipeline now runs through a strong backbone (RGB, RGB-D concat, RGB-D + mask) and optional crop-local refine / reference / graph stages, with failure diagnostics and export hygiene matching the active story. The canonical active variants are:
+- **Current Phase 1 conclusion.** `Mask2Former RGB @1024` is the current backbone winner. `Mask R-CNN RGB @1024` is the benchmark companion. The RGB-D branch stays available, but it is deferred to a later phase because it has not shown a clear enough gain over the simpler RGB story.
+- **Active instance-first follow-up surface.** The runnable follow-up pipeline still exists for later-stage work on refine / reference / graph. Its canonical variants are:
   - `base_rgb_1024`
   - `base_rgbd_1024`
   - `base_rgbd_1024_refine`
@@ -81,10 +82,9 @@ python -m gisec.cli.train \
 ```bash
 python -m gisec.cli.eval \
   --dataset-root /home/k100/zhn/electronic-components-grasp-and-segment/magformer_datasets/0831_1K \
-  --config configs/active/base_rgbd_1024_refine_ref_graph.yaml \
-  --prototype-root /home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/20260318_1K_13440_reference \
-  --output-dir output/experiments/gisec_active/base_rgbd_1024_refine_ref_graph \
-  --checkpoint output/experiments/gisec_active/base_rgbd_1024_refine_ref_graph/model_best.pth
+  --config configs/active/base_rgb_1024.yaml \
+  --output-dir output/experiments/gisec_active/base_rgb_1024_eval \
+  --checkpoint output/experiments/gisec_active/base_rgb_1024/model_best.pth
 ```
 
 ### Active Runner
@@ -93,21 +93,29 @@ python -m gisec.cli.eval \
 bash scripts/experiments/run_gisec_active.sh \
   --dataset-root /home/k100/zhn/electronic-components-grasp-and-segment/magformer_datasets/0831_1K \
   --output-root output/experiments/gisec_active \
-  --group base_rgbd_1024_refine_ref_graph \
-  --prototype-root /home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/20260318_1K_13440_reference \
+  --group base_rgb_1024 \
+  --run
+```
+
+### Phase 1 RGB Backbone Benchmark
+
+```bash
+bash scripts/experiments/run_baseline_benchmarks.sh \
+  --dataset-root /home/k100/zhn/electronic-components-grasp-and-segment/gisec/datasets/20260318_1K_1566 \
+  --output-root output/experiments/baselines/phase_a_rgb_full_20260327 \
+  --group phase_a_rgb_full \
   --run
 ```
 
 Use `GISEC_CONDA_ENV=gisec` or `GISEC_PYTHON=/path/to/python` to control how the shell runners invoke Python.
 
-The instance-first active surface is driven by `configs/active/*.yaml` and the helper script:
+The instance-first follow-up surface is driven by `configs/active/*.yaml` and the helper script:
 
 ```bash
 bash scripts/experiments/run_gisec_active.sh \
   --dataset-root /home/k100/zhn/electronic-components-grasp-and-segment/magformer_datasets/0831_1K \
   --output-root output/experiments/gisec_active \
-  --group base_rgbd_1024_refine_ref_graph \
-  --prototype-root /home/k100/zhn/electronic-components-grasp-and-segment/ecc-dataset/outputs/datasets/20260318_1K_13440_reference \
+  --group base_rgb_1024 \
   --run
 ```
 
@@ -211,7 +219,8 @@ The historical Stage 1 story remains documented for `v1.5 legacy`:
 
 The active direction is different:
 
-- the first executable phase is `Mask2Former @1024`
-- the active surface grows in order: `base_rgb_1024 -> base_rgbd_1024 -> refine -> reference -> graph`
+- the first executable phase is `Mask2Former RGB @1024`, with `Mask R-CNN RGB @1024` as the benchmark companion
+- the active follow-up surface grows in order: `base_rgb_1024 -> refine/reference/graph on the RGB winner first`
+- RGB-D is deferred until the RGB-only path is stable
 - `reference and graph remain required later modules`
 - `GISEC Query Alpha` stays available as an experimental object-first archive, not the default repo face
