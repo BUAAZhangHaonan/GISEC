@@ -30,6 +30,8 @@ Keep raw machine-generated outputs in `output/`; use `docs/results/` for version
 
 - [2026-03-29-rgb-phase1-backbone-summary.md](2026-03-29-rgb-phase1-backbone-summary.md)
 - [2026-03-29-rgb-weekend-pipeline-summary.md](2026-03-29-rgb-weekend-pipeline-summary.md)
+- [2026-03-29-phase3-prerequisite-diagnostics.md](2026-03-29-phase3-prerequisite-diagnostics.md)
+- [2026-03-29-phase3-prerequisite-diagnostics.md](2026-03-29-phase3-prerequisite-diagnostics.md)
 
 ## Active Surface Notes
 
