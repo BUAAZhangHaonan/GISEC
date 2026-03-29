@@ -1,37 +1,122 @@
 {
   "stage2": {
-    "reference_splitter": {
-      "epochs": 10,
-      "steps": 165070,
-      "loss_total": 0.1504147278021396,
-      "loss_single": 0.06164394497120798,
-      "loss_count": 0.06035910917125504,
-      "loss_center": 0.02841167367810631,
-      "wall_time_sec": 5116
-    }
+    "cache_root": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/output/experiments/rgb_weekend_pipeline_20260328/reference_split_cache",
+    "reference_root": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/datasets/20260318_1K_13440",
+    "split": "train",
+    "epochs": 10,
+    "steps": 165070,
+    "loss_total": 0.1504147278021396,
+    "loss_single": 0.06164394497120798,
+    "loss_count": 0.06035910917125504,
+    "loss_center": 0.02841167367810631,
+    "wall_time_sec": 5116
   },
-  "stage3": [
-    {
-      "model": "Mask R-CNN",
-      "best_threshold": 0.1,
-      "val_f1": 0.35294117647058826,
-      "val_precision": 0.41379310344827586,
-      "val_recall": 0.3076923076923077,
-      "eval_segm_ap": 0.0,
-      "eval_bbox_ap": 0.0,
-      "eval_fps": 51.907895602583245,
-      "num_predictions": 9024
+  "stage3": {
+    "mask_rcnn": {
+      "val": {
+        "threshold": 0.1,
+        "edge_accuracy": 0.938155472278595,
+        "edge_positive_rate": 0.05481673777103424,
+        "pred_positive_rate": 0.04076116159558296,
+        "precision": 0.41379310344827586,
+        "recall": 0.3076923076923077,
+        "f1": 0.35294117647058826,
+        "num_valid_edges": 9249.0,
+        "loss_total": 0.17229571664019636,
+        "best_threshold": 0.1,
+        "best_conservative_threshold": 0.1,
+        "best_conservative_f1": 0.35294117647058826,
+        "best_conservative_precision": 0.41379310344827586,
+        "best_conservative_pred_positive_rate": 0.04076116159558296
+      },
+      "eval": {
+        "cache_root": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/output/experiments/rgb_weekend_pipeline_20260328/maskrcnn_graph_cache",
+        "reference_root": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/datasets/20260318_1K_13440",
+        "dataset_root": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/datasets/20260318_1K_1566",
+        "split": "val",
+        "threshold": 0.1,
+        "num_images": 149,
+        "eval_image_count": 149,
+        "filtered_annotation_path": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/output/experiments/rgb_weekend_pipeline_20260328/maskrcnn_reference_graph_rgb_stage3/eval_val/instances_val.cache_subset.json",
+        "num_predictions": 9024,
+        "metrics": {
+          "iteration": -1,
+          "bbox/AP": 0.0,
+          "bbox/AP50": 0.0,
+          "bbox/AP75": 0.0,
+          "bbox/APs": 0.0,
+          "bbox/APm": 0.0,
+          "bbox/APl": -1.0,
+          "segm/AP": 0.0,
+          "segm/AP50": 0.0,
+          "segm/AP75": 0.0,
+          "segm/APs": 0.0,
+          "segm/APm": 0.0,
+          "segm/APl": -1.0
+        },
+        "inference_speed": {
+          "status": "ok",
+          "timed_images": 19,
+          "latency_ms_mean": 19.264891947386786,
+          "latency_ms_p50": 3.3654690196271986,
+          "latency_ms_p90": 3.9720626082271333,
+          "throughput_fps": 51.907895602583245,
+          "inference_peak_memory_mb": 17.76611328125
+        }
+      }
     },
-    {
-      "model": "Mask2Former",
-      "best_threshold": 0.15,
-      "val_f1": 0.5613540197461213,
-      "val_precision": 0.47721822541966424,
-      "val_recall": 0.6815068493150684,
-      "eval_segm_ap": 0.0,
-      "eval_bbox_ap": 0.0,
-      "eval_fps": 50.861859295233586,
-      "num_predictions": 8465
+    "mask2former": {
+      "val": {
+        "threshold": 0.15,
+        "edge_accuracy": 0.9627634286880493,
+        "edge_positive_rate": 0.03496168553829193,
+        "pred_positive_rate": 0.04992816224694252,
+        "precision": 0.47721822541966424,
+        "recall": 0.6815068493150684,
+        "f1": 0.5613540197461213,
+        "num_valid_edges": 8352.0,
+        "loss_total": 0.07856087621889617,
+        "best_threshold": 0.15,
+        "best_conservative_threshold": 0.15,
+        "best_conservative_f1": 0.5613540197461213,
+        "best_conservative_precision": 0.47721822541966424,
+        "best_conservative_pred_positive_rate": 0.04992816224694252
+      },
+      "eval": {
+        "cache_root": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/output/experiments/rgb_weekend_pipeline_20260328/mask2former_graph_cache",
+        "reference_root": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/datasets/20260318_1K_13440",
+        "dataset_root": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/datasets/20260318_1K_1566",
+        "split": "val",
+        "threshold": 0.15,
+        "num_images": 149,
+        "eval_image_count": 149,
+        "filtered_annotation_path": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/output/experiments/rgb_weekend_pipeline_20260328/mask2former_reference_graph_rgb_stage3/eval_val/instances_val.cache_subset.json",
+        "num_predictions": 8606,
+        "metrics": {
+          "iteration": -1,
+          "bbox/AP": 0.0,
+          "bbox/AP50": 0.0,
+          "bbox/AP75": 0.0,
+          "bbox/APs": 0.0,
+          "bbox/APm": 0.0,
+          "bbox/APl": -1.0,
+          "segm/AP": 0.0,
+          "segm/AP50": 0.0,
+          "segm/AP75": 0.0,
+          "segm/APs": 0.0,
+          "segm/APm": 0.0,
+          "segm/APl": -1.0
+        },
+        "inference_speed": {
+          "status": "ok",
+          "timed_images": 19,
+          "latency_ms_mean": 19.513488580215427,
+          "latency_ms_p50": 3.3421989937778562,
+          "latency_ms_p90": 3.547552804229781,
+          "throughput_fps": 51.246602876222354,
+          "inference_peak_memory_mb": 17.3046875
+        }
+      }
     }
-  ]
+  }
 }

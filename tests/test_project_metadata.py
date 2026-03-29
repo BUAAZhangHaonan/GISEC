@@ -59,6 +59,7 @@ def test_project_docs_freeze_v15_and_query_alpha_boundaries() -> None:
     assert "active benchmark surface" in results_readme
     assert "2026-03-28-active-surface-pilot-summary.md" in results_readme
     assert "2026-03-29-rgb-phase1-backbone-summary.md" in results_readme
+    assert "2026-03-29-rgb-weekend-pipeline-summary.md" in results_readme
 
 
 def test_project_metadata_includes_formal_gisec_query_surface() -> None:
