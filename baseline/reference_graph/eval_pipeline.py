@@ -76,6 +76,21 @@ def _filter_coco_annotations_to_image_ids(annotation_path: Path, image_ids: set[
     return output_path
 
 
+def _load_image_shapes(annotation_path: Path) -> dict[int, tuple[int, int]]:
+    payload = json.loads(annotation_path.read_text(encoding="utf-8"))
+    return {
+        int(item["id"]): (int(item["height"]), int(item["width"]))
+        for item in payload.get("images", [])
+    }
+
+
+def _resize_label_map(label_map: np.ndarray, *, image_shape: tuple[int, int]) -> np.ndarray:
+    target_h, target_w = int(image_shape[0]), int(image_shape[1])
+    if tuple(int(v) for v in label_map.shape[:2]) == (target_h, target_w):
+        return label_map.astype(np.int32, copy=False)
+    return cv2.resize(label_map.astype(np.int32, copy=False), (target_w, target_h), interpolation=cv2.INTER_NEAREST)
+
+
 def render_reference_graph_preview_sheet(
     *,
     cache_root: str,
@@ -212,6 +227,8 @@ def evaluate_reference_graph_merge(
         model.load_state_dict(torch.load(Path(checkpoint_path).resolve(), map_location="cpu"))
     model = model.to(device)
     model.eval()
+    annotation_path = Path(dataset_root) / "annotations" / f"instances_{split}.json"
+    image_shapes = _load_image_shapes(annotation_path)
 
     results: list[dict[str, Any]] = []
     latencies_ms: list[float] = []
@@ -243,10 +260,13 @@ def evaluate_reference_graph_merge(
                     edge_features=payload.get("edge_features"),
                     edge_ignore_mask=payload.get("edge_ignore_mask"),
                 )
+                merged_fragment_scale = merged
+                image_shape = image_shapes.get(int(payload["image_id"]), tuple(int(v) for v in merged.shape[:2]))
+                merged = _resize_label_map(merged, image_shape=image_shape)
                 masks = _masks_from_label_map(merged)
                 scores = _cluster_scores(
                     fragments=payload["fragments"].numpy().astype(np.int32, copy=False),
-                    merged=merged,
+                    merged=merged_fragment_scale,
                     edge_index=payload["edge_index"].long(),
                     edge_scores=sample_scores.float(),
                 )
@@ -260,7 +280,6 @@ def evaluate_reference_graph_merge(
                 )
     results_json = artifact_root / "coco_instances_results.json"
     results_json.write_text(json.dumps(results, ensure_ascii=False) + "\n", encoding="utf-8")
-    annotation_path = Path(dataset_root) / "annotations" / f"instances_{split}.json"
     filtered_annotation_path = _filter_coco_annotations_to_image_ids(
         annotation_path,
         eval_image_ids,

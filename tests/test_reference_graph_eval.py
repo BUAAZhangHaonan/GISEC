@@ -75,12 +75,18 @@ def _write_reference_root(root: Path, *, part_key: str = "partA") -> None:
     cv2.imwrite(str(bank / "mask" / "view_000.png"), mask)
 
 
-def _write_graph_cache(root: Path, *, split: str = "val") -> None:
+def _write_graph_cache(root: Path, *, split: str = "val", fragment_size: int = 32) -> None:
     split_dir = root / split
     split_dir.mkdir(parents=True, exist_ok=True)
-    fragments = torch.zeros((32, 32), dtype=torch.int16)
-    fragments[8:24, 8:16] = 1
-    fragments[8:24, 16:24] = 2
+    size = int(fragment_size)
+    fragments = torch.zeros((size, size), dtype=torch.int16)
+    y0 = int(round(size * 0.25))
+    y1 = int(round(size * 0.75))
+    x0 = int(round(size * 0.25))
+    x1 = int(round(size * 0.50))
+    x2 = int(round(size * 0.75))
+    fragments[y0:y1, x0:x1] = 1
+    fragments[y0:y1, x1:x2] = 2
     payload = {
         "image_id": 1,
         "file_name": "partA_scene_0001.png",
@@ -141,6 +147,32 @@ def test_evaluate_reference_graph_merge_writes_metrics_and_results(tmp_path: Pat
     assert (output_root / "coco_instances_results.json").exists()
 
 
+def test_evaluate_reference_graph_merge_rescales_feature_scale_masks_for_coco_export(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "dataset"
+    cache_root = tmp_path / "cache"
+    reference_root = tmp_path / "refs"
+    output_root = tmp_path / "eval"
+    _write_dataset(dataset_root)
+    _write_graph_cache(cache_root, fragment_size=8)
+    _write_reference_root(reference_root)
+
+    metrics, summary = evaluate_reference_graph_merge(
+        cache_root=str(cache_root),
+        reference_root=str(reference_root),
+        dataset_root=str(dataset_root),
+        output_dir=str(output_root),
+        split="val",
+        device=torch.device("cpu"),
+        threshold=0.5,
+        model=_DummyMergeModel(),
+    )
+
+    results = json.loads((output_root / "coco_instances_results.json").read_text(encoding="utf-8"))
+    assert results[0]["segmentation"]["size"] == [32, 32]
+    assert metrics["segm/AP50"] > 0.9
+    assert summary["metrics"]["segm/AP50"] > 0.9
+
+
 def test_render_reference_graph_preview_sheet_writes_progress_png(tmp_path: Path) -> None:
     dataset_root = tmp_path / "dataset"
     cache_root = tmp_path / "cache"
@@ -192,6 +224,35 @@ def test_evaluate_reference_graph_merge_filters_gt_to_cache_images(tmp_path: Pat
     assert metrics["segm/AP50"] > 0.9
     assert summary["num_images"] == 1
     assert summary["eval_image_count"] == 1
+
+
+def test_evaluate_reference_graph_merge_upscales_feature_scale_masks_to_image_size(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "dataset"
+    cache_root = tmp_path / "cache"
+    reference_root = tmp_path / "refs"
+    output_root = tmp_path / "eval"
+    _write_dataset(dataset_root)
+    _write_graph_cache(cache_root, fragment_size=16)
+    _write_reference_root(reference_root)
+
+    metrics, summary = evaluate_reference_graph_merge(
+        cache_root=str(cache_root),
+        reference_root=str(reference_root),
+        dataset_root=str(dataset_root),
+        output_dir=str(output_root),
+        split="val",
+        device=torch.device("cpu"),
+        threshold=0.5,
+        model=_DummyMergeModel(),
+    )
+
+    rows = json.loads((output_root / "coco_instances_results.json").read_text(encoding="utf-8"))
+
+    assert summary["num_predictions"] == 1
+    assert metrics["segm/AP50"] > 0.9
+    assert metrics["bbox/AP50"] > 0.9
+    assert rows[0]["bbox"] == [8, 8, 16, 16]
+    assert rows[0]["segmentation"]["size"] == [32, 32]
 
 
 def test_eval_reference_graph_merge_script_cli_uses_best_threshold(tmp_path: Path) -> None:
