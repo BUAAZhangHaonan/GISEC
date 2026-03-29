@@ -1,4 +1,8 @@
 {
+  "goal": {
+    "ap_target_small_rgb": "beat Magformer (~70 AP) with a smaller RGB GISEC",
+    "ap_target_final": "exceed 80 AP in the final system"
+  },
   "stage2": {
     "cache_root": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/output/experiments/rgb_weekend_pipeline_20260328/reference_split_cache",
     "reference_root": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/datasets/20260318_1K_13440",
@@ -10,6 +14,11 @@
     "loss_count": 0.06035910917125504,
     "loss_center": 0.02841167367810631,
     "wall_time_sec": 5116
+  },
+  "gt_context": {
+    "val_images": 149,
+    "avg_gt_instances_per_image": 63.718120805369125,
+    "median_gt_instances_per_image": 50
   },
   "stage3": {
     "mask_rcnn": {
@@ -72,8 +81,12 @@
         "threshold": 0.125,
         "num_images": 149,
         "eval_image_count": 149,
-        "filtered_annotation_path": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/output/experiments/rgb_weekend_pipeline_20260329/maskrcnn_reference_graph_rgb_stage3/eval_val_exportfix/instances_val.cache_subset.json",
+        "filtered_annotation_path": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/output/experiments/rgb_weekend_pipeline_20260329/maskrcnn_reference_graph_rgb_stage3/eval_val_phase3diag/instances_val.cache_subset.json",
         "num_predictions": 8695,
+        "avg_predictions_per_image": 58.355704697986575,
+        "avg_fragments_per_prediction": 1.079585968947671,
+        "singleton_prediction_rate": 0.947441058079356,
+        "mean_mask_area_ratio": 0.0016105058482489825,
         "metrics": {
           "iteration": -1,
           "bbox/AP": 0.2760094619209671,
@@ -92,10 +105,10 @@
         "inference_speed": {
           "status": "ok",
           "timed_images": 19,
-          "latency_ms_mean": 19.735052683819575,
-          "latency_ms_p50": 3.4511589910835028,
-          "latency_ms_p90": 4.113994404906406,
-          "throughput_fps": 50.671260726852914,
+          "latency_ms_mean": 19.386459102143387,
+          "latency_ms_p50": 3.490537987090647,
+          "latency_ms_p90": 3.6948717839550227,
+          "throughput_fps": 51.58239546124434,
           "inference_peak_memory_mb": 17.76611328125
         }
       }
@@ -160,8 +173,12 @@
         "threshold": 0.1,
         "num_images": 149,
         "eval_image_count": 149,
-        "filtered_annotation_path": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/output/experiments/rgb_weekend_pipeline_20260329/mask2former_reference_graph_rgb_stage3/eval_val_exportfix/instances_val.cache_subset.json",
+        "filtered_annotation_path": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/output/experiments/rgb_weekend_pipeline_20260329/mask2former_reference_graph_rgb_stage3/eval_val_phase3diag/instances_val.cache_subset.json",
         "num_predictions": 8539,
+        "avg_predictions_per_image": 57.308724832214764,
+        "avg_fragments_per_prediction": 1.0555100128820705,
+        "singleton_prediction_rate": 0.9615880079634618,
+        "mean_mask_area_ratio": 0.001616975967687778,
         "metrics": {
           "iteration": -1,
           "bbox/AP": 0.35143368867546915,
@@ -180,10 +197,45 @@
         "inference_speed": {
           "status": "ok",
           "timed_images": 19,
-          "latency_ms_mean": 19.90637363479963,
-          "latency_ms_p50": 3.7057879962958395,
-          "latency_ms_p90": 4.2987436056137085,
-          "throughput_fps": 50.23516680365302,
+          "latency_ms_mean": 21.00616841466705,
+          "latency_ms_p50": 3.5170280025340617,
+          "latency_ms_p90": 4.561391792958602,
+          "throughput_fps": 47.60506439155149,
+          "inference_peak_memory_mb": 17.3046875
+        }
+      },
+      "eval_conservative": {
+        "cache_root": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/output/experiments/rgb_weekend_pipeline_20260329/mask2former_graph_cache",
+        "reference_root": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/datasets/20260318_1K_13440",
+        "dataset_root": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/datasets/20260318_1K_1566",
+        "split": "val",
+        "threshold": 0.175,
+        "num_images": 149,
+        "eval_image_count": 149,
+        "filtered_annotation_path": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/output/experiments/rgb_weekend_pipeline_20260329/mask2former_reference_graph_rgb_stage3/eval_val_conservative/instances_val.cache_subset.json",
+        "num_predictions": 8740,
+        "metrics": {
+          "iteration": -1,
+          "bbox/AP": 0.354474594670132,
+          "bbox/AP50": 0.6445120929553957,
+          "bbox/AP75": 0.36139414082795046,
+          "bbox/APs": 0.08014300796212624,
+          "bbox/APm": 0.4709895740630536,
+          "bbox/APl": -1.0,
+          "segm/AP": 0.355968060607826,
+          "segm/AP50": 0.6480391655937146,
+          "segm/AP75": 0.3745173570842752,
+          "segm/APs": 0.047766339674485465,
+          "segm/APm": 0.4779226551641399,
+          "segm/APl": -1.0
+        },
+        "inference_speed": {
+          "status": "ok",
+          "timed_images": 19,
+          "latency_ms_mean": 20.371626267565023,
+          "latency_ms_p50": 3.4982580109499395,
+          "latency_ms_p90": 4.0014586062170565,
+          "throughput_fps": 49.08788266905153,
           "inference_peak_memory_mb": 17.3046875
         }
       }

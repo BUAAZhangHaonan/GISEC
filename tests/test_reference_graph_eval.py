@@ -143,6 +143,10 @@ def test_evaluate_reference_graph_merge_writes_metrics_and_results(tmp_path: Pat
     assert metrics["segm/AP50"] > 0.9
     assert summary["threshold"] == 0.5
     assert summary["num_images"] == 1
+    assert summary["avg_predictions_per_image"] == 1.0
+    assert summary["avg_fragments_per_prediction"] == 2.0
+    assert summary["singleton_prediction_rate"] == 0.0
+    assert summary["mean_mask_area_ratio"] == 0.25
     assert (output_root / "metrics.cocoeval.json").exists()
     assert (output_root / "coco_instances_results.json").exists()
 
@@ -253,6 +257,8 @@ def test_evaluate_reference_graph_merge_upscales_feature_scale_masks_to_image_si
     assert metrics["bbox/AP50"] > 0.9
     assert rows[0]["bbox"] == [8, 8, 16, 16]
     assert rows[0]["segmentation"]["size"] == [32, 32]
+    assert summary["avg_fragments_per_prediction"] == 2.0
+    assert summary["singleton_prediction_rate"] == 0.0
 
 
 def test_eval_reference_graph_merge_script_cli_uses_best_threshold(tmp_path: Path) -> None:

@@ -58,6 +58,24 @@ def _cluster_scores(
     return scores
 
 
+def _cluster_fragment_counts(
+    *,
+    fragments: np.ndarray,
+    merged: np.ndarray,
+) -> list[int]:
+    merged_labels = [int(x) for x in np.unique(merged).tolist() if int(x) > 0]
+    if not merged_labels:
+        return []
+    counts = {int(label): 0 for label in merged_labels}
+    fragment_labels = [int(x) for x in np.unique(fragments).tolist() if int(x) > 0]
+    for fragment_label in fragment_labels:
+        merged_values = merged[fragments == int(fragment_label)]
+        merged_values = merged_values[merged_values > 0]
+        if merged_values.size:
+            counts[int(merged_values[0])] += 1
+    return [int(counts[int(label)]) for label in merged_labels]
+
+
 def _filter_coco_annotations_to_image_ids(annotation_path: Path, image_ids: set[int], output_path: Path) -> Path:
     payload = json.loads(annotation_path.read_text(encoding="utf-8"))
     if not image_ids:
@@ -233,6 +251,8 @@ def evaluate_reference_graph_merge(
     results: list[dict[str, Any]] = []
     latencies_ms: list[float] = []
     eval_image_ids: set[int] = set()
+    cluster_fragment_counts: list[int] = []
+    mask_area_ratios: list[float] = []
     with torch.no_grad():
         for batch in loader:
             sample_paths = [Path(path) for path in batch["sample_paths"]]
@@ -264,6 +284,14 @@ def evaluate_reference_graph_merge(
                 image_shape = image_shapes.get(int(payload["image_id"]), tuple(int(v) for v in merged.shape[:2]))
                 merged = _resize_label_map(merged, image_shape=image_shape)
                 masks = _masks_from_label_map(merged)
+                cluster_fragment_counts.extend(
+                    _cluster_fragment_counts(
+                        fragments=payload["fragments"].numpy().astype(np.int32, copy=False),
+                        merged=merged_fragment_scale,
+                    )
+                )
+                image_area = float(max(int(image_shape[0]) * int(image_shape[1]), 1))
+                mask_area_ratios.extend([float(mask.sum()) / image_area for mask in masks])
                 scores = _cluster_scores(
                     fragments=payload["fragments"].numpy().astype(np.int32, copy=False),
                     merged=merged_fragment_scale,
@@ -297,6 +325,10 @@ def evaluate_reference_graph_merge(
         "eval_image_count": int(len(eval_image_ids)),
         "filtered_annotation_path": str(filtered_annotation_path),
         "num_predictions": int(len(results)),
+        "avg_predictions_per_image": 0.0 if len(eval_image_ids) <= 0 else float(len(results)) / float(len(eval_image_ids)),
+        "avg_fragments_per_prediction": 0.0 if not cluster_fragment_counts else float(sum(cluster_fragment_counts)) / float(len(cluster_fragment_counts)),
+        "singleton_prediction_rate": 0.0 if not cluster_fragment_counts else float(sum(1 for value in cluster_fragment_counts if int(value) <= 1)) / float(len(cluster_fragment_counts)),
+        "mean_mask_area_ratio": 0.0 if not mask_area_ratios else float(sum(mask_area_ratios)) / float(len(mask_area_ratios)),
         "metrics": dict(metrics),
         "inference_speed": dict(speed),
     }

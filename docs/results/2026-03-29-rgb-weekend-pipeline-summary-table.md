@@ -8,7 +8,7 @@
 
 ## Stage 3
 
-| Model | Val F1 | Eval Threshold | segm/AP Before Fix | segm/AP After Fix | bbox/AP After Fix | Eval FPS | Predictions |
+| Model | Val F1 | Eval Threshold | segm/AP Before Fix | segm/AP After Fix | bbox/AP After Fix | Eval FPS | Predictions | Avg Fragments / Pred | Singleton Rate |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Mask R-CNN RGB | 0.6078 | 0.125 | 0.0000 | 0.2327 | 0.2760 | 52.41 | 8695 |
-| Mask2Former RGB | 0.5527 | 0.100 | 0.0000 | 0.3552 | 0.3514 | 51.95 | 8539 |
+| Mask R-CNN RGB | 0.6078 | 0.125 | 0.0000 | 0.2327 | 0.2760 | 51.58 | 8695 | 1.08 | 94.74% |
+| Mask2Former RGB | 0.5527 | 0.100 | 0.0000 | 0.3552 | 0.3514 | 47.61 | 8539 | 1.06 | 96.16% |
