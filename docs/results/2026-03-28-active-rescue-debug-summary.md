@@ -32,4 +32,4 @@
 
 - The old `*_ref` and `*_ref_graph` pilot failures should not be used as evidence against rescue modules in principle; they were contaminated by a real numeric and stage-order bug.
 - The corrected stagewise runs show the more useful conclusion: local reference and local graph are currently neutral-to-slightly-negative on this budget, not catastrophically broken, and they still need stronger training or redesign before promotion.
-- The next justified mainline work remains `base_rgbd_1024` and `base_rgbd_1024_refine` under longer budgets. Rescue modules stay in debug/ablation mode until they beat refine-only on a clean stagewise setup.
+- These rescue debug runs do not change the RGB-first Phase 1 backbone choice. Rescue modules stay in debug/ablation mode until they beat a clean later-phase baseline built on top of the RGB winner.

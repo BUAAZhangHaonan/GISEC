@@ -2,54 +2,51 @@
 
 ![RGB Phase 1 short matrix](./figures/2026-03-29-rgb-phase1-short-matrix.png)
 
-![RGB Phase 1 full pair](./figures/2026-03-29-rgb-phase1-full-pair.png)
+![RGB Phase 1 full comparison](./figures/2026-03-29-rgb-phase1-full-pair.png)
 
-## Scope
+## Current Sub-Project
 
-- This note closes the `Phase 1 RGB backbone benchmark` sub-project.
-- It uses the existing baseline RGB artifacts only:
-  - short matrix under `output/experiments/baselines/phase_a_rgb_short_20260327/`
-  - full runs under `output/experiments/baselines/phase_a_rgb_full_20260327/`
-- The compact machine summary is in [2026-03-29-rgb-phase1-backbone-summary.json](2026-03-29-rgb-phase1-backbone-summary.json).
-- The compact table is in [2026-03-29-rgb-phase1-backbone-summary-table.md](2026-03-29-rgb-phase1-backbone-summary-table.md).
+The current sub-project is the `RGB-first Phase 1 backbone benchmark and public-surface reset`.
 
-## Main Results
+This phase is only about the first-stage backbone choice. It is not yet the phase for RGB-D fusion, local refinement, reference rescue, or graph rescue to take over the main story.
 
-### Short Matrix
+## Exact Artifacts
 
-| Run | segm/AP (%) | bbox/AP (%) | boundary/IoU (%) | FPS |
-| --- | ---: | ---: | ---: | ---: |
-| `mask_rcnn_r50_256_phasea_short` | 0.00 | 0.00 | 19.05 | 7.61 |
-| `mask_rcnn_r50_512_phasea_short` | 0.00 | 0.00 | 12.14 | 7.99 |
-| `mask_rcnn_r50_1024_phasea_short` | 5.11 | 11.85 | 7.53 | 7.98 |
-| `mask2former_swin_t_256_phasea_short` | 0.00 | 0.00 | 20.87 | 13.55 |
-| `mask2former_swin_t_512_phasea_short` | 0.00 | 0.00 | 16.93 | 13.66 |
-| `mask2former_swin_t_1024_phasea_short` | 25.34 | 30.46 | 11.62 | 10.50 |
+- short matrix root: `output/experiments/baselines/phase_a_rgb_short_20260327/`
+- full 1024 root: `output/experiments/baselines/phase_a_rgb_full_20260327/`
+- machine summary: [2026-03-29-rgb-phase1-backbone-summary.json](2026-03-29-rgb-phase1-backbone-summary.json)
+- compact table: [2026-03-29-rgb-phase1-backbone-summary-table.md](2026-03-29-rgb-phase1-backbone-summary-table.md)
 
-### Full Runs
+## Results
 
-| Run | segm/AP (%) | bbox/AP (%) | boundary/IoU (%) | FPS |
-| --- | ---: | ---: | ---: | ---: |
-| `mask_rcnn_r50_1024_phasea_full` | 51.94 | 49.08 | 14.70 | 11.44 |
-| `mask2former_swin_t_1024_phasea_full` | 54.59 | 49.33 | 18.94 | 11.69 |
+### Short matrix
+
+- `Mask R-CNN RGB @256`: `segm/AP 0.00`
+- `Mask R-CNN RGB @512`: `segm/AP 0.00`
+- `Mask R-CNN RGB @1024`: `segm/AP 5.11`
+- `Mask2Former RGB @256`: `segm/AP 0.00`
+- `Mask2Former RGB @512`: `segm/AP 0.00`
+- `Mask2Former RGB @1024`: `segm/AP 25.34`
+
+### Full 1024 runs
+
+- `Mask R-CNN RGB @1024`: `segm/AP 51.94`, `bbox/AP 49.08`, `boundary/IoU 14.70`, `FPS 11.44`
+- `Mask2Former RGB @1024`: `segm/AP 54.59`, `bbox/AP 49.33`, `boundary/IoU 18.94`, `FPS 11.69`
 
 ## Conclusion
 
 - `Mask2Former RGB @1024` is the Phase 1 winner.
-- `Mask R-CNN RGB @1024` is the correct benchmark companion.
-- The short matrix and the full runs point in the same direction: `1024` is required, and `Mask2Former` separates crowded instances better once the model is allowed to train seriously.
+- `Mask R-CNN RGB @1024` is the benchmark companion.
+- `1024` is required. `256` and `512` are not serious settings for this dataset under the current protocol.
 
-## Why RGB-D Is Deferred
+## Why RGB-D Is Later
 
-- The later RGB-D follow-up did not produce a clear enough gain to replace the simpler RGB Phase 1 story.
-- The strongest raw RGB-D concat result stayed slightly below the RGB Mask2Former winner, while the valid-mask variant fell much further behind.
-- That means RGB-D is still worth testing later, but it should not define the first backbone conclusion.
+- The RGB backbone decision is already clean enough without widening the surface.
+- The recent RGB-D follow-up did not produce a large enough gain to replace the simpler RGB Phase 1 story.
+- So RGB-D stays as a later branch on top of the RGB winner, not as the front-door Phase 1 answer.
 
-See [2026-03-28-active-phasebc-followup.md](2026-03-28-active-phasebc-followup.md) for that later branch.
+## Next Step
 
-## Next Phase
-
-- Freeze `Mask2Former RGB @1024` as the main RGB base model.
-- Keep `Mask R-CNN RGB @1024` as the benchmark comparison point.
-- Run the next rescue or refinement phases from the RGB winner first.
-- Revisit better RGB-D fusion only after the RGB-only path is stable and explained.
+- Keep `Mask2Former RGB @1024` as the mainline base model.
+- Keep `Mask R-CNN RGB @1024` as the comparison anchor.
+- Resume later modules and later fusion work only after this RGB-first Phase 1 conclusion stays fixed.

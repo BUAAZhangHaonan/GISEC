@@ -29,6 +29,7 @@ Keep raw machine-generated outputs in `output/`; use `docs/results/` for version
 ## RGB Phase 1 Notes
 
 - [2026-03-29-rgb-phase1-backbone-summary.md](2026-03-29-rgb-phase1-backbone-summary.md)
+- [2026-03-29-rgb-weekend-pipeline-summary.md](2026-03-29-rgb-weekend-pipeline-summary.md)
 
 ## Active Surface Notes
 

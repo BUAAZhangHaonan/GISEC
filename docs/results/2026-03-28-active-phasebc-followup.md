@@ -34,6 +34,6 @@
 
 ## Conclusion
 
-- The active mainline should now be treated as `base_rgbd_1024_refine` on top of the strong raw-concat RGB-D base.
-- `rgbd_concat_valid_mask` stays available as a public mode, but it is not the winner and should not replace raw concat in the active chain.
-- Reference and graph stay in local-rescue debug status for now. The next fair rescue runs should start from this stronger stagewise refine checkpoint, not from the older scratch-like pilots.
+- This note is later-branch evidence, not the Phase 1 repo headline. The backbone headline remains RGB-first.
+- Inside the RGB-D branch, raw `rgbd_concat` is the only mode worth keeping for later comparison, and stagewise refine is the strongest later-branch follow-up so far.
+- Reference and graph stay in local-rescue debug status for now. Any future rescue reruns should be judged against the RGB-first Phase 1 winner, not used to replace it.
