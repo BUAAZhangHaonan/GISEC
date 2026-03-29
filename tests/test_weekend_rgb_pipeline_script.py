@@ -20,11 +20,10 @@ def test_weekend_rgb_pipeline_dry_run_lists_expected_steps() -> None:
 
     text = result.stdout
     assert "wait-for-current-phase-b" in text
-    assert "build-reference-split-cache-train" in text
-    assert "train-reference-splitter" in text
-    assert "build-maskrcnn-graph-cache-train" in text
-    assert "train-maskrcnn-reference-graph" in text
-    assert "eval-maskrcnn-reference-graph" in text
-    assert "build-mask2former-graph-cache-train" in text
-    assert "train-mask2former-reference-graph" in text
-    assert "eval-mask2former-reference-graph" in text
+    assert "build-fragment-generator-cache-train" in text
+    assert "build-fragment-generator-cache-val" in text
+    assert "train-fragment-generator" in text
+    assert "eval-fragment-generator" in text
+    assert "gate-local-merger-on-fragment-quality" in text
+    assert "train-local-merger" in text
+    assert "eval-local-merger" in text

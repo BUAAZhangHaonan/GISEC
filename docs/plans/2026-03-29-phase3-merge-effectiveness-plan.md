@@ -1,5 +1,9 @@
 # Phase 3 Merge Effectiveness Implementation Plan
 
+> **Superseded on 2026-03-30 by:** `docs/plans/2026-03-30-rgb-phase23-fragment-reset-plan.md`
+>
+> The old threshold and merge-policy tuning branch is no longer the active mainline. The project pivoted upstream to explicit fragment generation after the prerequisite diagnostics showed that Stage 3 was still receiving mostly singleton, impure, accidental fragments.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Improve Phase 3 graph rescue after the export-space fix by increasing real fragment merging, so Stage 3 AP can move meaningfully closer to the RGB backbone instead of stalling with almost-all-singleton predictions.
