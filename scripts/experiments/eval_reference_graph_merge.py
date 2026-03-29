@@ -57,7 +57,8 @@ def _resolve_checkpoint(model_dir: Path, checkpoint_arg: str | None) -> Path:
 def _resolve_threshold(model_dir: Path, threshold_arg: float | None, train_cfg: dict) -> float:
     if threshold_arg is not None:
         return float(threshold_arg)
-    for summary_name in ["train_summary.json", "val_summary.json"]:
+    # Validation threshold selection is the freshest source for eval.
+    for summary_name in ["val_summary.json", "train_summary.json"]:
         summary_path = model_dir / summary_name
         if not summary_path.exists():
             continue
