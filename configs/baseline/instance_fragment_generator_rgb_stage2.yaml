@@ -1,0 +1,23 @@
+common:
+  device: cuda
+  image_size: 1024
+  num_workers: 4
+cache:
+  crop_size: 256
+  crop_pad: 16
+  feature_channels: 32
+  target_solidity: 0.92
+  min_match_iou: 0.20
+  min_concavity_depth_px: 6.0
+model:
+  variant: base_rgb_1024
+  model_family: mask2former
+  backbone_name: swin_t
+  input_mode: rgb
+  fusion_mode: rgb
+  depth_mode: rgb
+  inference_defaults_locked: true
+  pretrained_model_name: facebook/mask2former-swin-tiny-coco-instance
+  score_threshold: 0.5
+  mask_threshold: 0.5
+  refine_mode: none
