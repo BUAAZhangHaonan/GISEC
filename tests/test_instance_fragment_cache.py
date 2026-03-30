@@ -150,3 +150,52 @@ def test_build_instance_fragment_caches_uses_one_anchor_per_instance_and_keeps_n
     assert int(negative_payload["anchor_gt_id"].item()) == 0
     assert int(negative_payload["raw_fragment_count"].item()) == 0
     assert negative_payload["gt_fragment_masks"].shape[0] == 0
+
+
+def test_build_instance_fragment_caches_tolerates_interrupted_cache_cleanup(tmp_path: Path, monkeypatch) -> None:
+    from baseline.instance_fragment_generator import cache as cache_mod
+
+    dataset_root = tmp_path / "dataset"
+    output_root = tmp_path / "cache"
+    _write_dataset(dataset_root)
+
+    stale_gt = output_root / "instance_fragment_cache_gt" / "train"
+    stale_pred = output_root / "instance_fragment_cache_pred" / "train"
+    stale_gt.mkdir(parents=True, exist_ok=True)
+    stale_pred.mkdir(parents=True, exist_ok=True)
+    (stale_gt / "stale.npz").write_bytes(b"old")
+    (stale_pred / "stale.npz").write_bytes(b"old")
+
+    left_mask = np.zeros((80, 80), dtype=np.uint8)
+    left_mask[10:46, 6:30] = 1
+
+    def _infer_sample(sample: dict[str, object]) -> tuple[torch.Tensor, list[np.ndarray], list[float]]:
+        feature_map = torch.zeros((1, 4, 20, 20), dtype=torch.float32)
+        feature_map[:, 0, 2:12, 1:8] = 1.0
+        return feature_map, [left_mask.copy()], [0.92]
+
+    original_rmtree = cache_mod.shutil.rmtree
+    calls: list[str] = []
+
+    def _flaky_rmtree(path: Path, *args: object, **kwargs: object) -> None:
+        calls.append(str(path))
+        if len(calls) == 1:
+            original_rmtree(path, ignore_errors=True)
+            raise FileNotFoundError(path)
+        original_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(cache_mod.shutil, "rmtree", _flaky_rmtree)
+
+    manifests = cache_mod.build_instance_fragment_caches(
+        dataset_root=str(dataset_root),
+        output_root=str(output_root),
+        split="train",
+        image_size=80,
+        crop_size=32,
+        crop_pad=4,
+        infer_sample=_infer_sample,
+        min_match_iou=0.20,
+    )
+
+    assert manifests["pred"]["num_samples"] == 1
+    assert (output_root / "instance_fragment_cache_pred" / "train" / "manifest.json").exists()
