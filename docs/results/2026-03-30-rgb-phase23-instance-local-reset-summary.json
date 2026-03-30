@@ -1,0 +1,100 @@
+{
+  "baseline": {
+    "variant": "base_rgb_1024",
+    "segm/AP": 0.5450772353135926,
+    "bbox/AP": 0.49337000524805646,
+    "boundary/IoU": 0.1893520703200649,
+    "split_gt_count": 593,
+    "merge_pred_count": 668
+  },
+  "cache_pred": {
+    "dataset_root": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/datasets/20260318_1K_1566",
+    "split": "val",
+    "cache_kind": "pred",
+    "image_size": 1024,
+    "crop_size": 256,
+    "crop_pad": 16,
+    "target_solidity": 0.92,
+    "min_match_iou": 0.2,
+    "min_concavity_depth_px": 6.0,
+    "num_samples": 9040,
+    "positive_anchor_count": 8202,
+    "negative_anchor_count": 838,
+    "matchable_gt_count": 8202,
+    "total_gt_instances": 9489,
+    "matchable_gt_rate": 0.864369269680683,
+    "raw_fragment_count_mean": 2.8755181663009024,
+    "raw_fragment_count_p50": 2.0,
+    "raw_fragment_count_p75": 4.0,
+    "raw_fragment_count_p90": 6.0,
+    "raw_fragment_count_p95": 8.0,
+    "raw_fragment_count_max": 20,
+    "max_images": 0
+  },
+  "cache_gt": {
+    "dataset_root": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/datasets/20260318_1K_1566",
+    "split": "val",
+    "cache_kind": "gt",
+    "image_size": 1024,
+    "crop_size": 256,
+    "crop_pad": 16,
+    "target_solidity": 0.92,
+    "min_concavity_depth_px": 6.0,
+    "num_samples": 9489,
+    "raw_fragment_count_mean": 2.7860680788281167,
+    "raw_fragment_count_p50": 2.0,
+    "raw_fragment_count_p75": 4.0,
+    "raw_fragment_count_p90": 6.0,
+    "raw_fragment_count_p95": 8.0,
+    "raw_fragment_count_max": 20,
+    "max_images": 0
+  },
+  "oracles": {
+    "oracle_fragments_no_merge": {
+      "num_predictions": 23585,
+      "split_gt_count": 3708,
+      "merge_pred_count": 4,
+      "metrics": {
+        "iteration": -1,
+        "bbox/AP": 0.13440658519510273,
+        "bbox/AP50": 0.20564415460005323,
+        "bbox/AP75": 0.11869014519062572,
+        "bbox/APs": 0.0028583036234065043,
+        "bbox/APm": 0.27855099611902834,
+        "bbox/APl": -1.0,
+        "segm/AP": 0.14344162374718986,
+        "segm/AP50": 0.2245777306453044,
+        "segm/AP75": 0.11956006464421538,
+        "segm/APs": 0.00339598597500882,
+        "segm/APm": 0.29527015694830117,
+        "segm/APl": -1.0,
+        "boundary/IoU": 0.7240424905631632
+      }
+    },
+    "oracle_owner_union": {
+      "num_predictions": 8202,
+      "split_gt_count": 2,
+      "merge_pred_count": 1,
+      "metrics": {
+        "iteration": -1,
+        "bbox/AP": 0.7552647252667453,
+        "bbox/AP50": 0.8377982654687649,
+        "bbox/AP75": 0.7895554524448594,
+        "bbox/APs": 0.35089032052367664,
+        "bbox/APm": 0.9040063253089495,
+        "bbox/APl": -1.0,
+        "segm/AP": 0.8489273379592495,
+        "segm/AP50": 0.8613291164864387,
+        "segm/AP75": 0.850499412537952,
+        "segm/APs": 0.5095892431759905,
+        "segm/APm": 0.9672026956137926,
+        "segm/APl": -1.0,
+        "boundary/IoU": 0.9227048670589119
+      }
+    }
+  },
+  "decision": {
+    "oracle_gate_passed": true,
+    "reason": "oracle_owner_union clears the AP and failure-count gate"
+  }
+}

@@ -1,6 +1,6 @@
 # RGB-First Phase 2/3 Fragment Reset
 
-> **Status:** active implementation branch for `rgb_phase23_fragment_reset`
+> **Status:** superseded by `rgb_phase23_instance_local_reset` after the real `K=6` crop-budget gate failed on `2026-03-30`
 
 ## Goal
 
@@ -88,4 +88,7 @@
 
 ## Promotion Rule
 
-- The reset branch does not replace the public RGB backbone winner until the new Stage 2 gates pass and the Stage 2 plus Stage 3 line beats the frozen `base_rgb_1024` evaluation protocol.
+- This branch is closed as a scientific dead end.
+- The active follow-up is now the instance-local reset in:
+  - `docs/plans/2026-03-30-rgb-phase23-instance-local-reset-design.md`
+  - `docs/plans/2026-03-30-rgb-phase23-instance-local-reset-plan.md`
