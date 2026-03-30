@@ -6,6 +6,7 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 import yaml
@@ -32,6 +33,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split", default="train")
     parser.add_argument("--device", default=None)
     parser.add_argument("--max-images", type=int, default=0)
+    parser.add_argument("--inference-batch-size", type=int, default=0)
     return parser.parse_args()
 
 
@@ -73,6 +75,40 @@ def _reduce_feature_channels(feature_map: torch.Tensor, *, out_channels: int) ->
     return reduced
 
 
+def _outputs_to_instance_masks_batch(
+    outputs: torch.Tensor,
+    *,
+    processor,
+    target_sizes: list[tuple[int, int]],
+    score_threshold: float,
+    mask_threshold: float,
+) -> list[tuple[list[np.ndarray], list[float]]]:
+    predictions = processor.post_process_instance_segmentation(
+        outputs,
+        threshold=float(score_threshold),
+        mask_threshold=float(mask_threshold),
+        target_sizes=target_sizes,
+    )
+    results: list[tuple[list[np.ndarray], list[float]]] = []
+    for prediction in predictions:
+        segmentation = prediction.get("segmentation")
+        if segmentation is None:
+            results.append(([], []))
+            continue
+        segmentation_map = segmentation.detach().cpu().numpy() if isinstance(segmentation, torch.Tensor) else np.asarray(segmentation)
+        masks: list[np.ndarray] = []
+        scores: list[float] = []
+        for segment in prediction.get("segments_info", []):
+            segment_id = int(segment["id"])
+            binary = (segmentation_map == segment_id).astype(np.uint8)
+            if int(binary.sum()) <= 0:
+                continue
+            masks.append(binary)
+            scores.append(float(segment.get("score", 1.0)))
+        results.append((masks, scores))
+    return results
+
+
 def main() -> None:
     args = parse_args()
     payload = _load_yaml(Path(args.config).resolve())
@@ -87,26 +123,32 @@ def main() -> None:
     model = _build_mask2former_from_checkpoint(checkpoint_payload=checkpoint, image_size=image_size).to(device)
     model.eval()
 
-    def _infer_sample(sample: dict[str, object]) -> tuple[torch.Tensor, list, list[float]]:
-        image = sample["image"].float()
-        encoded = processor(images=[image], return_tensors="pt")
+    def _infer_batch(samples: list[dict[str, object]]) -> list[tuple[torch.Tensor, list, list[float]]]:
+        images = [sample["image"].float() for sample in samples]
+        encoded = processor(images=images, return_tensors="pt")
         pixel_values = encoded["pixel_values"].to(device)
         pixel_mask = encoded["pixel_mask"].to(device)
         with torch.no_grad():
             outputs = model(pixel_values=pixel_values, pixel_mask=pixel_mask, output_hidden_states=True)
-        masks, scores = outputs_to_instance_masks(
+        mask_rows = _outputs_to_instance_masks_batch(
             outputs,
             processor=processor,
-            target_size=(int(image.shape[-2]), int(image.shape[-1])),
+            target_sizes=[(int(image.shape[-2]), int(image.shape[-1])) for image in images],
             score_threshold=float(model_cfg.get("score_threshold", 0.5)),
             mask_threshold=float(model_cfg.get("mask_threshold", 0.5)),
         )
         feature_map = outputs.pixel_decoder_hidden_states[-1]
-        target_shape = (max(int(image.shape[-2]) // 4, 1), max(int(image.shape[-1]) // 4, 1))
-        if tuple(int(v) for v in feature_map.shape[-2:]) != target_shape:
-            feature_map = F.interpolate(feature_map, size=target_shape, mode="bilinear", align_corners=False)
         feature_map = _reduce_feature_channels(feature_map, out_channels=int(feature_channels))
-        return feature_map.detach().cpu(), masks, scores
+        feature_map = feature_map.detach().cpu()
+        rows: list[tuple[torch.Tensor, list, list[float]]] = []
+        for batch_index, image in enumerate(images):
+            target_shape = (max(int(image.shape[-2]) // 4, 1), max(int(image.shape[-1]) // 4, 1))
+            sample_feature_map = feature_map[batch_index : batch_index + 1]
+            if tuple(int(v) for v in sample_feature_map.shape[-2:]) != target_shape:
+                sample_feature_map = F.interpolate(sample_feature_map, size=target_shape, mode="bilinear", align_corners=False)
+            masks, scores = mask_rows[batch_index]
+            rows.append((sample_feature_map, masks, scores))
+        return rows
 
     manifests = build_instance_fragment_caches(
         dataset_root=str(Path(args.dataset_root).resolve()),
@@ -118,9 +160,11 @@ def main() -> None:
         target_solidity=float(cache_cfg.get("target_solidity", 0.92)),
         min_match_iou=float(cache_cfg.get("min_match_iou", 0.20)),
         min_concavity_depth_px=float(cache_cfg.get("min_concavity_depth_px", 0.0)),
-        infer_sample=_infer_sample,
+        infer_batch=_infer_batch,
         max_images=int(args.max_images),
         cache_workers=int(common.get("num_workers", 0)),
+        loader_batch_size=int(args.inference_batch_size or cache_cfg.get("inference_batch_size", 4)),
+        loader_workers=max(int(common.get("num_workers", 0)), 0),
     )
     print(json.dumps(manifests, ensure_ascii=False))
 

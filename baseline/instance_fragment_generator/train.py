@@ -124,6 +124,9 @@ def train_instance_fragment_generator(
         "learning_rate": float(learning_rate),
         "hidden_dim": int(hidden_dim),
         "num_queries": int(num_queries),
+        "rgb_channels": int(probe["anchor_rgb_crop"].shape[0]),
+        "feature_channels": int(probe["anchor_feature_crop"].shape[0]),
+        "neighbor_channels": int(probe["neighbor_union_mask_crop"].shape[0]),
     }
     (artifact_root / "model_config.json").write_text(json.dumps(model_config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
@@ -173,8 +176,6 @@ def train_instance_fragment_generator(
 
     (artifact_root / "train_summary.json").write_text(json.dumps(train_summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return {
-        "model": model,
         "train_summary": train_summary,
         "val_summary": val_summary,
     }
-

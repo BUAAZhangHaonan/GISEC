@@ -259,6 +259,7 @@ def build_instance_fragment_caches(
     split: str,
     image_size: int,
     infer_sample: Callable[[dict[str, Any]], tuple[torch.Tensor, list[np.ndarray], list[float]]] | None = None,
+    infer_batch: Callable[[list[dict[str, Any]]], list[tuple[torch.Tensor, list[np.ndarray], list[float]]]] | None = None,
     crop_size: int = 256,
     crop_pad: int = 16,
     target_solidity: float = 0.92,
@@ -266,9 +267,11 @@ def build_instance_fragment_caches(
     min_concavity_depth_px: float = 0.0,
     max_images: int = 0,
     cache_workers: int = 0,
+    loader_batch_size: int = 1,
+    loader_workers: int = 0,
 ) -> dict[str, dict[str, Any]]:
-    if infer_sample is None:
-        raise ValueError("infer_sample is required for build_instance_fragment_caches")
+    if infer_sample is None and infer_batch is None:
+        raise ValueError("infer_sample or infer_batch is required for build_instance_fragment_caches")
     dataset_root_path = Path(dataset_root).resolve()
     output_root_path = Path(output_root).resolve()
     gt_cache_dir = output_root_path / "instance_fragment_cache_gt" / str(split)
@@ -288,7 +291,13 @@ def build_instance_fragment_caches(
         include_annotations=False,
         include_instance_map=True,
     )
-    loader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=0, collate_fn=lambda batch: batch[0])
+    loader = DataLoader(
+        dataset,
+        batch_size=max(int(loader_batch_size), 1),
+        shuffle=False,
+        num_workers=max(int(loader_workers), 0),
+        collate_fn=lambda batch: batch,
+    )
 
     gt_rows: list[dict[str, Any]] = []
     pred_rows: list[dict[str, Any]] = []
@@ -299,91 +308,103 @@ def build_instance_fragment_caches(
     total_gt_instances = 0
     matchable_gt_count = 0
 
-    for sample_index, sample in enumerate(loader):
-        if int(max_images) > 0 and sample_index >= int(max_images):
+    def _run_jobs(jobs: list[dict[str, Any]]) -> list[dict[str, Any] | None]:
+        if int(cache_workers) > 1 and len(jobs) > 1:
+            with ThreadPoolExecutor(max_workers=int(cache_workers)) as pool:
+                return list(pool.map(lambda kwargs: _prepare_anchor_sample(**kwargs), jobs))
+        return [_prepare_anchor_sample(**job) for job in jobs]
+
+    processed_images = 0
+    for sample_batch in loader:
+        if int(max_images) > 0 and processed_images >= int(max_images):
             break
-        feature_map, pred_masks, pred_scores = infer_sample(sample)
-        image = sample["image"].float()
-        instance_map = sample["instance_map"].cpu().numpy().astype(np.int32)
-        image_shape = (int(image.shape[-2]), int(image.shape[-1]))
-        feature_shape = (int(feature_map.shape[-2]), int(feature_map.shape[-1]))
-        gt_owner_ids = [int(owner_id) for owner_id in np.unique(instance_map).tolist() if int(owner_id) > 0]
-        gt_masks = [(instance_map == int(owner_id)).astype(np.uint8) for owner_id in gt_owner_ids]
-        total_gt_instances += int(len(gt_owner_ids))
-
-        matched_pred_to_owner, matched_gt_indices = _match_prediction_anchors(
-            pred_masks=[np.asarray(mask, dtype=np.uint8) for mask in pred_masks],
-            gt_masks=gt_masks,
-            gt_owner_ids=gt_owner_ids,
-            min_match_iou=float(min_match_iou),
+        if int(max_images) > 0:
+            remaining = int(max_images) - int(processed_images)
+            if remaining < len(sample_batch):
+                sample_batch = sample_batch[:remaining]
+        batch_predictions = (
+            infer_batch(sample_batch)
+            if infer_batch is not None
+            else [infer_sample(sample) for sample in sample_batch]
         )
-        matchable_gt_count += int(len(matched_gt_indices))
+        for sample, prediction in zip(sample_batch, batch_predictions):
+            feature_map, pred_masks, pred_scores = prediction
+            image = sample["image"].float()
+            instance_map = sample["instance_map"].cpu().numpy().astype(np.int32)
+            image_shape = (int(image.shape[-2]), int(image.shape[-1]))
+            feature_shape = (int(feature_map.shape[-2]), int(feature_map.shape[-1]))
+            gt_owner_ids = [int(owner_id) for owner_id in np.unique(instance_map).tolist() if int(owner_id) > 0]
+            gt_masks = [(instance_map == int(owner_id)).astype(np.uint8) for owner_id in gt_owner_ids]
+            total_gt_instances += int(len(gt_owner_ids))
 
-        gt_jobs = [
-            {
-                "image_id": int(sample["image_id"]),
-                "sample_key": f"gt{int(owner_id):04d}",
-                "anchor_pred_id": -1,
-                "anchor_gt_id": int(owner_id),
-                "anchor_mask": gt_mask,
-                "anchor_score": 1.0,
-                "image": image,
-                "feature_map": feature_map[0],
-                "instance_map": instance_map,
-                "image_shape": image_shape,
-                "feature_shape": feature_shape,
-                "cache_dir": gt_cache_dir,
-                "crop_size": int(crop_size),
-                "crop_pad": int(crop_pad),
-                "target_solidity": float(target_solidity),
-                "min_concavity_depth_px": float(min_concavity_depth_px),
-            }
-            for owner_id, gt_mask in zip(gt_owner_ids, gt_masks)
-        ]
-        pred_jobs = []
-        for pred_id, (pred_mask, pred_score) in enumerate(zip(pred_masks, pred_scores)):
-            anchor_gt_id = int(matched_pred_to_owner.get(int(pred_id), 0))
-            pred_jobs.append(
+            matched_pred_to_owner, matched_gt_indices = _match_prediction_anchors(
+                pred_masks=[np.asarray(mask, dtype=np.uint8) for mask in pred_masks],
+                gt_masks=gt_masks,
+                gt_owner_ids=gt_owner_ids,
+                min_match_iou=float(min_match_iou),
+            )
+            matchable_gt_count += int(len(matched_gt_indices))
+
+            gt_jobs = [
                 {
                     "image_id": int(sample["image_id"]),
-                    "sample_key": f"pred{int(pred_id):04d}",
-                    "anchor_pred_id": int(pred_id),
-                    "anchor_gt_id": int(anchor_gt_id),
-                    "anchor_mask": np.asarray(pred_mask, dtype=np.uint8),
-                    "anchor_score": float(pred_score),
+                    "sample_key": f"gt{int(owner_id):04d}",
+                    "anchor_pred_id": -1,
+                    "anchor_gt_id": int(owner_id),
+                    "anchor_mask": gt_mask,
+                    "anchor_score": 1.0,
                     "image": image,
                     "feature_map": feature_map[0],
                     "instance_map": instance_map,
                     "image_shape": image_shape,
                     "feature_shape": feature_shape,
-                    "cache_dir": pred_cache_dir,
+                    "cache_dir": gt_cache_dir,
                     "crop_size": int(crop_size),
                     "crop_pad": int(crop_pad),
                     "target_solidity": float(target_solidity),
                     "min_concavity_depth_px": float(min_concavity_depth_px),
                 }
-            )
+                for owner_id, gt_mask in zip(gt_owner_ids, gt_masks)
+            ]
+            pred_jobs = []
+            for pred_id, (pred_mask, pred_score) in enumerate(zip(pred_masks, pred_scores)):
+                anchor_gt_id = int(matched_pred_to_owner.get(int(pred_id), 0))
+                pred_jobs.append(
+                    {
+                        "image_id": int(sample["image_id"]),
+                        "sample_key": f"pred{int(pred_id):04d}",
+                        "anchor_pred_id": int(pred_id),
+                        "anchor_gt_id": int(anchor_gt_id),
+                        "anchor_mask": np.asarray(pred_mask, dtype=np.uint8),
+                        "anchor_score": float(pred_score),
+                        "image": image,
+                        "feature_map": feature_map[0],
+                        "instance_map": instance_map,
+                        "image_shape": image_shape,
+                        "feature_shape": feature_shape,
+                        "cache_dir": pred_cache_dir,
+                        "crop_size": int(crop_size),
+                        "crop_pad": int(crop_pad),
+                        "target_solidity": float(target_solidity),
+                        "min_concavity_depth_px": float(min_concavity_depth_px),
+                    }
+                )
 
-        def _run_jobs(jobs: list[dict[str, Any]]) -> list[dict[str, Any] | None]:
-            if int(cache_workers) > 1 and len(jobs) > 1:
-                with ThreadPoolExecutor(max_workers=int(cache_workers)) as pool:
-                    return list(pool.map(lambda kwargs: _prepare_anchor_sample(**kwargs), jobs))
-            return [_prepare_anchor_sample(**job) for job in jobs]
-
-        for row in _run_jobs(gt_jobs):
-            if row is None:
-                continue
-            gt_rows.append(dict(row))
-            gt_fragment_counts.append(int(row["raw_fragment_count"]))
-        for row in _run_jobs(pred_jobs):
-            if row is None:
-                continue
-            pred_rows.append(dict(row))
-            if int(row["anchor_gt_id"]) > 0:
-                positive_anchor_count += 1
-                pred_fragment_counts.append(int(row["raw_fragment_count"]))
-            else:
-                negative_anchor_count += 1
+            for row in _run_jobs(gt_jobs):
+                if row is None:
+                    continue
+                gt_rows.append(dict(row))
+                gt_fragment_counts.append(int(row["raw_fragment_count"]))
+            for row in _run_jobs(pred_jobs):
+                if row is None:
+                    continue
+                pred_rows.append(dict(row))
+                if int(row["anchor_gt_id"]) > 0:
+                    positive_anchor_count += 1
+                    pred_fragment_counts.append(int(row["raw_fragment_count"]))
+                else:
+                    negative_anchor_count += 1
+            processed_images += 1
 
     gt_manifest = {
         "dataset_root": str(dataset_root_path),

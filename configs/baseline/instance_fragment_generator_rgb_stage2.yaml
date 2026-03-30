@@ -6,6 +6,7 @@ cache:
   crop_size: 256
   crop_pad: 16
   feature_channels: 32
+  inference_batch_size: 4
   target_solidity: 0.92
   min_match_iou: 0.20
   min_concavity_depth_px: 6.0

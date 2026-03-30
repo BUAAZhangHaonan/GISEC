@@ -5,7 +5,6 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-import cv2
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
@@ -52,6 +51,11 @@ def _load_gt_masks(annotation_path: Path) -> tuple[dict[int, list[np.ndarray]], 
     return gt_masks_by_image, image_shapes
 
 
+def _load_annotation_image_ids(annotation_path: Path) -> set[int]:
+    payload = json.loads(annotation_path.read_text(encoding="utf-8"))
+    return {int(item["id"]) for item in payload.get("images", [])}
+
+
 def _evaluate_prediction_map(
     *,
     per_image_predictions: dict[int, list[tuple[np.ndarray, float]]],
@@ -59,7 +63,7 @@ def _evaluate_prediction_map(
     output_dir: Path,
     image_ids: set[int] | None = None,
 ) -> dict[str, Any]:
-    image_ids = set(per_image_predictions) if image_ids is None else set(int(v) for v in image_ids)
+    image_ids = _load_annotation_image_ids(annotation_path) if image_ids is None else set(int(v) for v in image_ids)
     output_dir.mkdir(parents=True, exist_ok=True)
     subset_annotation_path = _filter_coco_annotations_to_image_ids(
         annotation_path,
@@ -193,15 +197,13 @@ def evaluate_instance_fragment_generator(
                     if float(presence_scores[row_index, query_index].item()) < 0.5:
                         continue
                     fragment_crop = (mask_probs[row_index, query_index].numpy() >= 0.5).astype(np.uint8)
-                    if int(fragment_crop.sum()) < float(min_area_px):
-                        continue
                     pasted = paste_mask_from_crop(
                         torch.from_numpy(fragment_crop.astype(np.float32)),
                         bbox=bbox,
                         image_shape=image_shape,
                     )
                     fragment_mask = (pasted.numpy() >= 0.5).astype(np.uint8)
-                    if int(fragment_mask.sum()) <= 0:
+                    if int(fragment_mask.sum()) < float(min_area_px):
                         continue
                     fragment_score = float(anchor_score * float(presence_scores[row_index, query_index].item()))
                     surviving_masks.append(fragment_mask)
@@ -252,4 +254,3 @@ def evaluate_instance_fragment_generator(
         summary["owner_union_segm/AP_truncated"] = 0.0
     (artifact_root / "eval_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return summary
-

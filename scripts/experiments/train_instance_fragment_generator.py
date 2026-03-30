@@ -52,14 +52,38 @@ def _resolve_cache_root(cache_root: str | Path) -> Path:
     return nested if nested.exists() else root
 
 
+def _resolve_num_queries(*, cache_root: Path, split_names: list[str], cli_value: int | None, config_value: int | None) -> int:
+    if cli_value is not None and int(cli_value) > 0:
+        return int(cli_value)
+    if config_value is not None and int(config_value) > 0:
+        return int(config_value)
+    maxima: list[int] = []
+    for split in split_names:
+        manifest_path = cache_root / str(split) / "manifest.json"
+        if manifest_path.exists():
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            maxima.append(int(payload.get("raw_fragment_count_max", 0)))
+    max_value = max(maxima) if maxima else 0
+    if max_value <= 0:
+        raise ValueError("num_queries could not be resolved from config or cache manifests")
+    return int(max_value)
+
+
 def main() -> None:
     args = parse_args()
     payload = _load_yaml(Path(args.config).resolve())
     common = dict(payload.get("common", {}))
-    model_cfg = dict(payload.get("model", {}))
+    model_cfg = dict(payload.get("stage2_model", {}))
     train_cfg = dict(payload.get("train", {}))
+    cache_root = _resolve_cache_root(args.cache_root)
+    num_queries = _resolve_num_queries(
+        cache_root=cache_root,
+        split_names=[str(args.split)] + ([] if str(args.val_split).lower() in {"", "none"} else [str(args.val_split)]),
+        cli_value=args.num_queries,
+        config_value=model_cfg.get("num_queries"),
+    )
     summary = train_instance_fragment_generator(
-        cache_root=str(_resolve_cache_root(args.cache_root)),
+        cache_root=str(cache_root),
         dataset_root=str(Path(args.dataset_root).resolve()),
         output_dir=str(Path(args.output_dir).resolve()),
         split=str(args.split),
@@ -70,7 +94,7 @@ def main() -> None:
         num_workers=int(_resolve(args.num_workers, common.get("num_workers"), 0)),
         max_train_steps=int(_resolve(args.max_train_steps, train_cfg.get("max_train_steps"), 0)),
         hidden_dim=int(model_cfg.get("hidden_dim", 32)),
-        num_queries=int(_resolve(args.num_queries, model_cfg.get("num_queries"), 0)),
+        num_queries=int(num_queries),
         learning_rate=float(train_cfg.get("learning_rate", 1.0e-3)),
     )
     print(json.dumps(summary, ensure_ascii=False))
