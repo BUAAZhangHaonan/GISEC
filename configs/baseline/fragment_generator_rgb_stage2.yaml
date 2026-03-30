@@ -1,11 +1,12 @@
 common:
   device: cpu
   image_size: 1024
-  num_workers: 0
+  num_workers: 8
 
 cache:
   crop_size: 256
   crop_pad: 16
+  feature_channels: 8
   max_fragments: 6
   target_solidity: 0.92
 

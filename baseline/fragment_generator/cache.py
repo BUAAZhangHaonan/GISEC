@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
 from typing import Any, Callable
@@ -85,7 +86,10 @@ def _try_split_mask_by_concavity(mask: np.ndarray) -> list[np.ndarray] | None:
     hull_indices = cv2.convexHull(contour, returnPoints=False)
     if hull_indices is None or int(hull_indices.shape[0]) < 4:
         return None
-    defects = cv2.convexityDefects(contour, hull_indices)
+    try:
+        defects = cv2.convexityDefects(contour, hull_indices)
+    except cv2.error:
+        return None
     if defects is None or int(defects.shape[0]) <= 0:
         return None
     defect_rows = sorted(defects[:, 0, :].tolist(), key=lambda row: int(row[3]), reverse=True)
@@ -195,6 +199,91 @@ def _binary_mask_to_logits(mask: np.ndarray) -> np.ndarray:
     return np.where(mask > 0, 8.0, -8.0).astype(np.float32)
 
 
+def _prepare_cache_sample_row(
+    *,
+    image_id: int,
+    file_name: str,
+    pred_id: int,
+    mask: np.ndarray,
+    score: float,
+    image: torch.Tensor,
+    feature_map: torch.Tensor,
+    instance_map: np.ndarray,
+    image_shape: tuple[int, int],
+    feature_shape: tuple[int, int],
+    cache_dir: Path,
+    crop_size: int,
+    crop_pad: int,
+    max_fragments: int,
+    target_solidity: float,
+) -> dict[str, Any] | None:
+    binary_mask = (np.asarray(mask) > 0).astype(np.uint8)
+    if int(binary_mask.sum()) <= 0:
+        return None
+    bbox = expand_bbox(
+        bbox=mask_bbox(binary_mask),
+        image_shape=image_shape,
+        pad=int(crop_pad),
+    )
+    x, y, w, h = bbox
+    gt_crop_map = instance_map[y:y + h, x:x + w]
+    gt_union_mask = (gt_crop_map > 0).astype(np.uint8)
+    gt_fragment_masks, gt_fragment_owner_ids, overflow_crop = decompose_gt_crop_instances(
+        gt_crop_map,
+        target_solidity=float(target_solidity),
+        max_fragments=int(max_fragments),
+    )
+    rgb_crop = crop_and_resize(image, bbox=bbox, output_size=int(crop_size), mode="bilinear").cpu().numpy().astype(np.float16)
+    coarse_binary_crop = crop_and_resize(
+        torch.from_numpy(binary_mask[None, ...]).float(),
+        bbox=bbox,
+        output_size=int(crop_size),
+        mode="nearest",
+    )[0].cpu().numpy()
+    coarse_logits_crop = _binary_mask_to_logits(coarse_binary_crop > 0.5)[None, ...].astype(np.float16)
+    feature_bbox = _scale_bbox(bbox, source_shape=image_shape, target_shape=feature_shape)
+    pixel_feature_crop = crop_and_resize(
+        feature_map.detach().cpu(),
+        bbox=feature_bbox,
+        output_size=int(crop_size),
+        mode="bilinear",
+    ).cpu().numpy().astype(np.float16)
+    resized_union_mask = _resize_mask(gt_union_mask, size=int(crop_size))[None, ...]
+    resized_fragment_masks = np.stack(
+        [_resize_mask(mask_row, size=int(crop_size)) for mask_row in gt_fragment_masks],
+        axis=0,
+    ).astype(np.uint8)
+    has_gt_overlap = bool(gt_fragment_owner_ids.max() > 0)
+    sample_path = _sample_path(cache_dir, image_id=int(image_id), pred_id=int(pred_id))
+    with sample_path.open("wb") as handle:
+        np.savez_compressed(
+            handle,
+            rgb_crop=rgb_crop,
+            coarse_mask_logit_crop=coarse_logits_crop,
+            pixel_feature_crop=pixel_feature_crop,
+            coarse_score=np.asarray(float(score), dtype=np.float32),
+            crop_bbox=np.asarray(bbox, dtype=np.int32),
+            image_id=np.asarray(int(image_id), dtype=np.int32),
+            pred_id=np.asarray(int(pred_id), dtype=np.int32),
+            image_shape=np.asarray(image_shape, dtype=np.int32),
+            gt_instance_union_mask=resized_union_mask.astype(np.uint8),
+            gt_fragment_masks=resized_fragment_masks.astype(np.uint8),
+            gt_fragment_owner_ids=gt_fragment_owner_ids.astype(np.int32),
+            has_gt_overlap=np.asarray(int(has_gt_overlap), dtype=np.uint8),
+            overflow_crop=np.asarray(int(bool(overflow_crop)), dtype=np.uint8),
+        )
+    return {
+        "image_id": int(image_id),
+        "file_name": str(file_name),
+        "pred_id": int(pred_id),
+        "coarse_score": float(score),
+        "crop_bbox": [int(v) for v in bbox],
+        "has_gt_overlap": bool(has_gt_overlap),
+        "overflow_crop": bool(overflow_crop),
+        "path": str(sample_path),
+    }
+
+
 def build_fragment_generator_cache(
     *,
     dataset_root: str,
@@ -207,6 +296,7 @@ def build_fragment_generator_cache(
     target_solidity: float = 0.92,
     infer_sample: Callable[[dict[str, Any]], tuple[torch.Tensor, list[np.ndarray], list[float]]] | None = None,
     max_images: int = 0,
+    cache_workers: int = 0,
 ) -> dict[str, Any]:
     if infer_sample is None:
         raise ValueError("infer_sample is required for build_fragment_generator_cache")
@@ -235,79 +325,41 @@ def build_fragment_generator_cache(
         instance_map = sample["instance_map"].cpu().numpy().astype(np.int32)
         image_shape = (int(image.shape[-2]), int(image.shape[-1]))
         feature_shape = (int(feature_map.shape[-2]), int(feature_map.shape[-1]))
-        for pred_id, (mask, score) in enumerate(zip(masks, scores)):
-            binary_mask = (np.asarray(mask) > 0).astype(np.uint8)
-            if int(binary_mask.sum()) <= 0:
+        jobs = [
+            {
+                "image_id": int(sample["image_id"]),
+                "file_name": str(sample["file_name"]),
+                "pred_id": int(pred_id),
+                "mask": mask,
+                "score": float(score),
+                "image": image,
+                "feature_map": feature_map[0],
+                "instance_map": instance_map,
+                "image_shape": image_shape,
+                "feature_shape": feature_shape,
+                "cache_dir": cache_dir,
+                "crop_size": int(crop_size),
+                "crop_pad": int(crop_pad),
+                "max_fragments": int(max_fragments),
+                "target_solidity": float(target_solidity),
+            }
+            for pred_id, (mask, score) in enumerate(zip(masks, scores))
+        ]
+        rows: list[dict[str, Any] | None]
+        if int(cache_workers) > 1 and len(jobs) > 1:
+            with ThreadPoolExecutor(max_workers=int(cache_workers)) as pool:
+                rows = list(pool.map(lambda kwargs: _prepare_cache_sample_row(**kwargs), jobs))
+        else:
+            rows = [_prepare_cache_sample_row(**job) for job in jobs]
+        for row in rows:
+            if row is None:
                 continue
-            bbox = expand_bbox(
-                bbox=mask_bbox(binary_mask),
-                image_shape=image_shape,
-                pad=int(crop_pad),
-            )
-            x, y, w, h = bbox
-            gt_crop_map = instance_map[y:y + h, x:x + w]
-            gt_union_mask = (gt_crop_map > 0).astype(np.uint8)
-            gt_fragment_masks, gt_fragment_owner_ids, overflow_crop = decompose_gt_crop_instances(
-                gt_crop_map,
-                target_solidity=float(target_solidity),
-                max_fragments=int(max_fragments),
-            )
-            rgb_crop = crop_and_resize(image, bbox=bbox, output_size=int(crop_size), mode="bilinear").cpu().numpy().astype(np.float32)
-            coarse_binary_crop = crop_and_resize(
-                torch.from_numpy(binary_mask[None, ...]).float(),
-                bbox=bbox,
-                output_size=int(crop_size),
-                mode="nearest",
-            )[0].cpu().numpy()
-            coarse_logits_crop = _binary_mask_to_logits(coarse_binary_crop > 0.5)[None, ...]
-            feature_bbox = _scale_bbox(bbox, source_shape=image_shape, target_shape=feature_shape)
-            pixel_feature_crop = crop_and_resize(
-                feature_map[0].detach().cpu(),
-                bbox=feature_bbox,
-                output_size=int(crop_size),
-                mode="bilinear",
-            ).cpu().numpy().astype(np.float32)
-            resized_union_mask = _resize_mask(gt_union_mask, size=int(crop_size))[None, ...]
-            resized_fragment_masks = np.stack(
-                [_resize_mask(mask_row, size=int(crop_size)) for mask_row in gt_fragment_masks],
-                axis=0,
-            ).astype(np.uint8)
-            has_gt_overlap = bool(gt_fragment_owner_ids.max() > 0)
-            if not has_gt_overlap:
-                num_negative_samples += 1
-            if bool(overflow_crop):
-                num_overflow_crops += 1
-            sample_path = _sample_path(cache_dir, image_id=int(sample["image_id"]), pred_id=int(pred_id))
-            with sample_path.open("wb") as handle:
-                np.savez(
-                    handle,
-                    rgb_crop=rgb_crop,
-                    coarse_mask_logit_crop=coarse_logits_crop,
-                    pixel_feature_crop=pixel_feature_crop,
-                    coarse_score=np.asarray(float(score), dtype=np.float32),
-                    crop_bbox=np.asarray(bbox, dtype=np.int32),
-                    image_id=np.asarray(int(sample["image_id"]), dtype=np.int32),
-                    pred_id=np.asarray(int(pred_id), dtype=np.int32),
-                    image_shape=np.asarray(image_shape, dtype=np.int32),
-                    gt_instance_union_mask=resized_union_mask.astype(np.uint8),
-                    gt_fragment_masks=resized_fragment_masks.astype(np.uint8),
-                    gt_fragment_owner_ids=gt_fragment_owner_ids.astype(np.int32),
-                    has_gt_overlap=np.asarray(int(has_gt_overlap), dtype=np.uint8),
-                    overflow_crop=np.asarray(int(bool(overflow_crop)), dtype=np.uint8),
-                )
-            metadata_rows.append(
-                {
-                    "image_id": int(sample["image_id"]),
-                    "file_name": str(sample["file_name"]),
-                    "pred_id": int(pred_id),
-                    "coarse_score": float(score),
-                    "crop_bbox": [int(v) for v in bbox],
-                    "has_gt_overlap": bool(has_gt_overlap),
-                    "overflow_crop": bool(overflow_crop),
-                    "path": str(sample_path),
-                }
-            )
+            metadata_rows.append(dict(row))
             num_samples += 1
+            if not bool(row["has_gt_overlap"]):
+                num_negative_samples += 1
+            if bool(row["overflow_crop"]):
+                num_overflow_crops += 1
 
     manifest = {
         "dataset_root": str(dataset_root_path),
@@ -321,6 +373,7 @@ def build_fragment_generator_cache(
         "num_negative_samples": int(num_negative_samples),
         "num_overflow_crops": int(num_overflow_crops),
         "max_images": int(max_images),
+        "cache_workers": int(cache_workers),
     }
     (cache_dir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (cache_dir / "metadata.jsonl").write_text(

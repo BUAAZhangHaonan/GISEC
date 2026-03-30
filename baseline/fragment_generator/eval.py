@@ -78,12 +78,12 @@ def evaluate_fragment_generator(
                 for row_index, sample_path in enumerate(batch["sample_path"]):
                     export_path = export_root / f"{Path(str(sample_path)).stem}.npz"
                     with export_path.open("wb") as handle:
-                        np.savez(
+                        np.savez_compressed(
                             handle,
-                            fragment_mask_probs=mask_probs[row_index].astype(np.float32),
+                            fragment_mask_probs=mask_probs[row_index].astype(np.float16),
                             fragment_mask_binaries=mask_binaries[row_index].astype(np.uint8),
-                            fragment_presence_scores=presence_scores[row_index].astype(np.float32),
-                            fragment_embeddings=fragment_embeddings[row_index].astype(np.float32),
+                            fragment_presence_scores=presence_scores[row_index].astype(np.float16),
+                            fragment_embeddings=fragment_embeddings[row_index].astype(np.float16),
                             crop_bbox=batch["crop_bbox"][row_index].detach().cpu().numpy().astype(np.int32),
                             image_shape=batch["image_shape"][row_index].detach().cpu().numpy().astype(np.int32),
                             image_id=np.asarray(int(batch["image_id"][row_index].item()), dtype=np.int32),

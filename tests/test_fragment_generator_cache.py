@@ -85,6 +85,31 @@ def test_decompose_gt_crop_instances_is_deterministic_and_reports_overflow() -> 
     assert bool(limited_overflow) is True
 
 
+def test_decompose_gt_crop_instances_handles_convexity_defects_failure(monkeypatch) -> None:
+    import cv2
+
+    from baseline.fragment_generator.cache import decompose_gt_crop_instances
+
+    instance_map = np.zeros((32, 32), dtype=np.int32)
+    instance_map[4:28, 4:28] = 1
+    instance_map[4:16, 12:20] = 0
+
+    def _raise_convexity_defects(*args, **kwargs):
+        raise cv2.error("convhull.cpp", "convexityDefects", "The convex hull indices are not monotonous", -5)
+
+    monkeypatch.setattr(cv2, "convexityDefects", _raise_convexity_defects)
+
+    masks, owner_ids, overflow = decompose_gt_crop_instances(
+        instance_map,
+        target_solidity=0.92,
+        max_fragments=6,
+    )
+
+    assert masks.shape == (6, 32, 32)
+    assert owner_ids.tolist()[0] == 1
+    assert bool(overflow) is False
+
+
 def test_build_fragment_generator_cache_uses_predictions_and_writes_new_contract(tmp_path: Path) -> None:
     from baseline.fragment_generator.cache import build_fragment_generator_cache
 

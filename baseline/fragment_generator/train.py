@@ -56,6 +56,7 @@ def train_fragment_generator(
     hidden_dim: int = 32,
     max_fragments: int = 6,
     learning_rate: float = 1.0e-3,
+    compute_train_metrics: bool = True,
 ) -> None:
     artifact_root = Path(output_dir).resolve()
     artifact_root.mkdir(parents=True, exist_ok=True)
@@ -127,23 +128,24 @@ def train_fragment_generator(
             step_count += 1
             for key in loss_totals:
                 loss_totals[key] += float(loss_rows[key].item())
-            metric_rows.append(
-                compute_fragment_quality_metrics(
-                    fragment_mask_logits=outputs["fragment_mask_logits"].detach(),
-                    fragment_presence_logits=outputs["fragment_presence_logits"].detach(),
-                    gt_fragment_masks=batch["gt_fragment_masks"].detach(),
-                    gt_fragment_owner_ids=batch["gt_fragment_owner_ids"].detach(),
-                    gt_instance_union_mask=batch["gt_instance_union_mask"].detach(),
-                    overflow_crop=batch["overflow_crop"].detach(),
+            if bool(compute_train_metrics):
+                metric_rows.append(
+                    compute_fragment_quality_metrics(
+                        fragment_mask_logits=outputs["fragment_mask_logits"].detach(),
+                        fragment_presence_logits=outputs["fragment_presence_logits"].detach(),
+                        gt_fragment_masks=batch["gt_fragment_masks"].detach(),
+                        gt_fragment_owner_ids=batch["gt_fragment_owner_ids"].detach(),
+                        gt_instance_union_mask=batch["gt_instance_union_mask"].detach(),
+                        overflow_crop=batch["overflow_crop"].detach(),
+                    )
                 )
-            )
             if int(max_train_steps) > 0 and step_count >= int(max_train_steps):
                 break
         if int(max_train_steps) > 0 and step_count >= int(max_train_steps):
             break
 
     torch.save(model.state_dict(), artifact_root / "model_final.pth")
-    train_metrics = aggregate_fragment_quality_metrics(metric_rows)
+    train_metrics = aggregate_fragment_quality_metrics(metric_rows) if metric_rows else {}
     summary = {
         "cache_root": str(Path(cache_root).resolve()),
         "split": str(split),
@@ -151,6 +153,7 @@ def train_fragment_generator(
         "steps": int(step_count),
         "hidden_dim": int(hidden_dim),
         "max_fragments": int(max_fragments),
+        "compute_train_metrics": bool(compute_train_metrics),
         "wall_time_sec": int(time.time() - start),
         **{key: 0.0 if step_count == 0 else float(value) / float(step_count) for key, value in loss_totals.items()},
         **train_metrics,
