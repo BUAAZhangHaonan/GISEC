@@ -2,9 +2,9 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Train the first real Stage 2 model on the validated instance-local fragment label space and prove that learned fragment prediction can approach the oracle while staying clean enough to unlock a local Stage 3 merger.
+**Goal:** Train the first real Stage 2 model on the validated instance-local fragment label space and prove that learned owner-union can approach the oracle before Stage 3 is allowed back into the active line.
 
-**Architecture:** Keep the frozen `Mask2Former RGB @1024` anchor source and the validated instance-local cache. Add a padded-per-instance Stage 2 dataset and model that predict fragment masks only for one anchor owner at a time, train it with set prediction plus coverage and containment terms, and gate promotion on direct instance-local fragment metrics before any new merger training starts.
+**Architecture:** Keep the frozen `Mask2Former RGB @1024` anchor source and the validated instance-local cache. Add a padded-per-instance Stage 2 dataset and model that predict fragment masks only for one anchor owner at a time, train it with set prediction plus coverage and containment terms, export both learned fragments and learned owner-union, and keep Stage 3 paused unless learned owner-union is both strong and still clearly merge-limited.
 
 **Tech Stack:** Python, PyTorch, NumPy, existing instance-local cache files, Hungarian matching, matplotlib, pytest.
 
@@ -70,13 +70,33 @@
 - Create: `tests/test_instance_fragment_train.py`
 - Create: `tests/test_instance_fragment_eval.py`
 
-**Gate:**
+**Fragment gate:**
 - `covered_instance_rate >= 0.92`
 - `split_instance_rate >= 0.30`
 - `impure_fragment_rate <= 0.10`
 - `leakage_rate <= 0.05`
 - `fragments_per_covered_instance >= 1.5`
 - `singleton_instance_rate <= 0.70`
+
+**Always report:**
+- `base_rgb_1024`
+- `learned_fragments_no_merge`
+- `learned_owner_union`
+- `oracle_fragments_no_merge`
+- `oracle_owner_union`
+
+**Owner-union metrics:**
+- `owner_union segm/AP`
+- `owner_union boundary/IoU`
+- `owner_union split_gt_count`
+- `owner_union merge_pred_count`
+- `owner_union_segm/AP_truncated`
+
+**Truncation and negative-anchor diagnostics:**
+- `query_overflow_rate`
+- `truncated_fragment_total`
+- `negative_anchor_empty_precision`
+- `negative_anchor_false_fragment_mean`
 
 ### Task 4: Run The First Full Validation Cycle
 
@@ -92,9 +112,13 @@
   - `oracle_fragments_no_merge`
   - `oracle_owner_union`
   - `base_rgb_1024`
+- one learned-owner-union chart bundle
 
 ### Task 5: Decide Whether Stage 3 Can Re-Enter
 
 **Rule:**
-- Stage 3 stays paused unless the learned Stage 2 model clears the instance-local gate above.
-- If Stage 2 clears the gate, the next active branch is a small crop-local merger over predicted fragments only.
+- Stage 3 stays paused unless the learned Stage 2 model clears the fragment gate above.
+- Stage 3 still stays paused if learned owner-union does not beat `base_rgb_1024` on both `segm/AP` and `boundary/IoU`.
+- Stage 3 still stays paused if learned owner-union does not improve both `split_gt_count` and `merge_pred_count` over `base_rgb_1024`.
+- Stage 3 still stays paused if learned owner-union is already within `0.05` absolute `segm/AP` of `oracle_owner_union`.
+- Stage 3 can re-enter only when residual errors are still merge-dominant: `owner_union_merge_pred_count > owner_union_split_gt_count`.
