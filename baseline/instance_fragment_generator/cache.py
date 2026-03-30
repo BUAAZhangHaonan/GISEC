@@ -252,6 +252,15 @@ def _write_manifest(
     return manifest
 
 
+def _remove_tree_if_exists(path: Path) -> None:
+    if not path.exists():
+        return
+    try:
+        shutil.rmtree(path)
+    except FileNotFoundError:
+        pass
+
+
 def build_instance_fragment_caches(
     *,
     dataset_root: str,
@@ -276,10 +285,8 @@ def build_instance_fragment_caches(
     output_root_path = Path(output_root).resolve()
     gt_cache_dir = output_root_path / "instance_fragment_cache_gt" / str(split)
     pred_cache_dir = output_root_path / "instance_fragment_cache_pred" / str(split)
-    if gt_cache_dir.exists():
-        shutil.rmtree(gt_cache_dir)
-    if pred_cache_dir.exists():
-        shutil.rmtree(pred_cache_dir)
+    _remove_tree_if_exists(gt_cache_dir)
+    _remove_tree_if_exists(pred_cache_dir)
     gt_cache_dir.mkdir(parents=True, exist_ok=True)
     pred_cache_dir.mkdir(parents=True, exist_ok=True)
 
