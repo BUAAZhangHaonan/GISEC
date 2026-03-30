@@ -70,6 +70,22 @@
   - updated weekend runner dry-run sequence
 - Full dataset training and promotion experiments are not part of this implementation milestone yet.
 
+## Execution Update
+
+- Real full-dataset execution completed for the first strict `K=6` reset check on `2026-03-30`.
+- Cache diagnostics were already severe before training:
+  - train overflow: `69,528 / 73,648 = 94.41%`
+  - val overflow: `8,556 / 9,040 = 94.65%`
+- One full real epoch of Stage 2 training confirmed that the branch should stop before Stage 3:
+  - `covered_gt_rate = 0.8227`
+  - `split_gt_rate = 0.0022`
+  - `impure_fragment_rate = 0.6315`
+  - `leakage_rate = 0.3833`
+  - `fragments_per_covered_gt = 1.3057`
+  - `overflow_crop_rate = 0.9467`
+  - `gate_passed = false`
+- So the current `K=6` fragment-generator contract is rejected on the real dataset. The next justified move is upstream: redesign the fragment label space or lift the fragment-cap assumption before spending more time on local merger training.
+
 ## Promotion Rule
 
 - The reset branch does not replace the public RGB backbone winner until the new Stage 2 gates pass and the Stage 2 plus Stage 3 line beats the frozen `base_rgb_1024` evaluation protocol.

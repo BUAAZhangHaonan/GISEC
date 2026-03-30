@@ -1,0 +1,61 @@
+{
+  "baseline": {
+    "variant": "base_rgb_1024",
+    "segm/AP": 0.5450772353135926,
+    "bbox/AP": 0.49337000524805646,
+    "boundary/IoU": 0.1893520703200649,
+    "split_gt_count": 593,
+    "merge_pred_count": 668,
+    "fps": 9.6067824571516
+  },
+  "stage2_cache": {
+    "train_num_samples": 73648,
+    "train_num_negative_samples": 0,
+    "train_num_overflow_crops": 69528,
+    "val_num_samples": 9040,
+    "val_num_negative_samples": 0,
+    "val_num_overflow_crops": 8556
+  },
+  "stage2_train": {
+    "cache_root": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/output/experiments/rgb_phase23_fragment_reset_20260330/fragment_generator_cache",
+    "split": "train",
+    "epochs": 1,
+    "steps": 1151,
+    "hidden_dim": 32,
+    "max_fragments": 6,
+    "compute_train_metrics": false,
+    "wall_time_sec": 2738,
+    "loss_total": 4.801530976589611,
+    "loss_mask": 0.9425964465253153,
+    "loss_presence": 0.12364012982006906,
+    "loss_coverage": 0.19245443238733542,
+    "loss_containment": 3.5423116903528764,
+    "loss_diversity": 0.0005282841403657215
+  },
+  "stage2_val": {
+    "covered_gt_rate": 0.8233108187306066,
+    "split_gt_rate": 0.002210031052071799,
+    "singleton_gt_rate": 0.29091487096086616,
+    "impure_fragment_rate": 0.6314412357758917,
+    "leakage_rate": 0.3824445878783542,
+    "fragments_per_covered_gt": 1.3064598693897085,
+    "empty_slot_rate": 0.2598665155951263,
+    "overflow_crop_rate": 0.9467429577464789
+  },
+  "stage2_eval": {
+    "covered_gt_rate": 0.8226555764213909,
+    "split_gt_rate": 0.0021938049369580703,
+    "singleton_gt_rate": 0.2909061893715671,
+    "impure_fragment_rate": 0.6314997102904792,
+    "leakage_rate": 0.38326543578581934,
+    "fragments_per_covered_gt": 1.3057236441069664,
+    "empty_slot_rate": 0.25920627974418453,
+    "overflow_crop_rate": 0.9467429577464789,
+    "gate_passed": false
+  },
+  "stage2_gate_passed": false,
+  "stage3_train": null,
+  "stage3_val": null,
+  "stage3_eval": null,
+  "stage3_status": "gated_off"
+}
