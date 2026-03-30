@@ -256,9 +256,23 @@ def _remove_tree_if_exists(path: Path) -> None:
     if not path.exists():
         return
     try:
-        shutil.rmtree(path)
-    except FileNotFoundError:
+        shutil.rmtree(path, ignore_errors=True)
+    except (FileNotFoundError, OSError):
         pass
+    if not path.exists():
+        return
+    for child in sorted(path.rglob("*"), key=lambda item: len(item.parts), reverse=True):
+        try:
+            if child.is_dir():
+                child.rmdir()
+            else:
+                child.unlink()
+        except (FileNotFoundError, OSError):
+            continue
+    try:
+        path.rmdir()
+    except (FileNotFoundError, OSError):
+        shutil.rmtree(path, ignore_errors=True)
 
 
 def build_instance_fragment_caches(

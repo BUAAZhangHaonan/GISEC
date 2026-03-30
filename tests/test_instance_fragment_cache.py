@@ -5,6 +5,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import pytest
 import torch
 
 
@@ -152,7 +153,18 @@ def test_build_instance_fragment_caches_uses_one_anchor_per_instance_and_keeps_n
     assert negative_payload["gt_fragment_masks"].shape[0] == 0
 
 
-def test_build_instance_fragment_caches_tolerates_interrupted_cache_cleanup(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize(
+    "cleanup_error",
+    [
+        FileNotFoundError("stale file vanished"),
+        OSError(39, "Directory not empty"),
+    ],
+)
+def test_build_instance_fragment_caches_tolerates_interrupted_cache_cleanup(
+    tmp_path: Path,
+    monkeypatch,
+    cleanup_error: Exception,
+) -> None:
     from baseline.instance_fragment_generator import cache as cache_mod
 
     dataset_root = tmp_path / "dataset"
@@ -181,7 +193,7 @@ def test_build_instance_fragment_caches_tolerates_interrupted_cache_cleanup(tmp_
         calls.append(str(path))
         if len(calls) == 1:
             original_rmtree(path, ignore_errors=True)
-            raise FileNotFoundError(path)
+            raise cleanup_error
         original_rmtree(path, *args, **kwargs)
 
     monkeypatch.setattr(cache_mod.shutil, "rmtree", _flaky_rmtree)
