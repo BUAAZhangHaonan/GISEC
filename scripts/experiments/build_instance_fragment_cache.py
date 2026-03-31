@@ -34,6 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default=None)
     parser.add_argument("--max-images", type=int, default=0)
     parser.add_argument("--inference-batch-size", type=int, default=0)
+    parser.add_argument("--cache-target", choices=["all", "pred", "gt"], default="all")
     return parser.parse_args()
 
 
@@ -165,6 +166,8 @@ def main() -> None:
         cache_workers=int(common.get("num_workers", 0)),
         loader_batch_size=int(args.inference_batch_size or cache_cfg.get("inference_batch_size", 4)),
         loader_workers=max(int(common.get("num_workers", 0)), 0),
+        write_gt_cache=bool(args.cache_target in {"all", "gt"}),
+        write_pred_cache=bool(args.cache_target in {"all", "pred"}),
     )
     print(json.dumps(manifests, ensure_ascii=False))
 

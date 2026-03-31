@@ -292,17 +292,23 @@ def build_instance_fragment_caches(
     cache_workers: int = 0,
     loader_batch_size: int = 1,
     loader_workers: int = 0,
+    write_gt_cache: bool = True,
+    write_pred_cache: bool = True,
 ) -> dict[str, dict[str, Any]]:
     if infer_sample is None and infer_batch is None:
         raise ValueError("infer_sample or infer_batch is required for build_instance_fragment_caches")
+    if not bool(write_gt_cache) and not bool(write_pred_cache):
+        raise ValueError("At least one cache target must be enabled")
     dataset_root_path = Path(dataset_root).resolve()
     output_root_path = Path(output_root).resolve()
     gt_cache_dir = output_root_path / "instance_fragment_cache_gt" / str(split)
     pred_cache_dir = output_root_path / "instance_fragment_cache_pred" / str(split)
-    _remove_tree_if_exists(gt_cache_dir)
-    _remove_tree_if_exists(pred_cache_dir)
-    gt_cache_dir.mkdir(parents=True, exist_ok=True)
-    pred_cache_dir.mkdir(parents=True, exist_ok=True)
+    if bool(write_gt_cache):
+        _remove_tree_if_exists(gt_cache_dir)
+        gt_cache_dir.mkdir(parents=True, exist_ok=True)
+    if bool(write_pred_cache):
+        _remove_tree_if_exists(pred_cache_dir)
+        pred_cache_dir.mkdir(parents=True, exist_ok=True)
 
     dataset = BaselineInstanceDataset(
         dataset_root=str(dataset_root_path),
@@ -411,55 +417,59 @@ def build_instance_fragment_caches(
                     }
                 )
 
-            for row in _run_jobs(gt_jobs):
-                if row is None:
-                    continue
-                gt_rows.append(dict(row))
-                gt_fragment_counts.append(int(row["raw_fragment_count"]))
-            for row in _run_jobs(pred_jobs):
-                if row is None:
-                    continue
-                pred_rows.append(dict(row))
-                if int(row["anchor_gt_id"]) > 0:
-                    positive_anchor_count += 1
-                    pred_fragment_counts.append(int(row["raw_fragment_count"]))
-                else:
-                    negative_anchor_count += 1
+            if bool(write_gt_cache):
+                for row in _run_jobs(gt_jobs):
+                    if row is None:
+                        continue
+                    gt_rows.append(dict(row))
+                    gt_fragment_counts.append(int(row["raw_fragment_count"]))
+            if bool(write_pred_cache):
+                for row in _run_jobs(pred_jobs):
+                    if row is None:
+                        continue
+                    pred_rows.append(dict(row))
+                    if int(row["anchor_gt_id"]) > 0:
+                        positive_anchor_count += 1
+                        pred_fragment_counts.append(int(row["raw_fragment_count"]))
+                    else:
+                        negative_anchor_count += 1
             processed_images += 1
 
-    gt_manifest = {
-        "dataset_root": str(dataset_root_path),
-        "split": str(split),
-        "cache_kind": "gt",
-        "image_size": int(image_size),
-        "crop_size": int(crop_size),
-        "crop_pad": int(crop_pad),
-        "target_solidity": float(target_solidity),
-        "min_concavity_depth_px": float(min_concavity_depth_px),
-        "num_samples": int(len(gt_rows)),
-        **_fragment_stats(gt_fragment_counts),
-        "max_images": int(max_images),
-    }
-    pred_manifest = {
-        "dataset_root": str(dataset_root_path),
-        "split": str(split),
-        "cache_kind": "pred",
-        "image_size": int(image_size),
-        "crop_size": int(crop_size),
-        "crop_pad": int(crop_pad),
-        "target_solidity": float(target_solidity),
-        "min_match_iou": float(min_match_iou),
-        "min_concavity_depth_px": float(min_concavity_depth_px),
-        "num_samples": int(len(pred_rows)),
-        "positive_anchor_count": int(positive_anchor_count),
-        "negative_anchor_count": int(negative_anchor_count),
-        "matchable_gt_count": int(matchable_gt_count),
-        "total_gt_instances": int(total_gt_instances),
-        "matchable_gt_rate": 0.0 if int(total_gt_instances) <= 0 else float(matchable_gt_count) / float(total_gt_instances),
-        **_fragment_stats(pred_fragment_counts),
-        "max_images": int(max_images),
-    }
-    return {
-        "gt": _write_manifest(cache_dir=gt_cache_dir, split=str(split), manifest=gt_manifest, metadata_rows=gt_rows),
-        "pred": _write_manifest(cache_dir=pred_cache_dir, split=str(split), manifest=pred_manifest, metadata_rows=pred_rows),
-    }
+    manifests: dict[str, dict[str, Any]] = {}
+    if bool(write_gt_cache):
+        gt_manifest = {
+            "dataset_root": str(dataset_root_path),
+            "split": str(split),
+            "cache_kind": "gt",
+            "image_size": int(image_size),
+            "crop_size": int(crop_size),
+            "crop_pad": int(crop_pad),
+            "target_solidity": float(target_solidity),
+            "min_concavity_depth_px": float(min_concavity_depth_px),
+            "num_samples": int(len(gt_rows)),
+            **_fragment_stats(gt_fragment_counts),
+            "max_images": int(max_images),
+        }
+        manifests["gt"] = _write_manifest(cache_dir=gt_cache_dir, split=str(split), manifest=gt_manifest, metadata_rows=gt_rows)
+    if bool(write_pred_cache):
+        pred_manifest = {
+            "dataset_root": str(dataset_root_path),
+            "split": str(split),
+            "cache_kind": "pred",
+            "image_size": int(image_size),
+            "crop_size": int(crop_size),
+            "crop_pad": int(crop_pad),
+            "target_solidity": float(target_solidity),
+            "min_match_iou": float(min_match_iou),
+            "min_concavity_depth_px": float(min_concavity_depth_px),
+            "num_samples": int(len(pred_rows)),
+            "positive_anchor_count": int(positive_anchor_count),
+            "negative_anchor_count": int(negative_anchor_count),
+            "matchable_gt_count": int(matchable_gt_count),
+            "total_gt_instances": int(total_gt_instances),
+            "matchable_gt_rate": 0.0 if int(total_gt_instances) <= 0 else float(matchable_gt_count) / float(total_gt_instances),
+            **_fragment_stats(pred_fragment_counts),
+            "max_images": int(max_images),
+        }
+        manifests["pred"] = _write_manifest(cache_dir=pred_cache_dir, split=str(split), manifest=pred_manifest, metadata_rows=pred_rows)
+    return manifests

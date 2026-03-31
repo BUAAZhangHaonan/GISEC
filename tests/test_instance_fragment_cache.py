@@ -211,3 +211,36 @@ def test_build_instance_fragment_caches_tolerates_interrupted_cache_cleanup(
 
     assert manifests["pred"]["num_samples"] == 1
     assert (output_root / "instance_fragment_cache_pred" / "train" / "manifest.json").exists()
+
+
+def test_build_instance_fragment_caches_can_skip_gt_cache(tmp_path: Path) -> None:
+    from baseline.instance_fragment_generator.cache import build_instance_fragment_caches
+
+    dataset_root = tmp_path / "dataset"
+    output_root = tmp_path / "cache"
+    _write_dataset(dataset_root)
+
+    left_mask = np.zeros((80, 80), dtype=np.uint8)
+    left_mask[10:46, 6:30] = 1
+
+    def _infer_sample(sample: dict[str, object]) -> tuple[torch.Tensor, list[np.ndarray], list[float]]:
+        feature_map = torch.zeros((1, 4, 20, 20), dtype=torch.float32)
+        feature_map[:, 0, 2:12, 1:8] = 1.0
+        return feature_map, [left_mask.copy()], [0.92]
+
+    manifests = build_instance_fragment_caches(
+        dataset_root=str(dataset_root),
+        output_root=str(output_root),
+        split="train",
+        image_size=80,
+        crop_size=32,
+        crop_pad=4,
+        infer_sample=_infer_sample,
+        min_match_iou=0.20,
+        write_gt_cache=False,
+        write_pred_cache=True,
+    )
+
+    assert set(manifests) == {"pred"}
+    assert not (output_root / "instance_fragment_cache_gt" / "train").exists()
+    assert (output_root / "instance_fragment_cache_pred" / "train" / "manifest.json").exists()

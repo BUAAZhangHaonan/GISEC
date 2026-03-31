@@ -33,11 +33,11 @@ stage2_model:
   hidden_dim: 32
   num_queries: 0
 train:
-  epochs: 8
-  batch_size: 16
+  epochs: 4
+  batch_size: 64
   num_workers: 4
   learning_rate: 0.001
   max_train_steps: 0
 eval:
-  batch_size: 16
+  batch_size: 64
   num_workers: 4
