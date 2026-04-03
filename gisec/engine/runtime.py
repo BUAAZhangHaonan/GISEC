@@ -460,13 +460,17 @@ def _summarize_instance_matching(
 def _summarize_graph_readiness(rows: list[Dict[str, Any]]) -> Dict[str, Any]:
     if not rows:
         return {"total_images": 0}
+    num_merged = [float(row["num_merged"]) for row in rows]
     return {
         "total_images": len(rows),
         "num_fragments_mean": float(np.mean([float(row["num_fragments"]) for row in rows])),
         "num_edges_mean": float(np.mean([float(row["num_edges"]) for row in rows])),
         "num_contact_edges_mean": float(np.mean([float(row["num_contact_edges"]) for row in rows])),
         "num_bridge_edges_mean": float(np.mean([float(row["num_bridge_edges"]) for row in rows])),
-        "num_merged_mean": float(np.mean([float(row["num_merged"]) for row in rows])),
+        "num_merged_mean": float(np.mean(num_merged)),
+        "num_merged_std": float(np.std(num_merged)),
+        "num_merged_min": float(np.min(num_merged)),
+        "num_merged_max": float(np.max(num_merged)),
         "zero_edge_ratio": float(np.mean([1.0 if int(row["num_edges"]) == 0 else 0.0 for row in rows])),
         "positive_edge_target_ratio": float(np.mean([1.0 if float(row["graph_positive_edge_targets"]) > 0.0 else 0.0 for row in rows])),
     }

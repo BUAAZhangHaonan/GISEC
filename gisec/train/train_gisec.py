@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import random
 import time
@@ -245,6 +246,28 @@ def normalize_reference_conditioning_mode(value: object) -> str:
     if normalized is not None:
         return normalized
     return text
+
+
+def _scalar_is_finite(value: object) -> bool:
+    if isinstance(value, torch.Tensor):
+        detached = value.detach()
+        return bool(torch.isfinite(detached).all().item())
+    try:
+        return math.isfinite(float(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _non_finite_scalar_names(values: dict[str, object]) -> list[str]:
+    return [name for name, value in values.items() if not _scalar_is_finite(value)]
+
+
+def _epoch_artifact_dir(output_dir: Path, epoch: int) -> Path:
+    return output_dir / f"epoch_{int(epoch):04d}_artifacts"
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _normalize_args_in_place(args: argparse.Namespace) -> argparse.Namespace:
@@ -606,6 +629,8 @@ def train_main(args: argparse.Namespace) -> None:
             model.train()
             if dist_context.enabled and hasattr(train_loader, "sampler") and hasattr(train_loader.sampler, "set_epoch"):
                 train_loader.sampler.set_epoch(epoch)
+            epoch_graph_loss_values: list[float] = []
+            epoch_non_finite_event_count = 0
             for step, batch in enumerate(train_loader, start=1):
                 file_names = list(batch["file_names"])
                 images = batch["images"].to(device)
@@ -658,6 +683,7 @@ def train_main(args: argparse.Namespace) -> None:
                     graph_positive_edge_targets = 0.0
                     graph_has_edges = False
                     graph_loss_value = 0.0
+                    graph_loss_tensor: torch.Tensor | None = None
 
                     if variant_spec.use_learned_edge_scorer:
                         graph_losses = []
@@ -702,9 +728,28 @@ def train_main(args: argparse.Namespace) -> None:
                             )
                         if graph_losses:
                             graph_loss = torch.stack(graph_losses).mean()
+                            graph_loss_tensor = graph_loss
                             graph_loss_weight = 0.0 if step <= int(args.graph_warmup_steps) else 0.5
                             graph_loss_value = float((graph_loss * graph_loss_weight).detach().cpu())
                             loss = loss + graph_loss_weight * graph_loss
+
+                non_finite_scalars = _non_finite_scalar_names(
+                    {
+                        "loss": loss,
+                        "loss_fg": loss_fg,
+                        "loss_boundary": loss_boundary,
+                        "loss_relation": loss_relation,
+                        "graph_loss": graph_loss_tensor if graph_loss_tensor is not None else graph_loss_value,
+                    }
+                )
+                if non_finite_scalars:
+                    epoch_non_finite_event_count += 1
+                    raise RuntimeError(
+                        f"Non-finite training scalars detected at epoch={epoch} step={step}: "
+                        + ", ".join(non_finite_scalars)
+                    )
+
+                epoch_graph_loss_values.append(float(graph_loss_value))
 
                 optimizer.zero_grad(set_to_none=True)
                 scaler.scale(loss).backward()
@@ -762,6 +807,11 @@ def train_main(args: argparse.Namespace) -> None:
 
             if _is_main_process(dist_context):
                 epoch_results = output_dir / f"epoch_{epoch:04d}_results.json"
+                epoch_artifact_dir = (
+                    _epoch_artifact_dir(output_dir, epoch)
+                    if bool(args.save_graph_diagnostics)
+                    else None
+                )
                 metrics, _benchmark = evaluate_and_export(
                     model=model_for_graph,
                     loader=val_loader,
@@ -776,11 +826,40 @@ def train_main(args: argparse.Namespace) -> None:
                     edge_threshold=args.edge_threshold,
                     max_images=int(args.max_val_images) if int(
                         args.max_val_images) > 0 else None,
+                    artifact_dir=epoch_artifact_dir,
+                    save_graph_diagnostics=bool(args.save_graph_diagnostics),
                 )
                 metrics["iteration"] = epoch
                 with open(metrics_path, "a", encoding="utf-8") as handle:
                     handle.write(json.dumps(metrics, ensure_ascii=False) + "\n")
                 metric_logger.append({"mode": "eval", **metrics})
+                epoch_summary_row = {
+                    "mode": "epoch_eval",
+                    "epoch": int(epoch),
+                    "graph_loss_mean": 0.0 if not epoch_graph_loss_values else float(np.mean(epoch_graph_loss_values)),
+                    "graph_loss_max": 0.0 if not epoch_graph_loss_values else float(np.max(epoch_graph_loss_values)),
+                    "num_merged_mean": 0.0,
+                    "num_merged_std": 0.0,
+                    "num_merged_min": 0.0,
+                    "num_merged_max": 0.0,
+                    "gt_count_mean": 0.0,
+                    "pred_count_mean": 0.0,
+                    "non_finite_event_count": int(epoch_non_finite_event_count),
+                }
+                if epoch_artifact_dir is not None:
+                    graph_readiness_path = epoch_artifact_dir / "graph_readiness_summary.json"
+                    match_summary_path = epoch_artifact_dir / "match_diagnostics_summary.json"
+                    if graph_readiness_path.exists():
+                        graph_readiness_summary = _read_json(graph_readiness_path)
+                        for key in ["num_merged_mean", "num_merged_std", "num_merged_min", "num_merged_max"]:
+                            if key in graph_readiness_summary:
+                                epoch_summary_row[key] = float(graph_readiness_summary[key])
+                    if match_summary_path.exists():
+                        match_summary = _read_json(match_summary_path)
+                        for key in ["gt_count_mean", "pred_count_mean"]:
+                            if key in match_summary:
+                                epoch_summary_row[key] = float(match_summary[key])
+                metric_logger.append(epoch_summary_row)
                 segm_ap = float(metrics.get("segm/AP", 0.0))
                 if segm_ap >= best_ap:
                     best_ap = segm_ap
