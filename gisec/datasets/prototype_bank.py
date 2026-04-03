@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List
@@ -157,6 +158,19 @@ def _read_json(path: Path) -> Dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _manifest_num_views(meta: Dict[str, Any]) -> int | None:
+    if "num_views" in meta and meta["num_views"] is not None:
+        return int(meta["num_views"])
+    if "views" in meta and meta["views"] is not None:
+        warnings.warn(
+            "Prototype bank manifest field 'views' is deprecated; use 'num_views' instead.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        return int(meta["views"])
+    return None
+
+
 def _is_bank_root(root: Path) -> bool:
     return all((root / name).exists() for name in ["rgb", "depth", "mask"])
 
@@ -288,6 +302,7 @@ def load_prototype_bank(
     manifest_path = meta_dir / "manifest.json"
     if manifest_path.exists():
         meta = _read_json(manifest_path)
+    manifest_views = _manifest_num_views(meta) if meta else None
 
     missing = list(manifest.missing_items)
     if contract_mode == "strict":
@@ -301,10 +316,9 @@ def load_prototype_bank(
                 f"depth_only={sorted(depth_stems - rgb_stems - mask_stems)} "
                 f"mask_only={sorted(mask_stems - rgb_stems - depth_stems)}"
             )
-        manifest_views = meta.get("views")
         if manifest_views is not None and int(manifest_views) != len(view_ids):
             missing.append(
-                f"meta/manifest.json views={manifest_views} expected={len(view_ids)}")
+                f"meta/manifest.json num_views={manifest_views} expected={len(view_ids)}")
         if not manifest.qa_passed:
             missing.append("meta/qa_report.json qa_passed=false")
         if manifest.qa_errors:

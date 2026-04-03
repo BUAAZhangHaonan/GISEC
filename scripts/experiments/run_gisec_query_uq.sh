@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+source "${REPO_ROOT}/scripts/experiments/common_runner.sh"
 
 MODEL_SCALE="s"
 MODE="dry-run"
@@ -31,22 +32,53 @@ if [[ "${PRESET}" == "alpha-full-eval" ]]; then
   TRAIN_CONFIG_PATH="${REPO_ROOT}/configs/query/eval/alpha_full_eval.yaml"
   CLI_MODULE="gisec.cli.eval_query"
 fi
-CMD="python -m ${CLI_MODULE} --config '${TRAIN_CONFIG_PATH}' --config '${CONFIG_PATH}' --output-dir '${OUTPUT_ROOT}/UQ-${MODEL_SCALE}' --model-family UQ --model-scale '${MODEL_SCALE}'"
+
+if [[ -n "${GISEC_CONDA_ENV:-}" ]]; then
+  PYTHON_CMD=(conda run -n "${GISEC_CONDA_ENV}" python)
+elif [[ -n "${GISEC_PYTHON:-}" ]]; then
+  PYTHON_CMD=("${GISEC_PYTHON}")
+elif [[ -n "${PYTHON:-}" ]]; then
+  PYTHON_CMD=("${PYTHON}")
+else
+  PYTHON_CMD=(python)
+fi
+
+CMD=(
+  "${PYTHON_CMD[@]}"
+  -m "${CLI_MODULE}"
+  --config "${TRAIN_CONFIG_PATH}"
+  --config "${CONFIG_PATH}"
+  --output-dir "${OUTPUT_ROOT}/UQ-${MODEL_SCALE}"
+  --model-family UQ
+  --model-scale "${MODEL_SCALE}"
+)
 if [[ -n "${DATASET_ROOT}" ]]; then
-  CMD="${CMD} --dataset-root '${DATASET_ROOT}'"
+  CMD+=(--dataset-root "${DATASET_ROOT}")
 fi
 if [[ -n "${CHECKPOINT}" ]]; then
-  CMD="${CMD} --checkpoint '${CHECKPOINT}'"
+  CMD+=(--checkpoint "${CHECKPOINT}")
 fi
+
+printf -v CMD_STR '%q ' "${CMD[@]}"
+CMD_STR="${CMD_STR% }"
+RUN_LOG="$(runner_setup_log "${OUTPUT_ROOT}/UQ-${MODEL_SCALE}" "${MODE}")"
 
 echo "[gisec-query-uq] mode=${MODE}"
 echo "[gisec-query-uq] preset=${PRESET}"
 echo "[gisec-query-uq] config=${CONFIG_PATH}"
 echo "[gisec-query-uq] train_config=${TRAIN_CONFIG_PATH}"
 echo "[gisec-query-uq] output_root=${OUTPUT_ROOT}"
-echo "[gisec-query-uq] command=${CMD}"
+echo "[gisec-query-uq] command=${CMD_STR}"
 
 if [[ "${MODE}" == "run" ]]; then
   cd "${REPO_ROOT}"
-  eval "${CMD}"
+  runner_log "${MODE}" "${RUN_LOG}" "+ ${CMD_STR}"
+  set +e
+  "${CMD[@]}" 2>&1 | tee -a "${RUN_LOG}"
+  rc=${PIPESTATUS[0]}
+  set -e
+  if [[ ${rc} -ne 0 ]]; then
+    runner_log "${MODE}" "${RUN_LOG}" "FAILED rc=${rc}"
+    exit "${rc}"
+  fi
 fi

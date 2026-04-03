@@ -22,6 +22,7 @@ def _init_git_repo(root: Path) -> None:
 
 
 def test_repo_hygiene_reports_forbidden_top_level_dirs(tmp_path: Path) -> None:
+    repo_script = Path(__file__).resolve().parents[1] / "scripts" / "analysis" / "check_repo_hygiene.py"
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     _init_git_repo(repo_root)
@@ -32,7 +33,7 @@ def test_repo_hygiene_reports_forbidden_top_level_dirs(tmp_path: Path) -> None:
     result = subprocess.run(
         [
             sys.executable,
-            "/home/k100/zhn/electronic-components-grasp-and-segment/gnn-reference-prior/scripts/analysis/check_repo_hygiene.py",
+            str(repo_script),
             "--repo-root",
             str(repo_root),
             "--output-json",
@@ -53,6 +54,7 @@ def test_repo_hygiene_reports_forbidden_top_level_dirs(tmp_path: Path) -> None:
 
 
 def test_repo_hygiene_passes_clean_repo(tmp_path: Path) -> None:
+    repo_script = Path(__file__).resolve().parents[1] / "scripts" / "analysis" / "check_repo_hygiene.py"
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     _init_git_repo(repo_root)
@@ -61,7 +63,7 @@ def test_repo_hygiene_passes_clean_repo(tmp_path: Path) -> None:
     result = subprocess.run(
         [
             sys.executable,
-            "/home/k100/zhn/electronic-components-grasp-and-segment/gnn-reference-prior/scripts/analysis/check_repo_hygiene.py",
+            str(repo_script),
             "--repo-root",
             str(repo_root),
             "--output-json",

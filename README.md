@@ -2,15 +2,15 @@
 
 `GISEC` now has one clean active front line and a quarantined legacy archive.
 
-- **Current Phase 1 conclusion.** `Mask2Former RGB @1024` is the current backbone winner. `Mask R-CNN RGB @1024` is the benchmark companion. The RGB-D branch stays available, but it is deferred to a later phase because it has not shown a clear enough gain over the simpler RGB story.
-- **Active instance-first follow-up surface.** The runnable follow-up pipeline still exists for later-stage work on refine / reference / graph. Its canonical variants are:
+- **Current active face.** The active method line is the staged `Mask2Former` surface. `Mask2Former RGB @1024` is the current backbone winner, `Mask R-CNN RGB @1024` is the benchmark companion, and the staged follow-up grows from that base through local refine, reference rescue, and graph rescue.
+- **Active staged variants.** Its canonical variants are:
   - `base_rgb_1024`
   - `base_rgbd_1024`
   - `base_rgbd_1024_refine`
   - `base_rgbd_1024_refine_ref`
   - `base_rgbd_1024_refine_ref_graph`
   - Active configs live under `configs/active/`, and `scripts/experiments/run_gisec_active.sh` is the dedicated runner for that surface.
-- **Legacy archive.** The former fragment-first stack (`GISEC v1.5 legacy` and variants `A*/B*/G*/Q*`) plus the narrow `GISEC Query Alpha` path remain runnable for reproduction, diagnostics, and query-only experiments, but they are explicitly labeled as legacy. The README sections below document both the new active line and the preserved archives.
+- **Archival surfaces.** The former fragment-first stack (`GISEC v1.5 legacy` and variants `A*/B*/G*/Q*`) plus the narrow `GISEC Query Alpha` path remain runnable for reproduction, diagnostics, and query-only experiments, but they are explicitly archival and are not the default repo face.
 
 ## Why This Repo Exists
 
@@ -20,7 +20,7 @@ The lightweight RGB-D line in `magformer` has already established a stable basel
 - a lightweight `U-Net-first` backbone can predict fragment-level cues cheaply
 - a dedicated `GraphRefiner` can merge fragments more reliably than heuristic grouping under occlusion-heavy clutter
 
-This repository is intentionally independent from the `magformer` training stack. The active line lives under `gisec` `train/eval/infer` with the strong backbone, while the legacy scripts (`run_gisec_legacy*.sh`, `run_gisec_query_uq.sh`, `scripts/experiments/run_legacy_1k_20ep_1024_gisec*.sh`) stay available for historical comparison and query-only diagnostics.
+This repository is intentionally independent from the `magformer` training stack. The active line lives under `gisec` `train/eval/infer` with the staged `Mask2Former` follow-up, while the legacy scripts (`run_gisec_legacy*.sh`, `run_gisec_query_uq.sh`, `scripts/experiments/run_legacy_1k_20ep_1024_gisec*.sh`) stay available for historical comparison and query-only diagnostics.
 
 ## External Inputs
 
@@ -39,13 +39,13 @@ This repository is intentionally independent from the `magformer` training stack
 - [docs/experiments/README.md](docs/experiments/README.md)
 - [docs/results/README.md](docs/results/README.md)
 - [docs/method/README.md](docs/method/README.md)
+- [docs/method/gisec-method-fragment-first.md](docs/method/gisec-method-fragment-first.md)
 - [docs/plans/2026-03-23-gisec-query-master-plan.md](docs/plans/2026-03-23-gisec-query-master-plan.md)
 - [docs/plans/2026-03-23-01-gisec-query-freeze-and-separation.md](docs/plans/2026-03-23-01-gisec-query-freeze-and-separation.md)
 - [docs/plans/2026-03-23-02-gisec-query-uq-backbone.md](docs/plans/2026-03-23-02-gisec-query-uq-backbone.md)
 - [docs/plans/2026-03-23-03-gisec-query-object-proposal-and-training.md](docs/plans/2026-03-23-03-gisec-query-object-proposal-and-training.md)
 - [docs/plans/2026-03-23-04-gisec-query-eval-ladder.md](docs/plans/2026-03-23-04-gisec-query-eval-ladder.md)
 - [docs/plans/2026-03-23-05-gisec-query-reference-graph-reentry.md](docs/plans/2026-03-23-05-gisec-query-reference-graph-reentry.md)
-- [docs/method/gisec-method-method.md](docs/method/gisec-method-method.md)
 - [docs/plans/2026-03-19-gisec-method-master-plan.md](docs/plans/2026-03-19-gisec-method-master-plan.md)
 - [docs/release-checklist.md](docs/release-checklist.md)
 
@@ -109,7 +109,7 @@ bash scripts/experiments/run_baseline_benchmarks.sh \
 
 Use `GISEC_CONDA_ENV=gisec` or `GISEC_PYTHON=/path/to/python` to control how the shell runners invoke Python.
 
-The instance-first follow-up surface is driven by `configs/active/*.yaml` and the helper script:
+The staged active surface is driven by `configs/active/*.yaml` and the helper script:
 
 ```bash
 bash scripts/experiments/run_gisec_active.sh \
@@ -119,13 +119,15 @@ bash scripts/experiments/run_gisec_active.sh \
   --run
 ```
 
-The script iterates through the canonical active configs, toggles between `train` and `eval`, and optionally switches to `dry-run` mode. Prototype roots are only required once reference or graph rescue enters the chain.
+The script iterates through the canonical active configs, toggles between `train` and `eval`, and optionally switches to `dry-run` mode. Prototype roots are only required once reference or graph rescue enters the chain, and `--init-checkpoint is required` for refine-stage active training.
+
+For staged active training, `--init-checkpoint is required` once the variant enters the `base_rgbd_1024_refine*` chain. The refine, reference, and graph stages are not valid from random initialization.
 
 Use `--depth-mode rgbd_concat_valid_mask` when the active `base_rgbd_*` chain should include the extra valid-depth mask channel without changing the canonical family names.
 
 ### Legacy Train / Eval
 
-Use the explicit legacy wrappers when the goal is to reproduce the archived fragment-first line:
+Use the explicit legacy wrappers when the goal is to reproduce the archival fragment-first line:
 
 ```bash
 python -m gisec.cli.train_legacy --variant G5 --prototype-root /path/to/reference_bank ...
