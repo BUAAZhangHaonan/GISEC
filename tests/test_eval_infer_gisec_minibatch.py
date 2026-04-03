@@ -240,6 +240,9 @@ def test_eval_and_infer_gisec_minibatch(tmp_path: Path) -> None:
     assert eval_graph_readiness["total_images"] == 1
     assert infer_graph_readiness["total_images"] == 1
     assert "zero_edge_ratio" in eval_graph_readiness
+    assert "num_merged_std" in eval_graph_readiness
+    assert "num_merged_min" in eval_graph_readiness
+    assert "num_merged_max" in eval_graph_readiness
     assert eval_routing_confidence["total_images"] == 1
     assert infer_routing_confidence["total_images"] == 1
     assert "top1_top2_margin_mean" in eval_routing_confidence

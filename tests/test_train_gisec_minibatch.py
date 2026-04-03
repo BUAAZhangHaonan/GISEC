@@ -116,6 +116,11 @@ def test_train_gisec_minibatch(tmp_path: Path) -> None:
     assert (output_root / "run.log").exists()
     assert (output_root / "wall_time_sec.txt").exists()
     assert (output_root / "graph_diagnostics.jsonl").exists()
+    epoch_artifact_root = output_root / "epoch_0001_artifacts"
+    assert (epoch_artifact_root / "graph_diagnostics.jsonl").exists()
+    assert (epoch_artifact_root / "graph_readiness_summary.json").exists()
+    assert (epoch_artifact_root / "match_diagnostics_summary.json").exists()
+    assert (epoch_artifact_root / "failure_summary.json").exists()
     assert list((output_root / "visualizations" / "overlay").glob("*.png"))
     run_summary = json.loads((output_root / "run_summary.json").read_text(encoding="utf-8"))
     manifest = json.loads((output_root / "prototype_bank_manifest.json").read_text(encoding="utf-8"))
@@ -134,7 +139,9 @@ def test_train_gisec_minibatch(tmp_path: Path) -> None:
     assert manifest["prototype_topk"] == 2
     metric_rows = [json.loads(line) for line in (output_root / "metrics_log.jsonl").read_text(encoding="utf-8").splitlines()]
     train_rows = [row for row in metric_rows if row.get("mode") == "train"]
+    epoch_eval_rows = [row for row in metric_rows if row.get("mode") == "epoch_eval"]
     assert train_rows
+    assert epoch_eval_rows
     assert "graph_has_edges" in train_rows[0]
     assert "graph_edge_count" in train_rows[0]
     assert "graph_positive_edge_targets" in train_rows[0]
@@ -147,6 +154,17 @@ def test_train_gisec_minibatch(tmp_path: Path) -> None:
     assert "fg_prob_p95" in train_rows[0]
     assert "boundary_prob_p50" in train_rows[0]
     assert "boundary_prob_p95" in train_rows[0]
+    assert epoch_eval_rows[0]["epoch"] == 1
+    assert "graph_loss_mean" in epoch_eval_rows[0]
+    assert "graph_loss_max" in epoch_eval_rows[0]
+    assert "num_merged_mean" in epoch_eval_rows[0]
+    assert "num_merged_std" in epoch_eval_rows[0]
+    assert "num_merged_min" in epoch_eval_rows[0]
+    assert "num_merged_max" in epoch_eval_rows[0]
+    assert "gt_count_mean" in epoch_eval_rows[0]
+    assert "pred_count_mean" in epoch_eval_rows[0]
+    assert "non_finite_event_count" in epoch_eval_rows[0]
+    assert epoch_eval_rows[0]["non_finite_event_count"] == 0
 
 
 def test_train_gisec_minibatch_accepts_multi_part_reference_root(tmp_path: Path) -> None:
