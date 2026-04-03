@@ -4,12 +4,13 @@ from typing import Dict
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from gisec.config.variants import VariantSpec, get_variant_spec
 from gisec.datasets.prototype_bank import PrototypeBank
 from gisec.models.fragment_bundle import FragmentProposalBundle
 from gisec.models.graph_head import GraphEdgeScorer
-from gisec.models.graph_utils import GraphBatch, build_graph_batch
+from gisec.models.graph_utils import EDGE_FEATURE_DIM, GraphBatch, build_graph_batch
 from gisec.models.prototype_cache import PrototypeCache
 from gisec.models.prototype_unet import PrototypeConditionedUNetBackbone
 
@@ -43,7 +44,7 @@ class GISECModel(nn.Module):
         )
         self.output_channels = self.backbone.output_channels
         node_dim = self.output_channels + 6
-        edge_dim = 6
+        edge_dim = EDGE_FEATURE_DIM + 2
         self.graph_head = GraphEdgeScorer(
             node_dim=node_dim, edge_dim=edge_dim, hidden_dim=graph_hidden_dim)
 
@@ -70,7 +71,20 @@ class GISECModel(nn.Module):
         )
 
     def forward_graph(self, graph_batch: GraphBatch) -> torch.Tensor:
-        return self.graph_head(graph_batch.node_features, graph_batch.edge_index, graph_batch.edge_features)
+        edge_features = graph_batch.edge_features
+        num_edges = int(edge_features.shape[0])
+        if int(graph_batch.edge_type.numel()) == 0:
+            edge_type = torch.zeros((num_edges,), dtype=torch.long, device=edge_features.device)
+        elif int(graph_batch.edge_type.numel()) == num_edges:
+            edge_type = graph_batch.edge_type.to(device=edge_features.device, dtype=torch.long)
+        else:
+            raise ValueError(
+                "GraphBatch edge_type rows must match edge_features rows: "
+                f"{int(graph_batch.edge_type.numel())} vs {num_edges}"
+            )
+        edge_type_features = F.one_hot(edge_type, num_classes=2).to(dtype=edge_features.dtype)
+        scored_edge_features = torch.cat([edge_features, edge_type_features], dim=1)
+        return self.graph_head(graph_batch.node_features, graph_batch.edge_index, scored_edge_features)
 
     def build_fragment_bundle(
         self,

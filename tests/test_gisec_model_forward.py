@@ -153,3 +153,39 @@ def test_gisec_model_routes_a1_graph_building_to_ownership_offsets(monkeypatch) 
     assert result == "sentinel"
     assert captured["affinity_logits"] is None
     assert captured["ownership_offsets"] is outputs["ownership_offsets"]
+
+
+def test_gisec_model_forward_graph_accepts_current_graph_builder_edge_payload(monkeypatch) -> None:
+    fragments = np.zeros((16, 16), dtype=np.int32)
+    fragments[4:12, 3:7] = 1
+    fragments[4:12, 8:12] = 2
+
+    import gisec.models.graph_utils as graph_utils_module
+
+    monkeypatch.setattr(
+        graph_utils_module,
+        "fragments_from_logits",
+        lambda *args, **kwargs: fragments.copy(),
+    )
+
+    model = GISECModel(base_channels=8)
+    outputs = {
+        "feature_map": torch.ones((1, 8, 16, 16), dtype=torch.float32),
+        "fg_logits": torch.ones((1, 1, 16, 16), dtype=torch.float32),
+        "boundary_logits": torch.full((1, 1, 16, 16), -4.0, dtype=torch.float32),
+        "ownership_offsets": torch.ones((1, 2, 16, 16), dtype=torch.float32),
+    }
+    outputs["boundary_logits"][:, :, :, 7:9] = 4.0
+
+    graph_batch = model.build_graph_batch(
+        outputs=outputs,
+        depth_map=torch.ones((1, 1, 16, 16), dtype=torch.float32),
+        instance_map=None,
+        prototype_cache=None,
+        variant="G1",
+        min_area=2,
+    )
+
+    edge_logits = model.forward_graph(graph_batch)
+
+    assert tuple(edge_logits.shape) == (1,)

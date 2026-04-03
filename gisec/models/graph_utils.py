@@ -829,13 +829,20 @@ def merge_instances_from_edge_scores(
                 }
 
     label_order = labels
-    for edge_idx, ((src, dst), score) in enumerate(zip(edge_index.t().tolist(), edge_scores.tolist())):
+    sorted_edges = sorted(
+        [
+            (edge_idx, int(src), int(dst), float(score))
+            for edge_idx, ((src, dst), score) in enumerate(zip(edge_index.t().tolist(), edge_scores.tolist()))
+        ],
+        key=lambda item: (-item[3], item[0]),
+    )
+    for edge_idx, src, dst, score in sorted_edges:
         if float(score) < float(threshold):
             continue
         if edge_ignore_mask is not None and bool(edge_ignore_mask[edge_idx]):
             continue
-        src_label = label_order[int(src)]
-        dst_label = label_order[int(dst)]
+        src_label = label_order[src]
+        dst_label = label_order[dst]
         src_root = find(src_label)
         dst_root = find(dst_label)
         if src_root == dst_root:
