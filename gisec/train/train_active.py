@@ -3,12 +3,14 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import random
 import time
 from pathlib import Path
 from typing import Any
 
 import cv2
 import numpy as np
+from scipy.optimize import linear_sum_assignment
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -37,8 +39,9 @@ from gisec.active.model import (
     prepare_reference_depth,
 )
 from gisec.active.runtime import select_refinement_instances
+from gisec.cli._routing import explicit_cli_variant, resolve_run_directory_variant
 from gisec.config.io import extract_argparse_defaults, load_yaml_config, merge_config_dicts
-from gisec.datasets.prototype_bank import PrototypeBankSource
+from gisec.datasets.prototype_bank import PrototypeBank, PrototypeBankSource, extract_query_part_key
 from gisec.engine.runtime import build_benchmark_payload, build_device, evaluate_json, write_json
 
 
@@ -123,6 +126,37 @@ def _load_parser_defaults(argv: list[str] | None, *, mode: str) -> dict[str, Any
     return defaults
 
 
+def _resolved_active_variant_default(argv: list[str] | None) -> str:
+    run_variant = resolve_run_directory_variant(list(argv or []))
+    if run_variant in set(active_variant_names()):
+        return str(run_variant)
+    return str(MODEL_DEFAULTS["variant"])
+
+
+def _validate_variant_source_consistency(
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+    argv: list[str] | None,
+) -> None:
+    cli_variant = explicit_cli_variant(list(argv or []))
+    run_variant = resolve_run_directory_variant(list(argv or []))
+    if run_variant in {None, "", "__legacy__"}:
+        return
+    if cli_variant not in {None, ""} and str(cli_variant) != str(run_variant):
+        parser.error(
+            f"--variant {cli_variant} conflicts with run metadata variant {run_variant}"
+        )
+    if str(args.variant) != str(run_variant):
+        parser.error(
+            f"parsed active variant {args.variant} does not match run metadata variant {run_variant}"
+        )
+
+
+def _annotate_variant_sources(args: argparse.Namespace, argv: list[str] | None) -> None:
+    setattr(args, "_explicit_variant", explicit_cli_variant(list(argv or [])))
+    setattr(args, "_run_metadata_variant", resolve_run_directory_variant(list(argv or [])))
+
+
 def _common_parser(*, mode: str, argv: list[str] | None) -> argparse.ArgumentParser:
     defaults = _load_parser_defaults(argv, mode=mode)
     parser = argparse.ArgumentParser(parents=[_config_parser()])
@@ -130,7 +164,11 @@ def _common_parser(*, mode: str, argv: list[str] | None) -> argparse.ArgumentPar
     parser.add_argument("--output-dir")
     parser.add_argument("--prototype-root", default="")
     parser.add_argument("--init-checkpoint", default="")
-    parser.add_argument("--variant", choices=list(active_variant_names()), default="base_rgb_1024")
+    parser.add_argument(
+        "--variant",
+        choices=list(active_variant_names()),
+        default=_resolved_active_variant_default(argv),
+    )
     parser.add_argument("--depth-mode", choices=list(ACTIVE_DEPTH_MODES), default="")
     parser.add_argument("--image-size", type=int, default=1024)
     parser.add_argument("--batch", type=int, default=1)
@@ -154,6 +192,7 @@ def _common_parser(*, mode: str, argv: list[str] | None) -> argparse.ArgumentPar
     parser.add_argument("--boundary-band-width", type=int, default=4)
     parser.add_argument("--reference-max-views", type=int, default=16)
     parser.add_argument("--reference-view-sampler", choices=["all", "uniform", "pose_farthest"], default="pose_farthest")
+    parser.add_argument("--allow-partial-checkpoint-load", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     if mode == "train":
         parser.add_argument("--epochs", type=int, default=20)
@@ -196,6 +235,8 @@ def _validate_variant_requirements(parser: argparse.ArgumentParser, args: argpar
 def parse_train_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = _common_parser(mode="train", argv=argv)
     args = parser.parse_args(argv)
+    _annotate_variant_sources(args, argv)
+    _validate_variant_source_consistency(parser, args, argv)
     _validate_required_args(parser, args, ["dataset_root", "output_dir"])
     _validate_variant_requirements(parser, args, is_eval=False)
     return args
@@ -204,6 +245,8 @@ def parse_train_args(argv: list[str] | None = None) -> argparse.Namespace:
 def parse_eval_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = _common_parser(mode="eval", argv=argv)
     args = parser.parse_args(argv)
+    _annotate_variant_sources(args, argv)
+    _validate_variant_source_consistency(parser, args, argv)
     _validate_required_args(parser, args, ["dataset_root", "output_dir"])
     _validate_variant_requirements(parser, args, is_eval=True)
     return args
@@ -212,6 +255,8 @@ def parse_eval_args(argv: list[str] | None = None) -> argparse.Namespace:
 def parse_infer_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = _common_parser(mode="infer", argv=argv)
     args = parser.parse_args(argv)
+    _annotate_variant_sources(args, argv)
+    _validate_variant_source_consistency(parser, args, argv)
     _validate_required_args(parser, args, ["dataset_root", "output_dir"])
     _validate_variant_requirements(parser, args, is_eval=True)
     return args
@@ -259,6 +304,16 @@ def _model_payload(args: argparse.Namespace) -> dict[str, Any]:
         "learning_rate": float(getattr(args, "learning_rate", 0.0)),
         "weight_decay": float(getattr(args, "weight_decay", 0.0)),
         "eval_every_epochs": int(getattr(args, "eval_every_epochs", 1)),
+        "allow_partial_checkpoint_load": bool(getattr(args, "allow_partial_checkpoint_load", False)),
+    }
+
+
+def _checkpoint_payload(model: nn.Module, args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "state_dict": model.state_dict(),
+        "variant": str(args.variant),
+        "depth_mode": str(args.depth_mode),
+        "model": _model_payload(args),
     }
 
 
@@ -284,6 +339,113 @@ def _filter_compatible_state_dict(source_state: dict[str, Any], target_state: di
                 continue
         filtered[key] = value
     return filtered
+
+
+def _checkpoint_variant(payload: Any) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+    candidates = [
+        payload.get("variant"),
+        payload.get("config", {}).get("variant") if isinstance(payload.get("config"), dict) else None,
+        payload.get("model", {}).get("variant") if isinstance(payload.get("model"), dict) else None,
+    ]
+    for candidate in candidates:
+        if candidate not in {"", None}:
+            return str(candidate)
+    return None
+
+
+def _state_dict_mismatch_report(
+    source_state: dict[str, Any],
+    target_state: dict[str, Any],
+) -> tuple[list[str], list[str], list[str]]:
+    missing_keys = sorted(key for key in target_state if key not in source_state)
+    unexpected_keys = sorted(key for key in source_state if key not in target_state)
+    shape_mismatches: list[str] = []
+    for key in sorted(set(source_state).intersection(target_state)):
+        source_value = source_state[key]
+        target_value = target_state[key]
+        if hasattr(source_value, "shape") and hasattr(target_value, "shape"):
+            if tuple(source_value.shape) != tuple(target_value.shape):
+                shape_mismatches.append(
+                    f"{key}: checkpoint {tuple(source_value.shape)} != model {tuple(target_value.shape)}"
+                )
+    return missing_keys, unexpected_keys, shape_mismatches
+
+
+def _load_module_state_dict(
+    module: nn.Module,
+    source_state: dict[str, Any],
+    *,
+    allow_partial: bool,
+    context: str,
+) -> None:
+    target_state = module.state_dict()
+    missing_keys, unexpected_keys, shape_mismatches = _state_dict_mismatch_report(
+        source_state,
+        target_state,
+    )
+    if not allow_partial and (missing_keys or unexpected_keys or shape_mismatches):
+        raise RuntimeError(
+            f"{context} does not match the requested model; "
+            f"missing_keys={missing_keys}; "
+            f"unexpected_keys={unexpected_keys}; "
+            f"shape_mismatches={shape_mismatches}"
+        )
+    if allow_partial:
+        module.load_state_dict(
+            _filter_compatible_state_dict(source_state, target_state),
+            strict=False,
+        )
+        return
+    module.load_state_dict(source_state, strict=True)
+
+
+def _backbone_state_dict(source_state: dict[str, Any]) -> dict[str, Any]:
+    backbone_state = {
+        key[len("backbone."):]: value
+        for key, value in source_state.items()
+        if key.startswith("backbone.")
+    }
+    return backbone_state or dict(source_state)
+
+
+def _validate_checkpoint_variant(
+    *,
+    expected_variant: str,
+    checkpoint_payload: Any,
+    checkpoint_path: str | Path,
+) -> None:
+    checkpoint_variant = _checkpoint_variant(checkpoint_payload)
+    if checkpoint_variant in {None, "", str(expected_variant)}:
+        return
+    raise RuntimeError(
+        f"Checkpoint {Path(checkpoint_path).resolve()} declares variant {checkpoint_variant}, "
+        f"but the requested active variant is {expected_variant}."
+    )
+
+
+def _validate_runtime_checkpoint_variant(
+    *,
+    requested_variant: str,
+    run_variant: str | None,
+    checkpoint_payload: Any,
+    checkpoint_path: str | Path,
+    context: str,
+) -> None:
+    checkpoint_variant = _checkpoint_variant(checkpoint_payload)
+    if checkpoint_variant in {None, ""}:
+        return
+    if str(checkpoint_variant) != str(requested_variant):
+        raise RuntimeError(
+            f"{context} checkpoint {Path(checkpoint_path).resolve()} declares variant {checkpoint_variant}, "
+            f"but the requested active variant is {requested_variant}."
+        )
+    if run_variant not in {None, "", "__legacy__"} and str(checkpoint_variant) != str(run_variant):
+        raise RuntimeError(
+            f"{context} checkpoint {Path(checkpoint_path).resolve()} declares variant {checkpoint_variant}, "
+            f"but run metadata resolves to {run_variant}."
+        )
 
 
 def _resolve_input_channels(depth_mode: str) -> int:
@@ -337,8 +499,12 @@ def _configure_model_for_stage(model: nn.Module, args: argparse.Namespace) -> No
         raise FileNotFoundError(init_checkpoint)
     checkpoint_payload = torch.load(str(init_checkpoint), map_location="cpu")
     state_dict = _extract_state_dict(checkpoint_payload, prefix_backbone=True)
-    compatible_state = _filter_compatible_state_dict(state_dict, model.state_dict())
-    model.load_state_dict(compatible_state, strict=False)
+    _load_module_state_dict(
+        model.backbone,
+        _backbone_state_dict(state_dict),
+        allow_partial=bool(getattr(args, "allow_partial_checkpoint_load", False)),
+        context=f"init checkpoint {init_checkpoint}",
+    )
 
 
 def _build_loader(*, dataset_root: str, split: str, image_size: int, batch_size: int, num_workers: int, include_depth: bool, train: bool) -> DataLoader:
@@ -430,6 +596,89 @@ def _query_instances_from_outputs(
     return rows
 
 
+def _mask_iou(pred_mask: torch.Tensor, gt_mask: torch.Tensor) -> float:
+    pred_binary = pred_mask > 0.5
+    gt_binary = gt_mask > 0.5
+    intersection = float((pred_binary & gt_binary).sum().item())
+    union = float((pred_binary | gt_binary).sum().item())
+    if union <= 0.0:
+        return 0.0
+    return intersection / union
+
+
+def _match_query_predictions_to_gt(
+    *,
+    predictions: list[dict[str, Any]],
+    gt_masks: torch.Tensor,
+) -> list[tuple[int, int, float]]:
+    if not predictions or int(gt_masks.shape[0]) == 0:
+        return []
+    cost = np.ones((len(predictions), int(gt_masks.shape[0])), dtype=np.float32)
+    for pred_index, prediction in enumerate(predictions):
+        for gt_index in range(int(gt_masks.shape[0])):
+            cost[pred_index, gt_index] = 1.0 - float(
+                _mask_iou(prediction["binary_mask"], gt_masks[gt_index])
+            )
+    pred_indices, gt_indices = linear_sum_assignment(cost)
+    matches: list[tuple[int, int, float]] = []
+    for pred_index, gt_index in zip(pred_indices.tolist(), gt_indices.tolist()):
+        iou = 1.0 - float(cost[pred_index, gt_index])
+        if iou <= 0.0:
+            continue
+        matches.append((int(pred_index), int(gt_index), float(iou)))
+    return matches
+
+
+def _mask_iou_matrix(pred_masks: torch.Tensor, gt_masks: torch.Tensor, *, mask_threshold: float) -> torch.Tensor:
+    if pred_masks.numel() == 0 or gt_masks.numel() == 0:
+        return pred_masks.new_zeros((int(pred_masks.shape[0]), int(gt_masks.shape[0])))
+    pred_binary = (pred_masks >= float(mask_threshold)).reshape(int(pred_masks.shape[0]), -1).float()
+    gt_binary = (gt_masks >= 0.5).reshape(int(gt_masks.shape[0]), -1).float()
+    intersections = pred_binary @ gt_binary.t()
+    pred_area = pred_binary.sum(dim=1, keepdim=True)
+    gt_area = gt_binary.sum(dim=1).unsqueeze(0)
+    unions = (pred_area + gt_area - intersections).clamp_min(1.0)
+    return intersections / unions
+
+
+def _match_predicted_queries_to_instances(
+    *,
+    class_logits: torch.Tensor,
+    mask_logits: torch.Tensor,
+    gt_masks: torch.Tensor,
+    image_shape: tuple[int, int],
+    mask_threshold: float = 0.5,
+) -> list[dict[str, Any]]:
+    if int(gt_masks.shape[0]) == 0:
+        return []
+    mask_probs = torch.sigmoid(_upscale_mask_logits(mask_logits, image_shape=image_shape))
+    iou = _mask_iou_matrix(mask_probs, gt_masks.float().to(mask_probs.device), mask_threshold=float(mask_threshold))
+    if iou.numel() == 0:
+        return []
+    query_indices, gt_indices = linear_sum_assignment((1.0 - iou).detach().cpu().numpy())
+    class_prob = torch.softmax(class_logits.float(), dim=-1)
+    fg_prob = class_prob[:, :-1] if int(class_prob.shape[-1]) >= 2 else class_prob
+    component_class_index = 0 if int(fg_prob.shape[-1]) <= 1 else min(1, int(fg_prob.shape[-1]) - 1)
+    query_scores = fg_prob[:, component_class_index] if fg_prob.numel() > 0 else mask_probs.new_ones((int(mask_probs.shape[0]),))
+    matches: list[dict[str, Any]] = []
+    for query_index, gt_index in zip(query_indices.tolist(), gt_indices.tolist()):
+        match_iou = float(iou[int(query_index), int(gt_index)].item())
+        if match_iou <= 0.0:
+            continue
+        matches.append(
+            {
+                "query_index": int(query_index),
+                "gt_index": int(gt_index),
+                "iou": match_iou,
+                "score": float(query_scores[int(query_index)].item()),
+                "mask_probs": mask_probs[int(query_index)],
+                "binary_mask": (mask_probs[int(query_index)] >= float(mask_threshold)).float(),
+            }
+        )
+    matches.sort(key=lambda item: item["iou"], reverse=True)
+    return matches
+
+
 def _uses_baseline_decode(variant_name: str) -> bool:
     variant_spec = get_active_variant_spec(variant_name)
     return not bool(variant_spec.use_local_refine)
@@ -465,6 +714,15 @@ def _prepare_reference_tensors(
     if source is None:
         return None, None, None
     bank = source.load_for_query(str(sample["file_name"]))
+    return _reference_tensors_from_bank(bank=bank, crop_size=crop_size, device=device)
+
+
+def _reference_tensors_from_bank(
+    *,
+    bank: Any,
+    crop_size: int,
+    device: torch.device,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     normalized_ref_depth = prepare_reference_depth(
         depth=bank.depths.float(),
         mask=bank.masks.float(),
@@ -474,6 +732,54 @@ def _prepare_reference_tensors(
         F.interpolate(normalized_ref_depth.to(device), size=(crop_size, crop_size), mode="bilinear", align_corners=False).unsqueeze(0),
         F.interpolate(bank.masks.float().to(device), size=(crop_size, crop_size), mode="nearest").unsqueeze(0),
     )
+
+
+def _reference_match_aux_examples(
+    *,
+    file_name: str,
+    source: PrototypeBankSource | None,
+) -> list[tuple[PrototypeBank, float]]:
+    if source is None or source.is_single_bank:
+        return []
+    positive_part_key = extract_query_part_key(str(file_name), source.available_parts)
+    negative_candidates = [
+        part_key for part_key in source.available_parts
+        if str(part_key) != str(positive_part_key)
+    ]
+    if not negative_candidates:
+        return []
+    negative_bank = source.load_for_part(random.choice(negative_candidates))
+    return [
+        (source.load_for_part(positive_part_key), 1.0),
+        (negative_bank, 0.0),
+    ]
+
+
+def _reference_match_examples(
+    *,
+    sample: dict[str, Any],
+    source: PrototypeBankSource | None,
+    crop_size: int,
+    device: torch.device,
+) -> list[tuple[tuple[torch.Tensor, torch.Tensor, torch.Tensor], float]]:
+    if source is None:
+        return []
+    positive_bank = source.load_for_query(str(sample["file_name"]))
+    examples = [
+        (_reference_tensors_from_bank(bank=positive_bank, crop_size=crop_size, device=device), 1.0)
+    ]
+    if source.is_single_bank:
+        return examples
+    for bank, target in _reference_match_aux_examples(
+        file_name=str(sample["file_name"]),
+        source=source,
+    ):
+        if float(target) <= 0.0:
+            examples.append(
+                (_reference_tensors_from_bank(bank=bank, crop_size=crop_size, device=device), target)
+            )
+            break
+    return examples
 
 
 def _connected_components(mask: np.ndarray) -> np.ndarray:
@@ -536,6 +842,45 @@ def _build_local_graph_inputs(
         torch.stack(node_features, dim=0),
         torch.tensor(edge_index, dtype=torch.long, device=feature_crop.device).t().contiguous(),
         torch.stack(edge_features, dim=0),
+    )
+
+
+def _graph_rescue_edge_targets(
+    *,
+    component_map: np.ndarray,
+    instance_mask_crops: torch.Tensor,
+    edge_index: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    labels = [int(x) for x in np.unique(component_map).tolist() if int(x) > 0]
+    if len(labels) <= 1 or edge_index.numel() == 0:
+        empty = torch.zeros((0,), dtype=torch.float32, device=edge_index.device)
+        return empty, torch.zeros((0,), dtype=torch.bool, device=edge_index.device)
+    owners: dict[int, int] = {}
+    instance_masks = instance_mask_crops.float()
+    for label in labels:
+        component_mask = torch.from_numpy(component_map == int(label)).to(instance_masks.device)
+        overlap_scores = []
+        for instance_index in range(int(instance_masks.shape[0])):
+            overlap_scores.append(float((instance_masks[instance_index] * component_mask.float()).sum().item()))
+        best_overlap = max(overlap_scores, default=0.0)
+        owners[int(label)] = 0 if best_overlap <= 0.0 else int(np.argmax(overlap_scores)) + 1
+    targets: list[float] = []
+    valid_mask: list[bool] = []
+    for src_index, dst_index in edge_index.t().tolist():
+        src_owner = owners[labels[int(src_index)]]
+        dst_owner = owners[labels[int(dst_index)]]
+        if src_owner == 0 and dst_owner == 0:
+            targets.append(0.0)
+            valid_mask.append(False)
+            continue
+        targets.append(1.0 if src_owner > 0 and src_owner == dst_owner else 0.0)
+        valid_mask.append(True)
+    if not targets:
+        empty = torch.zeros((0,), dtype=torch.float32, device=edge_index.device)
+        return empty, torch.zeros((0,), dtype=torch.bool, device=edge_index.device)
+    return (
+        torch.tensor(targets, dtype=torch.float32, device=edge_index.device),
+        torch.tensor(valid_mask, dtype=torch.bool, device=edge_index.device),
     )
 
 
@@ -711,27 +1056,35 @@ def _graph_rescue_training_loss(
     *,
     graph_head: nn.Module,
     crop_features: torch.Tensor,
-    refined_mask_logits: torch.Tensor,
+    coarse_mask_prob: torch.Tensor,
     depth_crop: torch.Tensor | None,
+    instance_mask_crops: torch.Tensor,
 ) -> torch.Tensor:
-    refined_prob = torch.sigmoid(refined_mask_logits.detach())
-    component_map = _connected_components((refined_prob >= 0.5).cpu().numpy())
+    coarse_prob = coarse_mask_prob.detach().float()
+    component_map = _connected_components((coarse_prob >= 0.5).cpu().numpy())
     if int(component_map.max()) <= 1:
         return crop_features.sum() * 0.0
     node_features, edge_index, edge_features = _build_local_graph_inputs(
         component_map=component_map,
         feature_crop=crop_features,
-        mask_prob_crop=refined_prob,
+        mask_prob_crop=coarse_prob,
         depth_crop=depth_crop,
     )
     if edge_index.numel() == 0:
+        return crop_features.sum() * 0.0
+    edge_targets, valid_edge_mask = _graph_rescue_edge_targets(
+        component_map=component_map,
+        instance_mask_crops=instance_mask_crops,
+        edge_index=edge_index,
+    )
+    if edge_targets.numel() == 0 or not bool(valid_edge_mask.any()):
         return crop_features.sum() * 0.0
     edge_logits = graph_head(
         node_features=node_features,
         edge_index=edge_index,
         edge_features=edge_features,
     )
-    return F.binary_cross_entropy_with_logits(edge_logits, torch.ones_like(edge_logits))
+    return F.binary_cross_entropy_with_logits(edge_logits[valid_edge_mask], edge_targets[valid_edge_mask])
 
 
 def _evaluate_active(
@@ -876,7 +1229,7 @@ def _train_local_modules(
     model: ActiveInstanceModel,
     samples: list[dict[str, Any]],
     pixel_values: torch.Tensor,
-    feature_map: torch.Tensor,
+    backbone_outputs: Any,
     variant_name: str,
     prototype_source: PrototypeBankSource | None,
     crop_size: int,
@@ -885,17 +1238,40 @@ def _train_local_modules(
     variant_spec = get_active_variant_spec(variant_name)
     if not variant_spec.use_local_refine or model.refiner is None:
         return pixel_values.sum() * 0.0
-    feature_map = model.feature_proj(feature_map)
+    feature_map = model.feature_proj(backbone_outputs.pixel_decoder_last_hidden_state)
     losses: list[torch.Tensor] = []
     for sample_index, sample in enumerate(samples):
         masks = sample.get("masks")
         if masks is None:
             continue
+        gt_masks = masks.float().to(pixel_values.device)
         image_shape = (int(sample["image"].shape[-2]), int(sample["image"].shape[-1]))
         feature_shape = (int(feature_map.shape[-2]), int(feature_map.shape[-1]))
-        for instance_mask in masks.float().to(pixel_values.device):
+        predictions = _query_instances_from_outputs(
+            class_logits=backbone_outputs.class_queries_logits[sample_index].detach(),
+            mask_logits=backbone_outputs.masks_queries_logits[sample_index].detach(),
+            image_shape=image_shape,
+            score_threshold=0.0,
+            mask_threshold=0.5,
+        )
+        matches = _match_query_predictions_to_gt(predictions=predictions, gt_masks=gt_masks)
+        positive_reference = _prepare_reference_tensors(
+            sample=sample,
+            source=prototype_source if variant_spec.use_reference_rescue else None,
+            crop_size=int(crop_size),
+            device=pixel_values.device,
+        )
+        reference_examples = _reference_match_examples(
+            sample=sample,
+            source=prototype_source if variant_spec.use_reference_rescue else None,
+            crop_size=int(crop_size),
+            device=pixel_values.device,
+        )
+        for prediction_index, gt_index, _iou in matches:
+            prediction = predictions[int(prediction_index)]
+            instance_mask = gt_masks[int(gt_index)]
             bbox = expand_bbox(
-                bbox=mask_bbox(instance_mask),
+                bbox=mask_bbox(prediction["binary_mask"]),
                 image_shape=image_shape,
                 pad=int(crop_pad),
             )
@@ -903,13 +1279,13 @@ def _train_local_modules(
             gt_crop = crop_and_resize(instance_mask.unsqueeze(0), bbox=bbox, output_size=int(crop_size), mode="nearest")[0]
             query_crop = crop_and_resize(pixel_values[sample_index], bbox=bbox, output_size=int(crop_size), mode="bilinear").unsqueeze(0)
             feature_crop = crop_and_resize(feature_map[sample_index], bbox=feature_bbox, output_size=int(crop_size), mode="bilinear").unsqueeze(0)
-            coarse_mask = F.avg_pool2d(gt_crop.unsqueeze(0).unsqueeze(0), kernel_size=9, stride=1, padding=4)
-            reference_rgb, reference_depth, reference_mask = _prepare_reference_tensors(
-                sample=sample,
-                source=prototype_source if variant_spec.use_reference_rescue else None,
-                crop_size=int(crop_size),
-                device=pixel_values.device,
-            )
+            coarse_mask = crop_and_resize(
+                prediction["mask_probs"].unsqueeze(0),
+                bbox=bbox,
+                output_size=int(crop_size),
+                mode="bilinear",
+            ).unsqueeze(0)
+            reference_rgb, reference_depth, reference_mask = positive_reference
             refined = model.refiner(
                 query_crop=query_crop,
                 coarse_mask_prob=coarse_mask,
@@ -923,14 +1299,40 @@ def _train_local_modules(
             loss_boundary = F.binary_cross_entropy_with_logits(refined["refined_boundary_logits"][0, 0], gt_boundary)
             loss = loss_mask + 0.5 * loss_boundary
             if variant_spec.use_reference_rescue and refined["reference_match_logits"] is not None:
-                target = torch.ones_like(refined["reference_match_logits"])
-                loss = loss + 0.1 * F.binary_cross_entropy_with_logits(refined["reference_match_logits"], target)
+                if reference_examples:
+                    positive_target = torch.ones_like(refined["reference_match_logits"])
+                    loss = loss + 0.05 * F.binary_cross_entropy_with_logits(
+                        refined["reference_match_logits"],
+                        positive_target,
+                    )
+                    negative_rgb, negative_depth, negative_mask = reference_examples[1][0]
+                    negative_refined = model.refiner(
+                        query_crop=query_crop,
+                        coarse_mask_prob=coarse_mask,
+                        feature_crop=feature_crop,
+                        reference_rgb=negative_rgb,
+                        reference_depth=negative_depth,
+                        reference_mask=negative_mask,
+                    )
+                    negative_target = torch.zeros_like(negative_refined["reference_match_logits"])
+                    loss = loss + 0.05 * F.binary_cross_entropy_with_logits(
+                        negative_refined["reference_match_logits"],
+                        negative_target,
+                    )
             if variant_spec.use_graph_rescue and model.graph_head is not None:
+                gt_crops = torch.stack(
+                    [
+                        crop_and_resize(mask.unsqueeze(0), bbox=bbox, output_size=int(crop_size), mode="nearest")[0]
+                        for mask in gt_masks
+                    ],
+                    dim=0,
+                )
                 loss = loss + 0.1 * _graph_rescue_training_loss(
                     graph_head=model.graph_head,
                     crop_features=refined["crop_features"][0],
-                    refined_mask_logits=refined["refined_mask_logits"][0, 0],
+                    coarse_mask_prob=coarse_mask[0, 0],
                     depth_crop=None if query_crop.shape[1] <= 3 else query_crop[0, 3:4],
+                    instance_mask_crops=gt_crops,
                 )
             losses.append(loss)
     if not losses:
@@ -989,6 +1391,7 @@ def train_active(args: argparse.Namespace) -> None:
     if device.type == "cuda" and torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats(device)
     step_count = 0
+    eval_interval = max(int(getattr(args, "eval_every_epochs", 1)), 1)
     for epoch_index in range(int(args.epochs)):
         model.train()
         for samples in train_loader:
@@ -1014,7 +1417,7 @@ def train_active(args: argparse.Namespace) -> None:
                     model=model,
                     samples=samples,
                     pixel_values=pixel_values,
-                    feature_map=outputs.pixel_decoder_last_hidden_state,
+                    backbone_outputs=outputs,
                     variant_name=variant_spec.name,
                     prototype_source=prototype_source,
                     crop_size=int(args.crop_size),
@@ -1027,31 +1430,37 @@ def train_active(args: argparse.Namespace) -> None:
             step_count += 1
             if int(args.max_train_steps) > 0 and step_count >= int(args.max_train_steps):
                 break
-        metrics, speed = _evaluate_active(
-            model=model,
-            loader=val_loader,
-            device=device,
-            variant_name=variant_spec.name,
-            prototype_source=prototype_source,
-            ann_file=ann_file,
-            output_dir=output_dir,
-            score_threshold=float(args.score_threshold),
-            mask_threshold=float(args.mask_threshold),
-            crop_size=int(args.crop_size),
-            crop_pad=int(args.crop_pad),
-            boundary_band_width=int(args.boundary_band_width),
-            max_images=int(args.max_val_images),
-            save_raw=False,
-            depth_mode=str(args.depth_mode),
+        stopping_early = int(args.max_train_steps) > 0 and step_count >= int(args.max_train_steps)
+        should_eval = stopping_early or (
+            (epoch_index + 1) % eval_interval == 0
+            and (epoch_index + 1) < int(args.epochs)
         )
-        segm_ap = float(metrics.get("segm/AP", 0.0))
-        if segm_ap >= best_ap:
-            best_ap = segm_ap
-            torch.save(model.state_dict(), best_ckpt)
-        if int(args.max_train_steps) > 0 and step_count >= int(args.max_train_steps):
+        if should_eval:
+            metrics, speed = _evaluate_active(
+                model=model,
+                loader=val_loader,
+                device=device,
+                variant_name=variant_spec.name,
+                prototype_source=prototype_source,
+                ann_file=ann_file,
+                output_dir=output_dir,
+                score_threshold=float(args.score_threshold),
+                mask_threshold=float(args.mask_threshold),
+                crop_size=int(args.crop_size),
+                crop_pad=int(args.crop_pad),
+                boundary_band_width=int(args.boundary_band_width),
+                max_images=int(args.max_val_images),
+                save_raw=False,
+                depth_mode=str(args.depth_mode),
+            )
+            segm_ap = float(metrics.get("segm/AP", 0.0))
+            if segm_ap >= best_ap:
+                best_ap = segm_ap
+                torch.save(_checkpoint_payload(model, args), best_ckpt)
+        if stopping_early:
             break
     final_ckpt = output_dir / "model_final.pth"
-    torch.save(model.state_dict(), final_ckpt)
+    torch.save(_checkpoint_payload(model, args), final_ckpt)
     metrics, speed = _evaluate_active(
         model=model,
         loader=val_loader,
@@ -1064,11 +1473,15 @@ def train_active(args: argparse.Namespace) -> None:
         mask_threshold=float(args.mask_threshold),
         crop_size=int(args.crop_size),
         crop_pad=int(args.crop_pad),
-            boundary_band_width=int(args.boundary_band_width),
-            max_images=int(args.max_val_images),
-            save_raw=False,
-            depth_mode=str(args.depth_mode),
-        )
+        boundary_band_width=int(args.boundary_band_width),
+        max_images=int(args.max_val_images),
+        save_raw=False,
+        depth_mode=str(args.depth_mode),
+    )
+    final_ap = float(metrics.get("segm/AP", 0.0))
+    if final_ap >= best_ap:
+        best_ap = final_ap
+        torch.save(_checkpoint_payload(model, args), best_ckpt)
     peak_memory_mb = 0.0
     if device.type == "cuda" and torch.cuda.is_available():
         peak_memory_mb = float(torch.cuda.max_memory_allocated(device) / (1024.0 * 1024.0))
@@ -1107,8 +1520,20 @@ def eval_active(args: argparse.Namespace) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     model = _build_active_model(args).to(device)
     checkpoint_payload = torch.load(str(args.checkpoint), map_location=device)
+    _validate_runtime_checkpoint_variant(
+        requested_variant=variant_spec.name,
+        run_variant=getattr(args, "_run_metadata_variant", None),
+        checkpoint_payload=checkpoint_payload,
+        checkpoint_path=args.checkpoint,
+        context="eval",
+    )
     state_dict = _extract_state_dict(checkpoint_payload, prefix_backbone=True)
-    model.load_state_dict(state_dict, strict=False)
+    _load_module_state_dict(
+        model,
+        state_dict,
+        allow_partial=bool(getattr(args, "allow_partial_checkpoint_load", False)),
+        context=f"eval checkpoint {args.checkpoint}",
+    )
     prototype_source = None
     if variant_spec.requires_prototype_root:
         prototype_source = PrototypeBankSource(
@@ -1174,8 +1599,20 @@ def infer_active(args: argparse.Namespace) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     model = _build_active_model(args).to(device)
     checkpoint_payload = torch.load(str(args.checkpoint), map_location=device)
+    _validate_runtime_checkpoint_variant(
+        requested_variant=variant_spec.name,
+        run_variant=getattr(args, "_run_metadata_variant", None),
+        checkpoint_payload=checkpoint_payload,
+        checkpoint_path=args.checkpoint,
+        context="infer",
+    )
     state_dict = _extract_state_dict(checkpoint_payload, prefix_backbone=True)
-    model.load_state_dict(state_dict, strict=False)
+    _load_module_state_dict(
+        model,
+        state_dict,
+        allow_partial=bool(getattr(args, "allow_partial_checkpoint_load", False)),
+        context=f"infer checkpoint {args.checkpoint}",
+    )
     prototype_source = None
     if variant_spec.requires_prototype_root:
         prototype_source = PrototypeBankSource(
