@@ -775,7 +775,7 @@ def evaluate_and_export(
     model: GISECModel,
     loader: DataLoader,
     device: torch.device,
-    prototype_source: PrototypeCacheSource,
+    prototype_source: PrototypeCacheSource | None,
     variant: str | VariantSpec,
     ann_file: Path | None,
     results_json: Path,
@@ -829,7 +829,8 @@ def evaluate_and_export(
     component_rows: list[Dict[str, Any]] = []
     graph_rows: list[Dict[str, Any]] = []
     match_rows: list[Dict[str, Any]] = []
-    prototype_source.clear()
+    if prototype_source is not None:
+        prototype_source.clear()
     if save_graph_diagnostics and diagnostics_path is not None and diagnostics_path.exists():
         diagnostics_path.unlink()
     if routing_rows_path is not None and routing_rows_path.exists():
@@ -850,7 +851,9 @@ def evaluate_and_export(
             depths = batch["depths"].to(device)
             sync_cuda(device)
             start = time.perf_counter()
-            prototype_cache, _bank = prototype_source.resolve_for_query(batch["file_names"][0])
+            prototype_cache = None
+            if prototype_source is not None:
+                prototype_cache, _bank = prototype_source.resolve_for_query(batch["file_names"][0])
             outputs = model(images, query_depth=depths, prototype_cache=prototype_cache)
             graph_batch = refiner.build_graph_batch(
                 outputs=outputs,

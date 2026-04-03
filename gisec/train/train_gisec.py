@@ -16,7 +16,7 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 from gisec.config.io import extract_argparse_defaults, load_yaml_config, merge_config_dicts
-from gisec.config.variants import get_variant_spec, variant_names
+from gisec.config.variants import VariantSpec, get_variant_spec, variant_names
 from gisec.engine.runtime import (
     PrototypeCacheSource,
     RunContext,
@@ -254,6 +254,100 @@ def _normalize_args_in_place(args: argparse.Namespace) -> argparse.Namespace:
     return args
 
 
+def _reference_mode_was_explicit(argv: list[str] | None, *, mode: str) -> bool:
+    argv_list = list(argv or [])
+    if "--reference-conditioning-mode" in argv_list:
+        return True
+    defaults = _load_parser_defaults(argv_list, mode=mode)
+    return "reference_conditioning_mode" in defaults
+
+
+def _apply_reference_mode_for_variant(
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+    *,
+    argv: list[str] | None,
+    mode: str,
+) -> argparse.Namespace:
+    variant_spec = get_variant_spec(args.variant)
+    explicit_reference_mode = _reference_mode_was_explicit(argv, mode=mode)
+    if not explicit_reference_mode:
+        args.reference_conditioning_mode = "full" if variant_spec.use_reference_conditioning else "off"
+    args.reference_conditioning_mode = normalize_reference_conditioning_mode(args.reference_conditioning_mode)
+    if (not variant_spec.use_reference_conditioning) and str(args.reference_conditioning_mode) != "off":
+        parser.error(
+            f"legacy variant {variant_spec.name} does not allow reference conditioning; "
+            "use --reference-conditioning-mode off"
+        )
+    return args
+
+
+def _prototype_source_enabled(variant: str | VariantSpec, reference_conditioning_mode: str) -> bool:
+    variant_spec = get_variant_spec(variant)
+    return bool(
+        variant_spec.use_reference_conditioning
+        and normalize_reference_conditioning_mode(reference_conditioning_mode) != "off"
+    )
+
+
+def _maybe_prepare_prototype_source(
+    *,
+    model: object,
+    device: torch.device | str,
+    args: argparse.Namespace,
+    dataset_root: str | Path,
+) -> PrototypeCacheSource | None:
+    if not _prototype_source_enabled(args.variant, args.reference_conditioning_mode):
+        return None
+    return prepare_prototype_source(
+        model=model,
+        device=device,
+        prototype_root=args.prototype_root,
+        dataset_root=str(dataset_root),
+        image_size=args.image_size,
+        contract_mode=args.contract_mode,
+        max_views=int(args.reference_max_views),
+        view_sampler=str(args.reference_view_sampler),
+    )
+
+
+def _cli_arg_value(argv: list[str] | None, flag: str) -> str | None:
+    if argv is None:
+        return None
+    value = None
+    for index, token in enumerate(argv):
+        if token == flag and index + 1 < len(argv):
+            value = argv[index + 1]
+    return value
+
+
+def _variant_requires_prototype_source(variant: str | VariantSpec) -> bool:
+    return bool(get_variant_spec(variant).use_reference_conditioning)
+
+
+def _apply_variant_reference_policy(
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+    *,
+    argv: list[str] | None,
+    defaults: dict[str, object],
+) -> argparse.Namespace:
+    args = _normalize_args_in_place(args)
+    variant_spec = get_variant_spec(args.variant)
+    if variant_spec.use_reference_conditioning:
+        return args
+    cli_mode = _cli_arg_value(argv, "--reference-conditioning-mode")
+    config_mode = defaults.get("reference_conditioning_mode")
+    explicit_mode = cli_mode if cli_mode not in {None, ""} else config_mode
+    if explicit_mode not in {None, ""} and normalize_reference_conditioning_mode(explicit_mode) != "off":
+        parser.error(
+            f"--reference-conditioning-mode {normalize_reference_conditioning_mode(explicit_mode)} "
+            f"is not allowed for no-reference variant {variant_spec.name}"
+        )
+    args.reference_conditioning_mode = "off"
+    return args
+
+
 def set_random_seed(seed: int, *, use_cuda: bool) -> None:
     random.seed(int(seed))
     np.random.seed(int(seed))
@@ -295,8 +389,12 @@ def parse_train_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-val-images", type=int, default=0)
     parser.set_defaults(**defaults)
     args = parser.parse_args(argv)
-    _validate_required_args(parser, args, ["dataset_root", "prototype_root", "output_dir"])
-    return _normalize_args_in_place(args)
+    args = _apply_variant_reference_policy(parser, args, argv=argv, defaults=defaults)
+    required_args = ["dataset_root", "output_dir"]
+    if _prototype_source_enabled(args.variant, args.reference_conditioning_mode):
+        required_args.append("prototype_root")
+    _validate_required_args(parser, args, required_args)
+    return args
 
 
 def parse_eval_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -309,8 +407,12 @@ def parse_eval_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--results-json", type=str, default="")
     parser.set_defaults(**defaults)
     args = parser.parse_args(argv)
-    _validate_required_args(parser, args, ["dataset_root", "prototype_root", "output_dir"])
-    return _normalize_args_in_place(args)
+    args = _apply_variant_reference_policy(parser, args, argv=argv, defaults=defaults)
+    required_args = ["dataset_root", "output_dir"]
+    if _prototype_source_enabled(args.variant, args.reference_conditioning_mode):
+        required_args.append("prototype_root")
+    _validate_required_args(parser, args, required_args)
+    return args
 
 
 def parse_infer_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -323,8 +425,12 @@ def parse_infer_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--results-json", type=str, default="")
     parser.set_defaults(**defaults)
     args = parser.parse_args(argv)
-    _validate_required_args(parser, args, ["dataset_root", "prototype_root", "output_dir"])
-    return _normalize_args_in_place(args)
+    args = _apply_variant_reference_policy(parser, args, argv=argv, defaults=defaults)
+    required_args = ["dataset_root", "output_dir"]
+    if _prototype_source_enabled(args.variant, args.reference_conditioning_mode):
+        required_args.append("prototype_root")
+    _validate_required_args(parser, args, required_args)
+    return args
 
 
 def relation_target_key(variant: str | object) -> str:
@@ -365,7 +471,7 @@ def forward_with_reference_routing(
     images: torch.Tensor,
     depths: torch.Tensor,
     file_names: list[str],
-    prototype_source: PrototypeCacheSource,
+    prototype_source: PrototypeCacheSource | None,
     reference_conditioning_mode: str = "full",
     reference_routing_mode: str = "soft_topk",
     reference_skip_margin: float = 0.0,
@@ -374,7 +480,9 @@ def forward_with_reference_routing(
     outputs_by_sample: list[dict[str, Any]] = []
     prototype_caches: list[object] = []
     for batch_index, file_name in enumerate(file_names):
-        prototype_cache, _bank = prototype_source.resolve_for_query(file_name)
+        prototype_cache = None
+        if prototype_source is not None:
+            prototype_cache, _bank = prototype_source.resolve_for_query(file_name)
         active_cache = None if str(reference_conditioning_mode) == "off" else prototype_cache
         outputs_by_sample.append(
             model(
@@ -417,7 +525,7 @@ def train_main(args: argparse.Namespace) -> None:
     variant_spec = get_variant_spec(args.variant)
     run_context = RunContext(
         dataset_root=str(Path(args.dataset_root).resolve()),
-        prototype_root=str(Path(args.prototype_root).resolve()),
+        prototype_root="" if getattr(args, "prototype_root", "") in (None, "") else str(Path(args.prototype_root).resolve()),
         split="val",
         image_size=int(args.image_size),
         batch=int(args.batch),
@@ -469,15 +577,11 @@ def train_main(args: argparse.Namespace) -> None:
         model = DDP(model, device_ids=[device.index] if device.type == "cuda" else None)
     model_for_graph = _unwrap_model(model)
     refiner = GraphRefiner(model_for_graph)
-    prototype_source = prepare_prototype_source(
+    prototype_source = _maybe_prepare_prototype_source(
         model=model_for_graph,
         device=device,
-        prototype_root=args.prototype_root,
+        args=args,
         dataset_root=args.dataset_root,
-        image_size=args.image_size,
-        contract_mode=args.contract_mode,
-        max_views=int(args.reference_max_views),
-        view_sampler=str(args.reference_view_sampler),
     )
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     scaler = torch.cuda.amp.GradScaler(enabled=use_cuda)
@@ -510,7 +614,8 @@ def train_main(args: argparse.Namespace) -> None:
                 boundary_target = batch["boundary_target"].to(device)
                 relation_target = relation_target_from_batch(batch, variant_spec).to(device)
                 instance_maps = batch["instance_maps"].to(device)
-                prototype_source.clear()
+                if prototype_source is not None:
+                    prototype_source.clear()
 
                 with torch.cuda.amp.autocast(enabled=use_cuda):
                     outputs, prototype_caches = forward_with_reference_routing(
@@ -747,7 +852,8 @@ def train_main(args: argparse.Namespace) -> None:
                     )
                 ),
             )
-            write_json(output_dir / "prototype_bank_manifest.json", prototype_source.describe())
+            if prototype_source is not None:
+                write_json(output_dir / "prototype_bank_manifest.json", prototype_source.describe())
             (output_dir / "last_checkpoint").write_text(final_ckpt.name + "\n", encoding="utf-8")
             (output_dir / "wall_time_sec.txt").write_text(str(wall_time_sec) + "\n", encoding="utf-8")
             logger.info("final_best_ap=%.4f training_peak_memory_mb=%.4f",
@@ -766,7 +872,7 @@ def _run_eval_like(args: argparse.Namespace, *, compute_metrics: bool) -> None:
     variant_spec = get_variant_spec(args.variant)
     run_context = RunContext(
         dataset_root=str(Path(args.dataset_root).resolve()),
-        prototype_root=str(Path(args.prototype_root).resolve()),
+        prototype_root="" if getattr(args, "prototype_root", "") in (None, "") else str(Path(args.prototype_root).resolve()),
         split=args.split,
         image_size=int(args.image_size),
         batch=1,
@@ -792,15 +898,11 @@ def _run_eval_like(args: argparse.Namespace, *, compute_metrics: bool) -> None:
     model_config = resolve_model_config(args, checkpoint_path=checkpoint_path, output_dir=output_dir)
     write_json(output_dir / "model_config.json", model_config)
     model = build_model(device, checkpoint_path, **model_config)
-    prototype_source = prepare_prototype_source(
+    prototype_source = _maybe_prepare_prototype_source(
         model=model,
         device=device,
-        prototype_root=args.prototype_root,
+        args=args,
         dataset_root=args.dataset_root,
-        image_size=args.image_size,
-        contract_mode=args.contract_mode,
-        max_views=int(args.reference_max_views),
-        view_sampler=str(args.reference_view_sampler),
     )
     results_json = Path(args.results_json).resolve(
     ) if args.results_json else output_dir / "coco_instances_results.json"
@@ -856,7 +958,8 @@ def _run_eval_like(args: argparse.Namespace, *, compute_metrics: bool) -> None:
             )
         ),
     )
-    write_json(output_dir / "prototype_bank_manifest.json", prototype_source.describe())
+    if prototype_source is not None:
+        write_json(output_dir / "prototype_bank_manifest.json", prototype_source.describe())
 
 
 def eval_main(args: argparse.Namespace) -> None:
