@@ -460,7 +460,8 @@ def _resolve_input_channels(depth_mode: str) -> int:
 
 def _build_active_model(args: argparse.Namespace) -> ActiveInstanceModel:
     variant_spec = get_active_variant_spec(args.variant)
-    input_channels = _resolve_input_channels(str(args.depth_mode))
+    depth_mode = str(getattr(args, "depth_mode", "") or variant_spec.depth_mode)
+    input_channels = _resolve_input_channels(depth_mode)
     backbone = build_mask2former_model(
         image_size=int(args.image_size),
         pretrained_model_name=None if str(args.pretrained_model_name).strip().lower() in {"", "none"} else str(args.pretrained_model_name),
@@ -1299,7 +1300,7 @@ def _train_local_modules(
             loss_boundary = F.binary_cross_entropy_with_logits(refined["refined_boundary_logits"][0, 0], gt_boundary)
             loss = loss_mask + 0.5 * loss_boundary
             if variant_spec.use_reference_rescue and refined["reference_match_logits"] is not None:
-                if reference_examples:
+                if len(reference_examples) > 1:
                     positive_target = torch.ones_like(refined["reference_match_logits"])
                     loss = loss + 0.05 * F.binary_cross_entropy_with_logits(
                         refined["reference_match_logits"],

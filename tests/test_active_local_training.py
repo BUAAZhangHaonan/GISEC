@@ -55,10 +55,41 @@ class _RecordingRefiner(nn.Module):
         }
 
 
+class _RecordingReferenceRefiner(_RecordingRefiner):
+    def forward(
+        self,
+        *,
+        query_crop: torch.Tensor,
+        coarse_mask_prob: torch.Tensor,
+        feature_crop: torch.Tensor,
+        reference_rgb: torch.Tensor | None = None,
+        reference_depth: torch.Tensor | None = None,
+        reference_mask: torch.Tensor | None = None,
+    ) -> dict[str, torch.Tensor | None]:
+        result = super().forward(
+            query_crop=query_crop,
+            coarse_mask_prob=coarse_mask_prob,
+            feature_crop=feature_crop,
+            reference_rgb=reference_rgb,
+            reference_depth=reference_depth,
+            reference_mask=reference_mask,
+        )
+        result["reference_match_logits"] = torch.zeros((1, 1), dtype=coarse_mask_prob.dtype, device=coarse_mask_prob.device)
+        return result
+
+
 class _DummyActiveModel(nn.Module):
     def __init__(self) -> None:
         super().__init__()
         self.refiner = _RecordingRefiner()
+        self.feature_proj = nn.Identity()
+        self.graph_head = None
+
+
+class _DummyReferenceActiveModel(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.refiner = _RecordingReferenceRefiner()
         self.feature_proj = nn.Identity()
         self.graph_head = None
 
@@ -143,3 +174,61 @@ def test_reference_match_examples_include_positive_and_negative_targets(tmp_path
     )
 
     assert [target for _tensors, target in examples] == [1.0, 0.0]
+
+
+def test_train_local_modules_skips_reference_match_aux_without_negative_bank(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "prototype_bank"
+    _write_part_bank(root, part_key="PARTA")
+    source = PrototypeBankSource(
+        root=root,
+        image_size=32,
+        contract_mode="compat",
+        max_views=4,
+        view_sampler="all",
+    )
+    model = _DummyReferenceActiveModel()
+    pixel_values = torch.zeros((1, 4, 8, 8), dtype=torch.float32)
+    gt_mask = torch.zeros((8, 8), dtype=torch.float32)
+    gt_mask[2:6, 2:6] = 1.0
+    predicted_mask = torch.zeros((8, 8), dtype=torch.float32)
+    predicted_mask[1:5, 1:5] = 1.0
+
+    monkeypatch.setattr(
+        train_active_module,
+        "_query_instances_from_outputs",
+        lambda **kwargs: [
+            {
+                "query_index": 0,
+                "score": 0.9,
+                "category_id": 1,
+                "mask_probs": predicted_mask,
+                "binary_mask": (predicted_mask >= 0.5).float(),
+            }
+        ],
+    )
+
+    sample = {
+        "image": torch.zeros((3, 8, 8), dtype=torch.float32),
+        "depth": torch.zeros((1, 8, 8), dtype=torch.float32),
+        "masks": torch.stack([gt_mask], dim=0),
+        "file_name": "PARTA_scene_0001.png",
+    }
+    backbone_outputs = SimpleNamespace(
+        pixel_decoder_last_hidden_state=torch.zeros((1, 16, 8, 8), dtype=torch.float32),
+        class_queries_logits=torch.zeros((1, 1, 2), dtype=torch.float32),
+        masks_queries_logits=torch.zeros((1, 1, 8, 8), dtype=torch.float32),
+    )
+
+    loss = _train_local_modules(
+        model=model,
+        samples=[sample],
+        pixel_values=pixel_values,
+        backbone_outputs=backbone_outputs,
+        variant_name="base_rgbd_1024_refine_ref",
+        prototype_source=source,
+        crop_size=4,
+        crop_pad=0,
+    )
+
+    assert torch.isfinite(loss)
+    assert len(model.refiner.seen_coarse_masks) == 1
