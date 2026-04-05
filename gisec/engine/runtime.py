@@ -283,8 +283,7 @@ def _classify_single_mask_pathology(
     geometry = _mask_geometry(mask, image_shape=image_shape)
     if int(geometry["area"]) <= 0:
         return "empty"
-    tiny_floor = max(int(min_area), int(round(0.02 * int(image_shape[0]) * int(image_shape[1]))))
-    if int(geometry["area"]) < tiny_floor:
+    if int(geometry["area"]) < int(min_area):
         return "tiny_island"
     if float(geometry["area_ratio"]) >= 0.95:
         return "full_frame"

@@ -69,6 +69,15 @@ def test_classify_mask_failure_detects_empty_tiny_border_strip_full_frame_and_no
     assert normal == "normal"
 
 
+def test_classify_mask_failure_does_not_mark_valid_1024_scale_component_as_tiny_island() -> None:
+    mask = np.zeros((1024, 1024), dtype=np.uint8)
+    mask[256:296, 256:296] = 1
+
+    label = _classify_mask_failure([mask], image_shape=(1024, 1024), min_area=256)
+
+    assert label == "normal"
+
+
 def test_component_merge_score_returns_zero_for_components_without_accepted_edges() -> None:
     merged_mask = np.zeros((8, 8), dtype=bool)
     merged_mask[2:6, 2:6] = True
