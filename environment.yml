@@ -9,7 +9,10 @@ dependencies:
       - pytest
       - opencv-python
       - pycocotools
-      - PyYAML
+      - scipy==1.15.2
+      - PyYAML==6.0.3
+      - transformers==4.57.6
+      - matplotlib==3.10.7
       - --index-url https://download.pytorch.org/whl/cu130
       - --extra-index-url https://pypi.org/simple
       - torch==2.10.0
