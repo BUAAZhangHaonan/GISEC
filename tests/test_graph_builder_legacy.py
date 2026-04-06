@@ -351,7 +351,7 @@ def test_build_graph_batch_passes_runtime_boundary_threshold_to_contact_pairs(
         captured["boundary_threshold"] = float(boundary_threshold)
         return {}
 
-    monkeypatch.setattr(graph_utils, "_contact_fragment_pairs", fake_contact_pairs)
+    monkeypatch.setattr(graph_utils, "_contact_fragment_pairs_for_graph_build", fake_contact_pairs)
 
     build_graph_batch(
         feature_map=feature_map,
