@@ -1,0 +1,55 @@
+{
+  "baseline": {
+    "variant": "base_rgb_1024",
+    "segm/AP": 0.5450772353135926,
+    "bbox/AP": 0.49337000524805646,
+    "boundary/IoU": 0.1893520703200649,
+    "split_gt_count": 593,
+    "merge_pred_count": 668
+  },
+  "oracles": {
+    "fragments_no_merge": {
+      "segm/AP": 0.14344162374718986,
+      "boundary/IoU": 0.7240424905631632,
+      "split_gt_count": 3708,
+      "merge_pred_count": 4
+    },
+    "owner_union": {
+      "segm/AP": 0.8489273379592495,
+      "boundary/IoU": 0.9227048670589119,
+      "split_gt_count": 2,
+      "merge_pred_count": 1
+    }
+  },
+  "learned": {
+    "fragments_no_merge": {
+      "segm/AP": 0.39982178914111693,
+      "boundary/IoU": 0.2571802613511909,
+      "split_gt_count": 209,
+      "merge_pred_count": 0
+    },
+    "owner_union": {
+      "segm/AP": 0.41991368748779717,
+      "boundary/IoU": 0.2578659055011594,
+      "split_gt_count": 0,
+      "merge_pred_count": 0
+    },
+    "fragment_quality": {
+      "covered_instance_rate": 0.6680078029748842,
+      "split_instance_rate": 0.024993903925871738,
+      "singleton_instance_rate": 0.894141266654499,
+      "impure_fragment_rate": 0.08354345268112288,
+      "leakage_rate": 0.03173304197591116,
+      "fragments_per_covered_instance": 0.9824785544807446,
+      "negative_anchor_empty_precision": 1.0,
+      "negative_anchor_false_fragment_mean": 0.0,
+      "query_overflow_rate": 0.0,
+      "truncated_fragment_total": 0
+    }
+  },
+  "decision": {
+    "fragment_gate_passed": false,
+    "stage3_reentry_allowed": false,
+    "reason": "keep Stage 3 paused until learned owner-union is strong and still clearly merge-limited"
+  }
+}
