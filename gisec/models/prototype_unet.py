@@ -199,6 +199,7 @@ class PrototypeConditionedUNetBackbone(nn.Module):
         reference_conditioning_mode: str | None = None,
         reference_routing_mode: str | None = None,
         reference_skip_margin: float | None = None,
+        return_reference_routing: bool = True,
     ) -> Dict[str, torch.Tensor]:
         conditioning_mode = (
             self.reference_conditioning_mode
@@ -274,25 +275,28 @@ class PrototypeConditionedUNetBackbone(nn.Module):
                     )
                     x1 = self.prototype_highres_fuse(
                         torch.cat([x1 * gate_h, sim_h, proto_depth_h], dim=1))
-            view_ids = list(prototype_cache.routing_meta.get("view_ids", []))
-            selected_view_ids = [
-                [view_ids[int(index)] for index in row.tolist() if int(index) < len(view_ids)]
-                for row in routing["top_indices"]
-            ]
-            reference_routing = {
-                "reference_conditioning_mode": conditioning_mode,
-                "reference_routing_mode": routing_mode,
-                "prototype_slot_count": int(prototype_cache.routing_meta.get("slot_count", prototype_cache.proto_b.shape[0])),
-                "prototype_topk": int(routing["weights"].shape[1]),
-                "top_indices": routing["top_indices"].detach().cpu(),
-                "weights": routing["weights"].detach().cpu(),
-                "top1_weight": routing["top1_weight"].detach().cpu(),
-                "top2_weight": routing["top2_weight"].detach().cpu(),
-                "top1_top2_margin": routing["top1_top2_margin"].detach().cpu(),
-                "routing_entropy": routing["routing_entropy"].detach().cpu(),
-                "skip_conditioning": routing["skip_conditioning"].detach().cpu(),
-                "selected_view_ids": selected_view_ids,
-            }
+            if return_reference_routing:
+                view_ids = list(prototype_cache.routing_meta.get("view_ids", []))
+                selected_view_ids = [
+                    [view_ids[int(index)] for index in row.tolist() if int(index) < len(view_ids)]
+                    for row in routing["top_indices"]
+                ]
+                reference_routing = {
+                    "reference_conditioning_mode": conditioning_mode,
+                    "reference_routing_mode": routing_mode,
+                    "prototype_slot_count": int(prototype_cache.routing_meta.get("slot_count", prototype_cache.proto_b.shape[0])),
+                    "prototype_topk": int(routing["weights"].shape[1]),
+                    "top_indices": routing["top_indices"].detach().cpu(),
+                    "weights": routing["weights"].detach().cpu(),
+                    "top1_weight": routing["top1_weight"].detach().cpu(),
+                    "top2_weight": routing["top2_weight"].detach().cpu(),
+                    "top1_top2_margin": routing["top1_top2_margin"].detach().cpu(),
+                    "routing_entropy": routing["routing_entropy"].detach().cpu(),
+                    "skip_conditioning": routing["skip_conditioning"].detach().cpu(),
+                    "selected_view_ids": selected_view_ids,
+                }
+            else:
+                reference_routing = None
         else:
             reference_routing = None
 

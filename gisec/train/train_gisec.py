@@ -29,6 +29,8 @@ from gisec.engine.runtime import (
     prepare_prototype_source,
     read_git_revision,
     resolve_checkpoint,
+    resolve_num_workers,
+    sync_cuda,
     write_json,
 )
 from gisec.graph_refiner import GraphRefiner
@@ -138,7 +140,7 @@ def _common_parser() -> argparse.ArgumentParser:
         "--variant", choices=list(variant_names()), default="G5")
     parser.add_argument("--image-size", type=int, default=1024)
     parser.add_argument("--batch", type=int, default=4)
-    parser.add_argument("--num-workers", type=int, default=4)
+    parser.add_argument("--num-workers", type=int, default=None)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--min-area", type=int, default=10)
     parser.add_argument("--fragment-fg-threshold", type=float, default=0.5)
@@ -182,6 +184,8 @@ def _common_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--reference-skip-margin", type=float, default=0.0)
     parser.add_argument("--seed", type=int, default=1337)
+    parser.add_argument("--profile-steps", type=int, default=0)
+    parser.add_argument("--profile-output-dir", type=str, default="")
     return parser
 
 
@@ -268,6 +272,54 @@ def _epoch_artifact_dir(output_dir: Path, epoch: int) -> Path:
 
 def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+
+def _profile_output_dir(args: argparse.Namespace, output_dir: Path) -> Path:
+    if str(getattr(args, "profile_output_dir", "")).strip():
+        return Path(str(args.profile_output_dir)).resolve()
+    return output_dir / "profile"
+
+
+def _profile_step_active(
+    *,
+    args: argparse.Namespace,
+    dist_context: DistributedContext,
+    step: int,
+) -> bool:
+    return _is_main_process(dist_context) and int(getattr(args, "profile_steps", 0)) > 0 and int(step) <= int(args.profile_steps)
+
+
+def _profile_sync(device: torch.device, *, enabled: bool) -> None:
+    if enabled:
+        sync_cuda(device)
+
+
+def _summarize_step_profiles(
+    rows: list[dict[str, Any]],
+    *,
+    epoch_eval_timings: list[float],
+) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "profiled_steps": int(len(rows)),
+        "epoch_eval_count": int(len(epoch_eval_timings)),
+        "epoch_eval_wall_time_sec": float(np.median(epoch_eval_timings)) if epoch_eval_timings else 0.0,
+    }
+    if not rows:
+        return summary
+    numeric_keys = [key for key in rows[0] if key.endswith("_sec") or key in {"forward_call_count", "unique_prototype_roots", "graph_edge_count", "gpu_peak_memory_mb"}]
+    for key in numeric_keys:
+        values = [float(row[key]) for row in rows if key in row]
+        if not values:
+            continue
+        summary[f"median_{key}"] = float(np.median(np.asarray(values, dtype=np.float64)))
+        summary[f"mean_{key}"] = float(np.mean(np.asarray(values, dtype=np.float64)))
+    return summary
 
 
 def _normalize_args_in_place(args: argparse.Namespace) -> argparse.Namespace:
@@ -498,34 +550,75 @@ def forward_with_reference_routing(
     reference_conditioning_mode: str = "full",
     reference_routing_mode: str = "soft_topk",
     reference_skip_margin: float = 0.0,
-) -> tuple[dict[str, torch.Tensor], list[object]]:
+    return_reference_routing: bool = True,
+) -> tuple[dict[str, torch.Tensor], list[object], dict[str, int]]:
     reference_conditioning_mode = normalize_reference_conditioning_mode(reference_conditioning_mode)
-    outputs_by_sample: list[dict[str, Any]] = []
-    prototype_caches: list[object] = []
-    for batch_index, file_name in enumerate(file_names):
-        prototype_cache = None
-        if prototype_source is not None:
-            prototype_cache, _bank = prototype_source.resolve_for_query(file_name)
-        active_cache = None if str(reference_conditioning_mode) == "off" else prototype_cache
-        outputs_by_sample.append(
-            model(
-                images[batch_index: batch_index + 1],
-                query_depth=depths[batch_index: batch_index + 1],
-                prototype_cache=active_cache,
-                reference_conditioning_mode=reference_conditioning_mode,
-                reference_routing_mode=reference_routing_mode,
-                reference_skip_margin=reference_skip_margin,
-            )
+    batch_size = int(images.shape[0])
+    if batch_size == 0:
+        return {}, [], {"forward_call_count": 0, "unique_prototype_roots": 0}
+    if prototype_source is None or str(reference_conditioning_mode) == "off":
+        outputs = model(
+            images,
+            query_depth=depths,
+            prototype_cache=None,
+            reference_conditioning_mode=reference_conditioning_mode,
+            reference_routing_mode=reference_routing_mode,
+            reference_skip_margin=reference_skip_margin,
+            return_reference_routing=return_reference_routing,
         )
-        prototype_caches.append(active_cache)
+        return outputs, [None] * batch_size, {"forward_call_count": 1, "unique_prototype_roots": 0}
+
+    prototype_caches: list[object] = []
+    group_indices: dict[str, list[int]] = {}
+    group_caches: dict[str, object] = {}
+    group_order: list[str] = []
+    for batch_index, file_name in enumerate(file_names):
+        prototype_cache, bank = prototype_source.resolve_for_query(file_name)
+        cache_key = str(bank.root)
+        if cache_key not in group_indices:
+            group_indices[cache_key] = []
+            group_caches[cache_key] = prototype_cache
+            group_order.append(cache_key)
+        group_indices[cache_key].append(int(batch_index))
+        prototype_caches.append(prototype_cache)
+
+    grouped_outputs: dict[str, list[Any]] = {}
+    forward_call_count = 0
+    for cache_key in group_order:
+        indices = group_indices[cache_key]
+        grouped_result = model(
+            images[indices],
+            query_depth=depths[indices],
+            prototype_cache=group_caches[cache_key],
+            reference_conditioning_mode=reference_conditioning_mode,
+            reference_routing_mode=reference_routing_mode,
+            reference_skip_margin=reference_skip_margin,
+            return_reference_routing=return_reference_routing,
+        )
+        forward_call_count += 1
+        for key, value in grouped_result.items():
+            slots = grouped_outputs.setdefault(key, [None] * batch_size)
+            if isinstance(value, torch.Tensor):
+                for offset, batch_index in enumerate(indices):
+                    slots[batch_index] = value[offset: offset + 1]
+            elif isinstance(value, (list, tuple)) and len(value) == len(indices):
+                for batch_index, item in zip(indices, value):
+                    slots[batch_index] = item
+            else:
+                for batch_index in indices:
+                    slots[batch_index] = value
+
     merged_outputs: dict[str, Any] = {}
-    for key in outputs_by_sample[0]:
-        values = [sample[key] for sample in outputs_by_sample]
-        if isinstance(values[0], torch.Tensor):
-            merged_outputs[key] = torch.cat(values, dim=0)
+    for key, values in grouped_outputs.items():
+        first_value = values[0]
+        if isinstance(first_value, torch.Tensor):
+            merged_outputs[key] = torch.cat([value for value in values if isinstance(value, torch.Tensor)], dim=0)
         else:
             merged_outputs[key] = values
-    return merged_outputs, prototype_caches
+    return merged_outputs, prototype_caches, {
+        "forward_call_count": int(forward_call_count),
+        "unique_prototype_roots": int(len(group_order)),
+    }
 
 
 def train_main(args: argparse.Namespace) -> None:
@@ -546,13 +639,14 @@ def train_main(args: argparse.Namespace) -> None:
     use_cuda = device.type == "cuda"
     set_random_seed(int(args.seed), use_cuda=use_cuda)
     variant_spec = get_variant_spec(args.variant)
+    resolved_num_workers = resolve_num_workers(args.num_workers)
     run_context = RunContext(
         dataset_root=str(Path(args.dataset_root).resolve()),
         prototype_root="" if getattr(args, "prototype_root", "") in (None, "") else str(Path(args.prototype_root).resolve()),
         split="val",
         image_size=int(args.image_size),
         batch=int(args.batch),
-        num_workers=int(args.num_workers),
+        num_workers=int(resolved_num_workers),
         min_area=int(args.min_area),
         fragment_fg_threshold=float(args.fragment_fg_threshold),
         fragment_boundary_threshold=float(args.fragment_boundary_threshold),
@@ -567,28 +661,6 @@ def train_main(args: argparse.Namespace) -> None:
     )
     logger = setup_logger("gisec", log_path)
     metric_logger = JsonlMetricLogger(metrics_log_path)
-
-    train_loader = build_loader(
-        dataset_root=args.dataset_root,
-        split="train",
-        image_size=args.image_size,
-        train=True,
-        batch_size=args.batch,
-        num_workers=args.num_workers,
-        use_cuda=use_cuda,
-        distributed=dist_context.enabled,
-        rank=dist_context.rank,
-        world_size=dist_context.world_size,
-    )
-    val_loader = build_loader(
-        dataset_root=args.dataset_root,
-        split="val",
-        image_size=args.image_size,
-        train=False,
-        batch_size=1,
-        num_workers=args.num_workers,
-        use_cuda=use_cuda,
-    )
 
     model_config = resolve_model_config(args, output_dir=output_dir)
     if _is_main_process(dist_context):
@@ -606,6 +678,32 @@ def train_main(args: argparse.Namespace) -> None:
         args=args,
         dataset_root=args.dataset_root,
     )
+    reference_part_keys = None
+    if prototype_source is not None and not prototype_source.source.is_single_bank:
+        reference_part_keys = list(prototype_source.source.available_parts)
+
+    train_loader = build_loader(
+        dataset_root=args.dataset_root,
+        split="train",
+        image_size=args.image_size,
+        train=True,
+        batch_size=args.batch,
+        num_workers=resolved_num_workers,
+        use_cuda=use_cuda,
+        distributed=dist_context.enabled,
+        rank=dist_context.rank,
+        world_size=dist_context.world_size,
+        reference_part_keys=reference_part_keys,
+    )
+    val_loader = build_loader(
+        dataset_root=args.dataset_root,
+        split="val",
+        image_size=args.image_size,
+        train=False,
+        batch_size=1,
+        num_workers=resolved_num_workers,
+        use_cuda=use_cuda,
+    )
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     scaler = torch.cuda.amp.GradScaler(enabled=use_cuda)
     ann_file = Path(args.dataset_root) / "annotations" / "instances_val.json"
@@ -618,6 +716,18 @@ def train_main(args: argparse.Namespace) -> None:
     metrics_path = output_dir / "metrics.json"
     if _is_main_process(dist_context) and metrics_path.exists():
         metrics_path.unlink()
+    profile_rows: list[dict[str, Any]] = []
+    epoch_eval_timings: list[float] = []
+    profile_jsonl_path: Path | None = None
+    profile_summary_path: Path | None = None
+    if _is_main_process(dist_context) and int(getattr(args, "profile_steps", 0)) > 0:
+        profile_dir = _profile_output_dir(args, output_dir)
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        profile_jsonl_path = profile_dir / "step_profile.jsonl"
+        profile_summary_path = profile_dir / "step_profile_summary.json"
+        for path in [profile_jsonl_path, profile_summary_path]:
+            if path.exists():
+                path.unlink()
 
     best_ap = -1.0
     best_ckpt = output_dir / "model_best.pth"
@@ -627,23 +737,54 @@ def train_main(args: argparse.Namespace) -> None:
     try:
         for epoch in range(1, int(args.epochs) + 1):
             model.train()
+            if prototype_source is not None:
+                prototype_source.clear()
             if dist_context.enabled and hasattr(train_loader, "sampler") and hasattr(train_loader.sampler, "set_epoch"):
                 train_loader.sampler.set_epoch(epoch)
             epoch_graph_loss_values: list[float] = []
             epoch_non_finite_event_count = 0
-            for step, batch in enumerate(train_loader, start=1):
+            train_iter = iter(train_loader)
+            step = 0
+            while True:
+                next_step = step + 1
+                profile_active = _profile_step_active(args=args, dist_context=dist_context, step=next_step)
+                data_wait_start = time.perf_counter() if profile_active else 0.0
+                try:
+                    batch = next(train_iter)
+                except StopIteration:
+                    break
+                step = next_step
+                step_profile: dict[str, Any] | None = None
+                if profile_active:
+                    _profile_sync(device, enabled=True)
+                    if use_cuda and torch.cuda.is_available():
+                        torch.cuda.reset_peak_memory_stats(device)
+                    step_profile = {
+                        "epoch": int(epoch),
+                        "step": int(step),
+                        "data_wait_sec": float(time.perf_counter() - data_wait_start),
+                    }
+                    step_total_start = time.perf_counter()
+                h2d_start = time.perf_counter() if profile_active else 0.0
                 file_names = list(batch["file_names"])
-                images = batch["images"].to(device)
-                depths = batch["depths"].to(device)
-                fg_target = batch["fg_target"].to(device)
-                boundary_target = batch["boundary_target"].to(device)
-                relation_target = relation_target_from_batch(batch, variant_spec).to(device)
-                instance_maps = batch["instance_maps"].to(device)
-                if prototype_source is not None:
-                    prototype_source.clear()
+                images = batch["images"].to(device, non_blocking=use_cuda)
+                depths = batch["depths"].to(device, non_blocking=use_cuda)
+                fg_target = batch["fg_target"].to(device, non_blocking=use_cuda)
+                boundary_target = batch["boundary_target"].to(device, non_blocking=use_cuda)
+                relation_target = relation_target_from_batch(batch, variant_spec).to(device, non_blocking=use_cuda)
+                instance_maps = batch["instance_maps"].to(device, non_blocking=use_cuda)
+                if step_profile is not None:
+                    _profile_sync(device, enabled=True)
+                    step_profile["h2d_and_prep_sec"] = float(time.perf_counter() - h2d_start)
 
+                routing_stats = {"forward_call_count": 0, "unique_prototype_roots": 0}
+                model_forward_sec = 0.0
+                dense_loss_sec = 0.0
+                graph_build_sec = 0.0
+                graph_score_and_loss_sec = 0.0
                 with torch.cuda.amp.autocast(enabled=use_cuda):
-                    outputs, prototype_caches = forward_with_reference_routing(
+                    forward_start = time.perf_counter() if profile_active else 0.0
+                    outputs, prototype_caches, routing_stats = forward_with_reference_routing(
                         model=model,
                         images=images,
                         depths=depths,
@@ -652,7 +793,12 @@ def train_main(args: argparse.Namespace) -> None:
                         reference_conditioning_mode=str(args.reference_conditioning_mode),
                         reference_routing_mode=str(args.reference_routing_mode),
                         reference_skip_margin=float(args.reference_skip_margin),
+                        return_reference_routing=False,
                     )
+                    if step_profile is not None:
+                        _profile_sync(device, enabled=True)
+                        model_forward_sec = float(time.perf_counter() - forward_start)
+                    dense_loss_start = time.perf_counter() if profile_active else 0.0
                     loss_fg_bce = balanced_bce_with_logits(
                         outputs["fg_logits"],
                         fg_target,
@@ -684,10 +830,14 @@ def train_main(args: argparse.Namespace) -> None:
                     graph_has_edges = False
                     graph_loss_value = 0.0
                     graph_loss_tensor: torch.Tensor | None = None
+                    if step_profile is not None:
+                        _profile_sync(device, enabled=True)
+                        dense_loss_sec = float(time.perf_counter() - dense_loss_start)
 
                     if variant_spec.use_learned_edge_scorer:
                         graph_losses = []
                         for batch_idx in range(images.shape[0]):
+                            graph_build_start = time.perf_counter() if profile_active else 0.0
                             graph_batch = refiner.build_graph_batch(
                                 outputs={key: value[batch_idx: batch_idx + 1] for key, value in outputs.items()},
                                 depth_map=depths[batch_idx: batch_idx + 1],
@@ -698,6 +848,8 @@ def train_main(args: argparse.Namespace) -> None:
                                 fragment_boundary_threshold=float(args.fragment_boundary_threshold),
                                 min_area=int(args.min_area),
                             )
+                            if step_profile is not None:
+                                graph_build_sec += float(time.perf_counter() - graph_build_start)
                             graph_edge_count += int(
                                 graph_batch.diagnostics.get("num_edges", int(graph_batch.edge_index.shape[1]))
                             )
@@ -720,12 +872,16 @@ def train_main(args: argparse.Namespace) -> None:
                             )
                             if not bool(valid_mask.any()):
                                 continue
+                            graph_score_start = time.perf_counter() if profile_active else 0.0
                             edge_logits = refiner.score_edges(graph_batch, variant_spec)
                             graph_losses.append(
                                 F.binary_cross_entropy_with_logits(
                                     edge_logits[valid_mask], graph_batch.edge_targets[valid_mask]
                                 )
                             )
+                            if step_profile is not None:
+                                _profile_sync(device, enabled=True)
+                                graph_score_and_loss_sec += float(time.perf_counter() - graph_score_start)
                         if graph_losses:
                             graph_loss = torch.stack(graph_losses).mean()
                             graph_loss_tensor = graph_loss
@@ -751,11 +907,24 @@ def train_main(args: argparse.Namespace) -> None:
 
                 epoch_graph_loss_values.append(float(graph_loss_value))
 
+                backward_start = time.perf_counter() if profile_active else 0.0
                 optimizer.zero_grad(set_to_none=True)
                 scaler.scale(loss).backward()
+                if step_profile is not None:
+                    _profile_sync(device, enabled=True)
+                    backward_sec = float(time.perf_counter() - backward_start)
+                else:
+                    backward_sec = 0.0
+                optimizer_start = time.perf_counter() if profile_active else 0.0
                 scaler.step(optimizer)
                 scaler.update()
+                if step_profile is not None:
+                    _profile_sync(device, enabled=True)
+                    optimizer_step_sec = float(time.perf_counter() - optimizer_start)
+                else:
+                    optimizer_step_sec = 0.0
 
+                metric_io_start = time.perf_counter() if profile_active else 0.0
                 metric_row = {
                     "mode": "train",
                     "epoch": epoch,
@@ -784,6 +953,25 @@ def train_main(args: argparse.Namespace) -> None:
                 }
                 if _is_main_process(dist_context):
                     metric_logger.append(metric_row)
+                if step_profile is not None:
+                    step_profile.update(
+                        {
+                            "model_forward_sec": float(model_forward_sec),
+                            "dense_loss_sec": float(dense_loss_sec),
+                            "graph_build_sec": float(graph_build_sec),
+                            "graph_score_and_loss_sec": float(graph_score_and_loss_sec),
+                            "backward_sec": float(backward_sec),
+                            "optimizer_step_sec": float(optimizer_step_sec),
+                            "forward_call_count": int(routing_stats["forward_call_count"]),
+                            "unique_prototype_roots": int(routing_stats["unique_prototype_roots"]),
+                            "graph_edge_count": int(graph_edge_count),
+                            "gpu_peak_memory_mb": (
+                                float(torch.cuda.max_memory_allocated(device) / (1024.0 * 1024.0))
+                                if use_cuda and torch.cuda.is_available()
+                                else 0.0
+                            ),
+                        }
+                    )
 
                 if step % 20 == 0 and _is_main_process(dist_context):
                     logger.info(
@@ -802,6 +990,30 @@ def train_main(args: argparse.Namespace) -> None:
                         float(graph_positive_edge_targets),
                         float(graph_loss_value),
                     )
+                if step_profile is not None:
+                    step_profile["step_metric_io_sec"] = float(time.perf_counter() - metric_io_start)
+                    step_profile["step_total_sec"] = float(time.perf_counter() - step_total_start)
+                    profile_rows.append(step_profile)
+                    if profile_jsonl_path is not None:
+                        _append_jsonl(profile_jsonl_path, step_profile)
+                    logger.info(
+                        "profile epoch=%s step=%s data_wait=%.4fs h2d=%.4fs forward=%.4fs dense_loss=%.4fs graph_build=%.4fs graph_score=%.4fs backward=%.4fs optimizer=%.4fs metric_io=%.4fs total=%.4fs forward_calls=%s unique_roots=%s graph_edges=%s",
+                        epoch,
+                        step,
+                        float(step_profile["data_wait_sec"]),
+                        float(step_profile["h2d_and_prep_sec"]),
+                        float(step_profile["model_forward_sec"]),
+                        float(step_profile["dense_loss_sec"]),
+                        float(step_profile["graph_build_sec"]),
+                        float(step_profile["graph_score_and_loss_sec"]),
+                        float(step_profile["backward_sec"]),
+                        float(step_profile["optimizer_step_sec"]),
+                        float(step_profile["step_metric_io_sec"]),
+                        float(step_profile["step_total_sec"]),
+                        int(step_profile["forward_call_count"]),
+                        int(step_profile["unique_prototype_roots"]),
+                        int(step_profile["graph_edge_count"]),
+                    )
                 if int(args.max_train_steps) > 0 and step >= int(args.max_train_steps):
                     break
 
@@ -812,6 +1024,9 @@ def train_main(args: argparse.Namespace) -> None:
                     if bool(args.save_graph_diagnostics)
                     else None
                 )
+                if prototype_source is not None:
+                    prototype_source.clear()
+                eval_start = time.perf_counter()
                 metrics, _benchmark = evaluate_and_export(
                     model=model_for_graph,
                     loader=val_loader,
@@ -829,6 +1044,8 @@ def train_main(args: argparse.Namespace) -> None:
                     artifact_dir=epoch_artifact_dir,
                     save_graph_diagnostics=bool(args.save_graph_diagnostics),
                 )
+                eval_wall_time_sec = float(time.perf_counter() - eval_start)
+                epoch_eval_timings.append(eval_wall_time_sec)
                 metrics["iteration"] = epoch
                 with open(metrics_path, "a", encoding="utf-8") as handle:
                     handle.write(json.dumps(metrics, ensure_ascii=False) + "\n")
@@ -845,6 +1062,7 @@ def train_main(args: argparse.Namespace) -> None:
                     "gt_count_mean": 0.0,
                     "pred_count_mean": 0.0,
                     "non_finite_event_count": int(epoch_non_finite_event_count),
+                    "eval_wall_time_sec": float(eval_wall_time_sec),
                 }
                 if epoch_artifact_dir is not None:
                     graph_readiness_path = epoch_artifact_dir / "graph_readiness_summary.json"
@@ -937,6 +1155,14 @@ def train_main(args: argparse.Namespace) -> None:
             (output_dir / "wall_time_sec.txt").write_text(str(wall_time_sec) + "\n", encoding="utf-8")
             logger.info("final_best_ap=%.4f training_peak_memory_mb=%.4f",
                         best_ap, peak_memory_mb)
+            if profile_summary_path is not None:
+                write_json(
+                    profile_summary_path,
+                    _summarize_step_profiles(
+                        profile_rows,
+                        epoch_eval_timings=epoch_eval_timings,
+                    ),
+                )
         if dist_context.enabled:
             dist.barrier()
     finally:
@@ -949,13 +1175,14 @@ def _run_eval_like(args: argparse.Namespace, *, compute_metrics: bool) -> None:
     device = build_device(args.device)
     use_cuda = device.type == "cuda"
     variant_spec = get_variant_spec(args.variant)
+    resolved_num_workers = resolve_num_workers(args.num_workers)
     run_context = RunContext(
         dataset_root=str(Path(args.dataset_root).resolve()),
         prototype_root="" if getattr(args, "prototype_root", "") in (None, "") else str(Path(args.prototype_root).resolve()),
         split=args.split,
         image_size=int(args.image_size),
         batch=1,
-        num_workers=int(args.num_workers),
+        num_workers=int(resolved_num_workers),
         min_area=int(args.min_area),
         fragment_fg_threshold=float(args.fragment_fg_threshold),
         fragment_boundary_threshold=float(args.fragment_boundary_threshold),
@@ -970,7 +1197,7 @@ def _run_eval_like(args: argparse.Namespace, *, compute_metrics: bool) -> None:
         image_size=args.image_size,
         train=False,
         batch_size=1,
-        num_workers=args.num_workers,
+        num_workers=resolved_num_workers,
         use_cuda=use_cuda,
     )
     checkpoint_path = resolve_checkpoint(output_dir, args.checkpoint)

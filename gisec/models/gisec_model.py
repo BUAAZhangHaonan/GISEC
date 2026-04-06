@@ -60,6 +60,7 @@ class GISECModel(nn.Module):
         reference_conditioning_mode: str | None = None,
         reference_routing_mode: str | None = None,
         reference_skip_margin: float | None = None,
+        return_reference_routing: bool = True,
     ) -> Dict[str, torch.Tensor]:
         return self.backbone(
             images,
@@ -68,6 +69,7 @@ class GISECModel(nn.Module):
             reference_conditioning_mode=reference_conditioning_mode,
             reference_routing_mode=reference_routing_mode,
             reference_skip_margin=reference_skip_margin,
+            return_reference_routing=return_reference_routing,
         )
 
     def forward_graph(self, graph_batch: GraphBatch) -> torch.Tensor:

@@ -101,6 +101,10 @@ def test_train_gisec_minibatch(tmp_path: Path) -> None:
             "--overlay-limit",
             "1",
             "--save-graph-diagnostics",
+            "--profile-steps",
+            "1",
+            "--profile-output-dir",
+            str(output_root / "profile"),
         ],
         cwd=str(repo_root),
         check=True,
@@ -116,6 +120,8 @@ def test_train_gisec_minibatch(tmp_path: Path) -> None:
     assert (output_root / "run.log").exists()
     assert (output_root / "wall_time_sec.txt").exists()
     assert (output_root / "graph_diagnostics.jsonl").exists()
+    assert (output_root / "profile" / "step_profile.jsonl").exists()
+    assert (output_root / "profile" / "step_profile_summary.json").exists()
     epoch_artifact_root = output_root / "epoch_0001_artifacts"
     assert (epoch_artifact_root / "graph_diagnostics.jsonl").exists()
     assert (epoch_artifact_root / "graph_readiness_summary.json").exists()
@@ -138,10 +144,34 @@ def test_train_gisec_minibatch(tmp_path: Path) -> None:
     assert manifest["prototype_slot_count"] == 6
     assert manifest["prototype_topk"] == 2
     metric_rows = [json.loads(line) for line in (output_root / "metrics_log.jsonl").read_text(encoding="utf-8").splitlines()]
+    profile_rows = [
+        json.loads(line)
+        for line in (output_root / "profile" / "step_profile.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    profile_summary = json.loads((output_root / "profile" / "step_profile_summary.json").read_text(encoding="utf-8"))
     train_rows = [row for row in metric_rows if row.get("mode") == "train"]
     epoch_eval_rows = [row for row in metric_rows if row.get("mode") == "epoch_eval"]
     assert train_rows
     assert epoch_eval_rows
+    assert profile_rows
+    assert profile_rows[0]["step"] == 1
+    assert "data_wait_sec" in profile_rows[0]
+    assert "h2d_and_prep_sec" in profile_rows[0]
+    assert "model_forward_sec" in profile_rows[0]
+    assert "dense_loss_sec" in profile_rows[0]
+    assert "graph_build_sec" in profile_rows[0]
+    assert "graph_score_and_loss_sec" in profile_rows[0]
+    assert "backward_sec" in profile_rows[0]
+    assert "optimizer_step_sec" in profile_rows[0]
+    assert "step_metric_io_sec" in profile_rows[0]
+    assert "step_total_sec" in profile_rows[0]
+    assert "forward_call_count" in profile_rows[0]
+    assert "unique_prototype_roots" in profile_rows[0]
+    assert "graph_edge_count" in profile_rows[0]
+    assert "gpu_peak_memory_mb" in profile_rows[0]
+    assert profile_summary["profiled_steps"] == 1
+    assert "median_step_total_sec" in profile_summary
+    assert "epoch_eval_wall_time_sec" in profile_summary
     assert "graph_has_edges" in train_rows[0]
     assert "graph_edge_count" in train_rows[0]
     assert "graph_positive_edge_targets" in train_rows[0]
