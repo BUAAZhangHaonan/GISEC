@@ -184,6 +184,7 @@ def _common_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--reference-skip-margin", type=float, default=0.0)
     parser.add_argument("--seed", type=int, default=1337)
+    parser.add_argument("--profile-start-step", type=int, default=1)
     parser.add_argument("--profile-steps", type=int, default=0)
     parser.add_argument("--profile-output-dir", type=str, default="")
     return parser
@@ -292,7 +293,14 @@ def _profile_step_active(
     dist_context: DistributedContext,
     step: int,
 ) -> bool:
-    return _is_main_process(dist_context) and int(getattr(args, "profile_steps", 0)) > 0 and int(step) <= int(args.profile_steps)
+    if not _is_main_process(dist_context):
+        return False
+    profile_steps = int(getattr(args, "profile_steps", 0))
+    if profile_steps <= 0:
+        return False
+    profile_start_step = max(1, int(getattr(args, "profile_start_step", 1)))
+    profile_end_step = profile_start_step + profile_steps - 1
+    return profile_start_step <= int(step) <= profile_end_step
 
 
 def _profile_sync(device: torch.device, *, enabled: bool) -> None:
@@ -319,6 +327,14 @@ def _summarize_step_profiles(
             continue
         summary[f"median_{key}"] = float(np.median(np.asarray(values, dtype=np.float64)))
         summary[f"mean_{key}"] = float(np.mean(np.asarray(values, dtype=np.float64)))
+    cycle_values = [
+        float(row["data_wait_sec"]) + float(row["step_total_sec"])
+        for row in rows
+        if "data_wait_sec" in row and "step_total_sec" in row
+    ]
+    if cycle_values:
+        summary["median_cycle_sec"] = float(np.median(np.asarray(cycle_values, dtype=np.float64)))
+        summary["mean_cycle_sec"] = float(np.mean(np.asarray(cycle_values, dtype=np.float64)))
     return summary
 
 

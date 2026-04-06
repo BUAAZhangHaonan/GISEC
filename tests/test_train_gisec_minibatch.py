@@ -9,30 +9,36 @@ import cv2
 import numpy as np
 
 
-def _write_dataset(root: Path, *, file_name: str = "000001.png") -> None:
+def _write_dataset(root: Path, *, file_name: str = "000001.png", file_names: tuple[str, ...] | None = None) -> None:
     (root / "images" / "train").mkdir(parents=True)
     (root / "images" / "val").mkdir(parents=True)
     (root / "annotations").mkdir(parents=True)
     (root / "depth" / "train").mkdir(parents=True)
     (root / "depth" / "val").mkdir(parents=True)
+    image_names = tuple(file_names) if file_names is not None else (file_name,)
     for split in ["train", "val"]:
-        image = np.zeros((64, 64, 3), dtype=np.uint8)
-        image[16:48, 16:48] = (60, 80, 120)
-        cv2.imwrite(str(root / "images" / split / file_name), cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
-        np.save(root / "depth" / split / f"{Path(file_name).stem}.npy", np.full((64, 64), 0.9, dtype=np.float32))
-        ann = {
-            "images": [{"id": 1, "file_name": file_name, "width": 64, "height": 64}],
-            "annotations": [
+        images = []
+        annotations = []
+        for image_id, name in enumerate(image_names, start=1):
+            image = np.zeros((64, 64, 3), dtype=np.uint8)
+            image[16:48, 16:48] = (60, 80, 120)
+            cv2.imwrite(str(root / "images" / split / name), cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+            np.save(root / "depth" / split / f"{Path(name).stem}.npy", np.full((64, 64), 0.9, dtype=np.float32))
+            images.append({"id": image_id, "file_name": name, "width": 64, "height": 64})
+            annotations.append(
                 {
-                    "id": 1,
-                    "image_id": 1,
+                    "id": image_id,
+                    "image_id": image_id,
                     "category_id": 1,
                     "bbox": [16, 16, 32, 32],
                     "area": 1024,
                     "iscrowd": 0,
                     "segmentation": [[16, 16, 48, 16, 48, 48, 16, 48]],
                 }
-            ],
+            )
+        ann = {
+            "images": images,
+            "annotations": annotations,
             "categories": [{"id": 1, "name": "component"}],
         }
         (root / "annotations" / f"instances_{split}.json").write_text(json.dumps(ann), encoding="utf-8")
@@ -103,6 +109,8 @@ def test_train_gisec_minibatch(tmp_path: Path) -> None:
             "--save-graph-diagnostics",
             "--profile-steps",
             "1",
+            "--profile-start-step",
+            "1",
             "--profile-output-dir",
             str(output_root / "profile"),
         ],
@@ -171,6 +179,7 @@ def test_train_gisec_minibatch(tmp_path: Path) -> None:
     assert "gpu_peak_memory_mb" in profile_rows[0]
     assert profile_summary["profiled_steps"] == 1
     assert "median_step_total_sec" in profile_summary
+    assert "median_cycle_sec" in profile_summary
     assert "epoch_eval_wall_time_sec" in profile_summary
     assert "graph_has_edges" in train_rows[0]
     assert "graph_edge_count" in train_rows[0]
@@ -249,6 +258,71 @@ def test_train_gisec_minibatch_accepts_multi_part_reference_root(tmp_path: Path)
     assert run_summary["prototype_root"] == str(prototype_root.resolve())
     assert manifest["mode"] == "per_part"
     assert manifest["resolved_roots"] == [str((prototype_root / "A-DF15A_KG-T2S_1").resolve())]
+
+
+def test_train_gisec_minibatch_profiles_a_steady_state_window(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    dataset_root = tmp_path / "dataset"
+    prototype_root = tmp_path / "prototype_bank"
+    output_root = tmp_path / "out"
+    _write_dataset(dataset_root, file_names=("000001.png", "000002.png"))
+    _write_prototype_bank(prototype_root)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gisec.cli.train",
+            "--dataset-root",
+            str(dataset_root),
+            "--prototype-root",
+            str(prototype_root),
+            "--output-dir",
+            str(output_root),
+            "--variant",
+            "G5",
+            "--device",
+            "cpu",
+            "--image-size",
+            "64",
+            "--epochs",
+            "1",
+            "--batch",
+            "1",
+            "--num-workers",
+            "0",
+            "--max-train-steps",
+            "2",
+            "--max-val-images",
+            "1",
+            "--min-area",
+            "4",
+            "--contract-mode",
+            "compat",
+            "--profile-start-step",
+            "2",
+            "--profile-steps",
+            "1",
+            "--profile-output-dir",
+            str(output_root / "profile"),
+        ],
+        cwd=str(repo_root),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    profile_rows = [
+        json.loads(line)
+        for line in (output_root / "profile" / "step_profile.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    profile_summary = json.loads((output_root / "profile" / "step_profile_summary.json").read_text(encoding="utf-8"))
+
+    assert len(profile_rows) == 1
+    assert profile_rows[0]["step"] == 2
+    assert profile_summary["profiled_steps"] == 1
+    assert "median_cycle_sec" in profile_summary
 
 
 def test_eval_can_reuse_model_config_saved_by_train_run(tmp_path: Path) -> None:
