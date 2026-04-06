@@ -89,6 +89,8 @@ class GraphRefiner:
         edge_logits: torch.Tensor,
         threshold: float,
         variant: str | VariantSpec = "G5",
+        merge_order: str = "score",
+        random_seed: int = 1337,
     ) -> torch.Tensor:
         variant_spec = get_variant_spec(variant)
         if not variant_spec.use_graph_merge:
@@ -100,6 +102,8 @@ class GraphRefiner:
             edge_index=graph_batch.edge_index,
             edge_scores=torch.sigmoid(edge_logits),
             threshold=threshold,
+            merge_order=merge_order,
+            random_seed=random_seed,
             constrained=variant_spec.use_constrained_merge,
             fragment_stats=graph_batch.fragment_stats_cpu(),
             shape_stats=graph_batch.shape_stats,

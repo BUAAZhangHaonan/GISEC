@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 import time
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
@@ -2137,6 +2138,8 @@ def merge_instances_from_edge_scores(
     edge_index: torch.Tensor,
     edge_scores: torch.Tensor,
     threshold: float,
+    merge_order: str = "score",
+    random_seed: int = 1337,
     constrained: bool = True,
     fragment_stats: List[Dict[str, float | Tuple[int, int, int, int]]] | None = None,
     shape_stats: Dict[str, float] | None = None,
@@ -2169,13 +2172,16 @@ def merge_instances_from_edge_scores(
                 }
 
     label_order = labels
-    sorted_edges = sorted(
-        [
-            (edge_idx, int(src), int(dst), float(score))
-            for edge_idx, ((src, dst), score) in enumerate(zip(edge_index.t().tolist(), edge_scores.tolist()))
-        ],
-        key=lambda item: (-item[3], item[0]),
-    )
+    edge_rows = [
+        (edge_idx, int(src), int(dst), float(score))
+        for edge_idx, ((src, dst), score) in enumerate(zip(edge_index.t().tolist(), edge_scores.tolist()))
+    ]
+    if str(merge_order) == "random":
+        rng = random.Random(int(random_seed))
+        rng.shuffle(edge_rows)
+        sorted_edges = edge_rows
+    else:
+        sorted_edges = sorted(edge_rows, key=lambda item: (-item[3], item[0]))
     for edge_idx, src, dst, score in sorted_edges:
         if float(score) < float(threshold):
             continue

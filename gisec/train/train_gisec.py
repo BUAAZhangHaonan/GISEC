@@ -147,6 +147,7 @@ def _common_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fragment-fg-threshold", type=float, default=0.5)
     parser.add_argument("--fragment-boundary-threshold", type=float, default=0.5)
     parser.add_argument("--edge-threshold", type=float, default=0.5)
+    parser.add_argument("--merge-order", choices=["score", "random"], default="score")
     parser.add_argument("--contract-mode",
                         choices=["compat", "strict"], default="compat")
     parser.add_argument("--save-overlays", action="store_true")
@@ -668,6 +669,7 @@ def train_main(args: argparse.Namespace) -> None:
         fragment_fg_threshold=float(args.fragment_fg_threshold),
         fragment_boundary_threshold=float(args.fragment_boundary_threshold),
         edge_threshold=float(args.edge_threshold),
+        merge_order=str(args.merge_order),
         contract_mode=args.contract_mode,
         device=str(device),
         code_revision=read_git_revision(Path(__file__).resolve().parents[2]),
@@ -1086,6 +1088,8 @@ def train_main(args: argparse.Namespace) -> None:
                     fragment_fg_threshold=args.fragment_fg_threshold,
                     fragment_boundary_threshold=args.fragment_boundary_threshold,
                     edge_threshold=args.edge_threshold,
+                    merge_order=str(args.merge_order),
+                    merge_random_seed=int(args.seed),
                     max_images=int(args.max_val_images) if int(
                         args.max_val_images) > 0 else None,
                     artifact_dir=epoch_artifact_dir,
@@ -1149,6 +1153,8 @@ def train_main(args: argparse.Namespace) -> None:
                 fragment_fg_threshold=args.fragment_fg_threshold,
                 fragment_boundary_threshold=args.fragment_boundary_threshold,
                 edge_threshold=args.edge_threshold,
+                merge_order=str(args.merge_order),
+                merge_random_seed=int(args.seed),
                 max_images=int(args.max_val_images) if int(
                     args.max_val_images) > 0 else None,
                 artifact_dir=output_dir,
@@ -1188,6 +1194,7 @@ def train_main(args: argparse.Namespace) -> None:
                         fragment_fg_threshold=run_context.fragment_fg_threshold,
                         fragment_boundary_threshold=run_context.fragment_boundary_threshold,
                         edge_threshold=run_context.edge_threshold,
+                        merge_order=run_context.merge_order,
                         device=run_context.device,
                         code_revision=run_context.code_revision,
                         params_trainable=params_trainable,
@@ -1234,6 +1241,7 @@ def _run_eval_like(args: argparse.Namespace, *, compute_metrics: bool) -> None:
         fragment_fg_threshold=float(args.fragment_fg_threshold),
         fragment_boundary_threshold=float(args.fragment_boundary_threshold),
         edge_threshold=float(args.edge_threshold),
+        merge_order=str(args.merge_order),
         contract_mode=args.contract_mode,
         device=str(device),
         code_revision=read_git_revision(Path(__file__).resolve().parents[2]),
@@ -1277,6 +1285,8 @@ def _run_eval_like(args: argparse.Namespace, *, compute_metrics: bool) -> None:
         fragment_fg_threshold=args.fragment_fg_threshold,
         fragment_boundary_threshold=args.fragment_boundary_threshold,
         edge_threshold=args.edge_threshold,
+        merge_order=str(args.merge_order),
+        merge_random_seed=int(args.seed),
         max_images=int(args.max_images) if int(args.max_images) > 0 else None,
         artifact_dir=output_dir,
         save_overlays=bool(args.save_overlays),
@@ -1306,6 +1316,7 @@ def _run_eval_like(args: argparse.Namespace, *, compute_metrics: bool) -> None:
                 fragment_fg_threshold=run_context.fragment_fg_threshold,
                 fragment_boundary_threshold=run_context.fragment_boundary_threshold,
                 edge_threshold=run_context.edge_threshold,
+                merge_order=run_context.merge_order,
                 device=run_context.device,
                 code_revision=run_context.code_revision,
             )

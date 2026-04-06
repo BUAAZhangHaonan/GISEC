@@ -39,6 +39,7 @@ class RunContext:
     fragment_fg_threshold: float
     fragment_boundary_threshold: float
     edge_threshold: float
+    merge_order: str
     contract_mode: str
     device: str
     code_revision: str | None = None
@@ -62,6 +63,7 @@ class RunSummary:
     fragment_fg_threshold: float
     fragment_boundary_threshold: float
     edge_threshold: float
+    merge_order: str
     device: str
     code_revision: str | None = None
     params_trainable: int | None = None
@@ -864,6 +866,8 @@ def evaluate_and_export(
     fragment_fg_threshold: float,
     fragment_boundary_threshold: float,
     edge_threshold: float,
+    merge_order: str = "score",
+    merge_random_seed: int = 1337,
     max_images: int | None = None,
     artifact_dir: Path | None = None,
     save_overlays: bool = False,
@@ -953,6 +957,8 @@ def evaluate_and_export(
                 edge_logits=edge_logits,
                 threshold=edge_threshold,
                 variant=variant_spec,
+                merge_order=merge_order,
+                random_seed=int(merge_random_seed) + int(batch_index),
             ).cpu().numpy()
             sync_cuda(device)
             latencies_ms.append((time.perf_counter() - start) * 1000.0)
