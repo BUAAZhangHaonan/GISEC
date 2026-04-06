@@ -10,7 +10,7 @@ from gisec.config.variants import VariantSpec, get_variant_spec
 from gisec.datasets.prototype_bank import PrototypeBank
 from gisec.models.fragment_bundle import FragmentProposalBundle
 from gisec.models.graph_head import GraphEdgeScorer
-from gisec.models.graph_utils import EDGE_FEATURE_DIM, GraphBatch, build_graph_batch
+from gisec.models.graph_utils import EDGE_FEATURE_DIM, GraphBatch, GraphBuildProfiler, build_graph_batch
 from gisec.models.prototype_cache import PrototypeCache
 from gisec.models.prototype_unet import PrototypeConditionedUNetBackbone
 
@@ -113,6 +113,7 @@ class GISECModel(nn.Module):
         fragment_fg_threshold: float = 0.5,
         fragment_boundary_threshold: float = 0.5,
         min_area: int = 8,
+        graph_profiler: GraphBuildProfiler | None = None,
     ) -> GraphBatch:
         variant_spec = get_variant_spec(variant)
         relation_logits = outputs.get("affinity_logits", outputs["ownership_offsets"])
@@ -129,4 +130,5 @@ class GISECModel(nn.Module):
             fg_threshold=fragment_fg_threshold,
             boundary_threshold=fragment_boundary_threshold,
             min_area=min_area,
+            graph_profiler=graph_profiler,
         )

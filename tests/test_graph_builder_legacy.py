@@ -336,6 +336,51 @@ def test_build_graph_batch_uses_ownership_supervision_for_fragment_splitting_bef
     assert len(labels) == 2
 
 
+def test_fragments_from_logits_accepts_tensors_and_returns_tensor() -> None:
+    fg_logits = torch.full((12, 12), -4.0, dtype=torch.float32)
+    boundary_logits = torch.full((12, 12), -4.0, dtype=torch.float32)
+    fg_logits[3:9, 2:10] = 4.0
+    boundary_logits[3:9, 5:7] = 0.4
+
+    fragments = fragments_from_logits(
+        fg_logits,
+        boundary_logits,
+        fg_threshold=0.5,
+        boundary_threshold=0.5,
+        min_area=2,
+    )
+
+    assert isinstance(fragments, torch.Tensor)
+    assert fragments.dtype == torch.int32
+    assert fragments.device == fg_logits.device
+    labels = sorted(int(x) for x in torch.unique(fragments).tolist() if int(x) > 0)
+    assert len(labels) == 2
+
+
+def test_build_graph_batch_returns_tensor_fragments_and_tensor_geometry() -> None:
+    feature_map, fg_logits, boundary_logits, ownership_offsets, depth_map = _make_inputs()
+
+    graph_batch = build_graph_batch(
+        feature_map=feature_map,
+        fg_logits=fg_logits,
+        boundary_logits=boundary_logits,
+        ownership_offsets=ownership_offsets,
+        depth_map=depth_map,
+        instance_map=None,
+        prototype_cache=_make_prototype_cache(),
+        variant=get_variant_spec("G1"),
+        min_area=2,
+    )
+
+    assert isinstance(graph_batch.fragments, torch.Tensor)
+    assert graph_batch.fragments.dtype == torch.int32
+    assert graph_batch.fragments.device == feature_map.device
+    assert graph_batch.fragment_geometry is not None
+    assert graph_batch.fragment_geometry.area_ratio.ndim == 1
+    assert graph_batch.fragment_geometry.bbox_xywh.ndim == 2
+    assert graph_batch.fragment_geometry.centroid_xy.ndim == 2
+
+
 def test_build_graph_batch_passes_runtime_boundary_threshold_to_contact_pairs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -347,11 +392,31 @@ def test_build_graph_batch_passes_runtime_boundary_threshold_to_contact_pairs(
 
     monkeypatch.setattr(graph_utils, "fragments_from_logits", lambda *args, **kwargs: fragments.copy())
 
-    def fake_contact_pairs(fragments_arg, boundary_prob_arg, boundary_threshold=0.5, radius=1):
+    def fake_contact_pairs(
+        *,
+        fragments,
+        boundary_prob,
+        boundary_threshold=0.5,
+        ownership_offsets=None,
+        ownership_support=None,
+        affinity_prob=None,
+        instance_map=None,
+    ):
+        del fragments, boundary_prob, ownership_offsets, ownership_support, affinity_prob, instance_map
         captured["boundary_threshold"] = float(boundary_threshold)
-        return {}
+        empty_pairs = torch.zeros((0, 2), dtype=torch.long)
+        empty_scalar = torch.zeros((0,), dtype=torch.float32)
+        empty_vec2 = torch.zeros((0, 2), dtype=torch.float32)
+        return {
+            "pair_labels": empty_pairs,
+            "boundary_mean": empty_scalar,
+            "ownership_offset_mean": empty_vec2,
+            "ownership_support_mean": empty_scalar,
+            "affinity_mean": empty_scalar,
+            "corridor_purity": empty_scalar,
+        }
 
-    monkeypatch.setattr(graph_utils, "_contact_fragment_pairs_for_graph_build", fake_contact_pairs)
+    monkeypatch.setattr(graph_utils, "_contact_edge_support_torch", fake_contact_pairs)
 
     build_graph_batch(
         feature_map=feature_map,

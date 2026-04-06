@@ -4,6 +4,7 @@ channels:
 dependencies:
   - python=3.13
   - pip
+  - ninja
   - pip:
       - numpy
       - pytest

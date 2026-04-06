@@ -168,6 +168,13 @@ def test_train_gisec_minibatch(tmp_path: Path) -> None:
     assert "model_forward_sec" in profile_rows[0]
     assert "dense_loss_sec" in profile_rows[0]
     assert "graph_build_sec" in profile_rows[0]
+    assert "fragments_ccl_sec" in profile_rows[0]
+    assert "ownership_split_sec" in profile_rows[0]
+    assert "fragment_pool_sec" in profile_rows[0]
+    assert "fragment_geom_sec" in profile_rows[0]
+    assert "contact_edges_sec" in profile_rows[0]
+    assert "bridge_edges_sec" in profile_rows[0]
+    assert "edge_feature_sec" in profile_rows[0]
     assert "graph_score_and_loss_sec" in profile_rows[0]
     assert "backward_sec" in profile_rows[0]
     assert "optimizer_step_sec" in profile_rows[0]
@@ -180,6 +187,13 @@ def test_train_gisec_minibatch(tmp_path: Path) -> None:
     assert profile_summary["profiled_steps"] == 1
     assert "median_step_total_sec" in profile_summary
     assert "median_cycle_sec" in profile_summary
+    assert "median_fragments_ccl_sec" in profile_summary
+    assert "median_ownership_split_sec" in profile_summary
+    assert "median_fragment_pool_sec" in profile_summary
+    assert "median_fragment_geom_sec" in profile_summary
+    assert "median_contact_edges_sec" in profile_summary
+    assert "median_bridge_edges_sec" in profile_summary
+    assert "median_edge_feature_sec" in profile_summary
     assert "epoch_eval_wall_time_sec" in profile_summary
     assert "graph_has_edges" in train_rows[0]
     assert "graph_edge_count" in train_rows[0]

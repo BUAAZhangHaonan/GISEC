@@ -962,7 +962,7 @@ def evaluate_and_export(
                 0, 0].cpu().numpy()
             masks, fg_scores, boundary_scores, merge_scores = _build_export_records(
                 merged=merged,
-                fragments=graph_batch.fragments,
+                fragments=graph_batch.fragments_cpu_numpy(),
                 fg_prob=fg_prob,
                 boundary_prob=boundary_prob,
                 edge_index=graph_batch.edge_index.cpu(),
@@ -1096,7 +1096,7 @@ def evaluate_and_export(
                     f"{batch_index:04d}_{int(batch['image_ids'][0]):06d}_{failure_bucket}_{stem}.png"
                 render_fragment_merge_preview(
                     image=image_rgb,
-                    fragments=graph_batch.fragments,
+                    fragments=graph_batch.fragments_cpu_numpy(),
                     merged=merged,
                     output_path=overlay_path,
                 )

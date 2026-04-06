@@ -34,6 +34,7 @@ from gisec.engine.runtime import (
     write_json,
 )
 from gisec.graph_refiner import GraphRefiner
+from gisec.models.graph_utils import GraphBuildProfiler
 from gisec.utils.logging import JsonlMetricLogger, setup_logger, write_metrics_csv
 
 MODEL_CONFIG_DEFAULTS = {
@@ -797,6 +798,13 @@ def train_main(args: argparse.Namespace) -> None:
                 model_forward_sec = 0.0
                 dense_loss_sec = 0.0
                 graph_build_sec = 0.0
+                fragments_ccl_sec = 0.0
+                ownership_split_sec = 0.0
+                fragment_pool_sec = 0.0
+                fragment_geom_sec = 0.0
+                contact_edges_sec = 0.0
+                bridge_edges_sec = 0.0
+                edge_feature_sec = 0.0
                 graph_score_and_loss_sec = 0.0
                 with torch.cuda.amp.autocast(enabled=use_cuda):
                     forward_start = time.perf_counter() if profile_active else 0.0
@@ -854,6 +862,7 @@ def train_main(args: argparse.Namespace) -> None:
                         graph_losses = []
                         for batch_idx in range(images.shape[0]):
                             graph_build_start = time.perf_counter() if profile_active else 0.0
+                            graph_profiler = GraphBuildProfiler(device=device, enabled=profile_active)
                             graph_batch = refiner.build_graph_batch(
                                 outputs={key: value[batch_idx: batch_idx + 1] for key, value in outputs.items()},
                                 depth_map=depths[batch_idx: batch_idx + 1],
@@ -863,9 +872,17 @@ def train_main(args: argparse.Namespace) -> None:
                                 fragment_fg_threshold=float(args.fragment_fg_threshold),
                                 fragment_boundary_threshold=float(args.fragment_boundary_threshold),
                                 min_area=int(args.min_area),
+                                graph_profiler=graph_profiler,
                             )
                             if step_profile is not None:
                                 graph_build_sec += float(time.perf_counter() - graph_build_start)
+                                fragments_ccl_sec += float(graph_profiler.timings.get("fragments_ccl_sec", 0.0))
+                                ownership_split_sec += float(graph_profiler.timings.get("ownership_split_sec", 0.0))
+                                fragment_pool_sec += float(graph_profiler.timings.get("fragment_pool_sec", 0.0))
+                                fragment_geom_sec += float(graph_profiler.timings.get("fragment_geom_sec", 0.0))
+                                contact_edges_sec += float(graph_profiler.timings.get("contact_edges_sec", 0.0))
+                                bridge_edges_sec += float(graph_profiler.timings.get("bridge_edges_sec", 0.0))
+                                edge_feature_sec += float(graph_profiler.timings.get("edge_feature_sec", 0.0))
                             graph_edge_count += int(
                                 graph_batch.diagnostics.get("num_edges", int(graph_batch.edge_index.shape[1]))
                             )
@@ -975,6 +992,13 @@ def train_main(args: argparse.Namespace) -> None:
                             "model_forward_sec": float(model_forward_sec),
                             "dense_loss_sec": float(dense_loss_sec),
                             "graph_build_sec": float(graph_build_sec),
+                            "fragments_ccl_sec": float(fragments_ccl_sec),
+                            "ownership_split_sec": float(ownership_split_sec),
+                            "fragment_pool_sec": float(fragment_pool_sec),
+                            "fragment_geom_sec": float(fragment_geom_sec),
+                            "contact_edges_sec": float(contact_edges_sec),
+                            "bridge_edges_sec": float(bridge_edges_sec),
+                            "edge_feature_sec": float(edge_feature_sec),
                             "graph_score_and_loss_sec": float(graph_score_and_loss_sec),
                             "backward_sec": float(backward_sec),
                             "optimizer_step_sec": float(optimizer_step_sec),
@@ -1013,7 +1037,7 @@ def train_main(args: argparse.Namespace) -> None:
                     if profile_jsonl_path is not None:
                         _append_jsonl(profile_jsonl_path, step_profile)
                     logger.info(
-                        "profile epoch=%s step=%s data_wait=%.4fs h2d=%.4fs forward=%.4fs dense_loss=%.4fs graph_build=%.4fs graph_score=%.4fs backward=%.4fs optimizer=%.4fs metric_io=%.4fs total=%.4fs forward_calls=%s unique_roots=%s graph_edges=%s",
+                        "profile epoch=%s step=%s data_wait=%.4fs h2d=%.4fs forward=%.4fs dense_loss=%.4fs graph_build=%.4fs ccl=%.4fs ownership=%.4fs pool=%.4fs geom=%.4fs contact=%.4fs bridge=%.4fs edge_feat=%.4fs graph_score=%.4fs backward=%.4fs optimizer=%.4fs metric_io=%.4fs total=%.4fs forward_calls=%s unique_roots=%s graph_edges=%s",
                         epoch,
                         step,
                         float(step_profile["data_wait_sec"]),
@@ -1021,6 +1045,13 @@ def train_main(args: argparse.Namespace) -> None:
                         float(step_profile["model_forward_sec"]),
                         float(step_profile["dense_loss_sec"]),
                         float(step_profile["graph_build_sec"]),
+                        float(step_profile["fragments_ccl_sec"]),
+                        float(step_profile["ownership_split_sec"]),
+                        float(step_profile["fragment_pool_sec"]),
+                        float(step_profile["fragment_geom_sec"]),
+                        float(step_profile["contact_edges_sec"]),
+                        float(step_profile["bridge_edges_sec"]),
+                        float(step_profile["edge_feature_sec"]),
                         float(step_profile["graph_score_and_loss_sec"]),
                         float(step_profile["backward_sec"]),
                         float(step_profile["optimizer_step_sec"]),

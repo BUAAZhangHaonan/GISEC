@@ -46,7 +46,7 @@ def _resolve_part_key(file_name: str, available_parts: list[str]) -> str | None:
 
 
 def summarize_fragment_graph_sample(graph_batch: GraphBatch) -> dict[str, float | int]:
-    fragment_stats = [dict(item) for item in graph_batch.fragment_stats]
+    fragment_stats = graph_batch.fragment_stats_cpu()
     purities = [float(item.get("purity", 0.0)) for item in fragment_stats]
     area_ratios = [float(item.get("area_ratio", 0.0)) for item in fragment_stats]
     edge_ignore_mask = (
@@ -277,7 +277,7 @@ def build_fragment_graph_cache(
                 "edge_type": graph_batch.edge_type.detach().cpu(),
                 "edge_targets": None if graph_batch.edge_targets is None else graph_batch.edge_targets.detach().cpu(),
                 "edge_ignore_mask": None if graph_batch.edge_ignore_mask is None else graph_batch.edge_ignore_mask.detach().cpu(),
-                "fragment_stats": [dict(item) for item in graph_batch.fragment_stats],
+                "fragment_stats": graph_batch.fragment_stats_cpu(),
                 "diagnostics": dict(graph_batch.diagnostics),
                 "shape_stats": dict(graph_batch.shape_stats),
                 "summary": dict(summary),

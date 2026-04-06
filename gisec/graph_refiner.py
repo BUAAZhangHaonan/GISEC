@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import numpy as np
 import torch
 
 from gisec.config.variants import VariantSpec, get_variant_spec
 from gisec.datasets.prototype_bank import PrototypeBank
 from gisec.models.fragment_bundle import FragmentProposalBundle
-from gisec.models.graph_utils import GraphBatch, heuristic_edge_scores, merge_instances_from_edge_scores
+from gisec.models.graph_utils import GraphBatch, GraphBuildProfiler, heuristic_edge_scores, merge_instances_from_edge_scores
 from gisec.models.prototype_cache import PrototypeCache
 from gisec.models.gisec_model import GISECModel
 
@@ -29,6 +30,7 @@ class GraphRefiner:
         fragment_fg_threshold: float = 0.5,
         fragment_boundary_threshold: float = 0.5,
         min_area: int = 8,
+        graph_profiler: GraphBuildProfiler | None = None,
     ) -> GraphBatch:
         return self.model.build_graph_batch(
             outputs=outputs,
@@ -39,6 +41,7 @@ class GraphRefiner:
             fragment_fg_threshold=fragment_fg_threshold,
             fragment_boundary_threshold=fragment_boundary_threshold,
             min_area=min_area,
+            graph_profiler=graph_profiler,
         )
 
     def build_graph_batch_from_bundle(
@@ -51,6 +54,7 @@ class GraphRefiner:
         fragment_fg_threshold: float = 0.5,
         fragment_boundary_threshold: float = 0.5,
         min_area: int = 8,
+        graph_profiler: GraphBuildProfiler | None = None,
     ) -> GraphBatch:
         return self.model.build_graph_batch(
             outputs={
@@ -67,6 +71,7 @@ class GraphRefiner:
             fragment_fg_threshold=fragment_fg_threshold,
             fragment_boundary_threshold=fragment_boundary_threshold,
             min_area=min_area,
+            graph_profiler=graph_profiler,
         )
 
     def score_edges(self, graph_batch: GraphBatch, variant: str | VariantSpec) -> torch.Tensor:
@@ -87,14 +92,16 @@ class GraphRefiner:
     ) -> torch.Tensor:
         variant_spec = get_variant_spec(variant)
         if not variant_spec.use_graph_merge:
-            return torch.from_numpy(graph_batch.fragments.copy())
+            if isinstance(graph_batch.fragments, torch.Tensor):
+                return graph_batch.fragments.detach().cpu().clone()
+            return torch.from_numpy(np.asarray(graph_batch.fragments, dtype=np.int32).copy())
         merged = merge_instances_from_edge_scores(
-            fragments=graph_batch.fragments,
+            fragments=graph_batch.fragments_cpu_numpy(),
             edge_index=graph_batch.edge_index,
             edge_scores=torch.sigmoid(edge_logits),
             threshold=threshold,
             constrained=variant_spec.use_constrained_merge,
-            fragment_stats=graph_batch.fragment_stats,
+            fragment_stats=graph_batch.fragment_stats_cpu(),
             shape_stats=graph_batch.shape_stats,
             edge_features=graph_batch.edge_features,
             edge_ignore_mask=graph_batch.edge_ignore_mask,
