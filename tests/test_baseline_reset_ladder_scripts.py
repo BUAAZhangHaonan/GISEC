@@ -35,6 +35,37 @@ def test_active_mainline_ladder_dry_run_lists_stage_chain(tmp_path: Path) -> Non
     assert "gisec.cli.eval" in stdout
 
 
+def test_active_rgb_mainline_ladder_dry_run_lists_stage_chain(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    script = repo_root / "scripts" / "experiments" / "run_baseline_reset_active_rgb_mainline.sh"
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(script),
+            "--dataset-root",
+            str(tmp_path / "dataset"),
+            "--prototype-root",
+            str(tmp_path / "prototype_bank"),
+            "--output-root",
+            str(tmp_path / "active_rgb_official"),
+            "--dry-run",
+        ],
+        cwd=str(tmp_path),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    stdout = result.stdout
+    assert "stage=base_rgb_1024" in stdout
+    assert "stage=base_rgb_1024_refine_ref_graph" in stdout
+    refine_init = tmp_path / "active_rgb_official" / "train" / "base_rgb_1024" / "model_best.pth"
+    assert f"--init-checkpoint '{refine_init}'" in stdout or f"--init-checkpoint {refine_init}" in stdout
+    assert "conda run -n gisec python -m gisec.cli.train" in stdout
+    assert "gisec.cli.eval" in stdout
+
+
 def test_active_mainline_ladder_dry_run_skips_completed_stage(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     script = repo_root / "scripts" / "experiments" / "run_baseline_reset_active_mainline.sh"
@@ -70,6 +101,43 @@ def test_active_mainline_ladder_dry_run_skips_completed_stage(tmp_path: Path) ->
     assert "SKIP train base_rgbd_1024" in stdout
     assert "SKIP eval base_rgbd_1024" in stdout
     assert "stage=base_rgbd_1024_refine" in stdout
+
+
+def test_active_rgb_mainline_ladder_dry_run_skips_completed_stage(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    script = repo_root / "scripts" / "experiments" / "run_baseline_reset_active_rgb_mainline.sh"
+    output_root = tmp_path / "active_rgb_official"
+    train_dir = output_root / "train" / "base_rgb_1024"
+    eval_dir = output_root / "eval" / "base_rgb_1024"
+    train_dir.mkdir(parents=True)
+    eval_dir.mkdir(parents=True)
+    (train_dir / "model_best.pth").write_text("stub\n", encoding="utf-8")
+    (train_dir / "run_summary.json").write_text("{}\n", encoding="utf-8")
+    (eval_dir / "metrics.cocoeval.json").write_text("{}\n", encoding="utf-8")
+    (eval_dir / "run_summary.json").write_text("{}\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(script),
+            "--dataset-root",
+            str(tmp_path / "dataset"),
+            "--prototype-root",
+            str(tmp_path / "prototype_bank"),
+            "--output-root",
+            str(output_root),
+            "--dry-run",
+        ],
+        cwd=str(tmp_path),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    stdout = result.stdout
+    assert "SKIP train base_rgb_1024" in stdout
+    assert "SKIP eval base_rgb_1024" in stdout
+    assert "stage=base_rgb_1024_refine" in stdout
 
 
 def test_legacy_support_ladder_dry_run_lists_g3_and_merge_order_steps(tmp_path: Path) -> None:

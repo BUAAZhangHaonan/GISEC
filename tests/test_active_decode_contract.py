@@ -34,6 +34,9 @@ def test_active_query_decode_keeps_dataset_component_class_id() -> None:
 
 def test_active_decode_contract_uses_validated_baseline_decode_only_before_refine() -> None:
     assert _uses_baseline_decode("base_rgb_1024") is True
+    assert _uses_baseline_decode("base_rgb_1024_refine") is False
+    assert _uses_baseline_decode("base_rgb_1024_refine_ref") is False
+    assert _uses_baseline_decode("base_rgb_1024_refine_ref_graph") is False
     assert _uses_baseline_decode("base_rgbd_1024") is True
     assert _uses_baseline_decode("base_rgbd_1024_refine") is False
     assert _uses_baseline_decode("base_rgbd_1024_refine_ref") is False

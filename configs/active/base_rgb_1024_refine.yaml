@@ -1,0 +1,23 @@
+common:
+  device: cuda
+  image_size: 1024
+  batch: 1
+  num_workers: 4
+train:
+  epochs: 20
+  learning_rate: 1.0e-4
+  eval_every_epochs: 1
+model:
+  variant: base_rgb_1024_refine
+  model_family: mask2former
+  backbone_name: swin_t
+  input_mode: rgb
+  fusion_mode: rgb
+  depth_mode: rgb
+  inference_defaults_locked: true
+  pretrained_model_name: facebook/mask2former-swin-tiny-coco-instance
+  score_threshold: 0.5
+  mask_threshold: 0.5
+  refine_mode: local_refine
+  reference_rescue: false
+  graph_rescue: false

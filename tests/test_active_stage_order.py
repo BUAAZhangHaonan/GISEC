@@ -24,6 +24,17 @@ def test_active_train_cli_requires_init_checkpoint_for_refine_and_later(tmp_path
                 "base_rgbd_1024_refine",
             ]
         )
+    with pytest.raises(SystemExit):
+        parse_train_args(
+            [
+                "--dataset-root",
+                str(tmp_path / "dataset"),
+                "--output-dir",
+                str(tmp_path / "out_rgb"),
+                "--variant",
+                "base_rgb_1024_refine",
+            ]
+        )
 
 
 def test_active_train_cli_allows_base_rgbd_without_init_checkpoint(tmp_path) -> None:
