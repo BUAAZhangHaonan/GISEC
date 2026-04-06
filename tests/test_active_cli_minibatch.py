@@ -181,7 +181,7 @@ def test_active_cli_minibatch_runs_train_eval_infer_for_base_rgb(tmp_path: Path)
     infer_root = tmp_path / "infer_out"
     _write_dataset(dataset_root)
 
-    subprocess.run(
+    train_result = subprocess.run(
         [sys.executable, "-m", "gisec.cli.train", *_active_args(dataset_root, train_root, variant="base_rgb_1024")],
         cwd=str(repo_root),
         check=True,
@@ -291,6 +291,10 @@ def test_active_cli_minibatch_runs_train_eval_infer_for_base_rgb(tmp_path: Path)
     )
 
     train_summary = json.loads((train_root / "run_summary.json").read_text(encoding="utf-8"))
+    metric_rows = [
+        json.loads(line)
+        for line in (train_root / "metrics_log.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
     eval_summary = json.loads((eval_root / "run_summary.json").read_text(encoding="utf-8"))
     infer_summary = json.loads((infer_root / "run_summary.json").read_text(encoding="utf-8"))
     assert train_summary["variant"] == "base_rgb_1024"
@@ -300,6 +304,22 @@ def test_active_cli_minibatch_runs_train_eval_infer_for_base_rgb(tmp_path: Path)
     assert "merge_pred_count" in train_summary["metrics"]
     assert "refinement_invocation_rate" in train_summary["metrics"]
     assert (infer_root / "coco_instances_results.raw.json").exists()
+    assert "mode=train_step" in train_result.stdout
+    assert "mode=epoch_eval" in train_result.stdout
+    assert "mode=checkpoint" in train_result.stdout
+    assert any(row["mode"] == "train_step" for row in metric_rows)
+    assert any(row["mode"] == "epoch_train" for row in metric_rows)
+    assert any(row["mode"] == "epoch_eval" for row in metric_rows)
+    assert any(row["mode"] == "checkpoint" for row in metric_rows)
+    assert any(row["mode"] == "run_final" for row in metric_rows)
+    train_row = next(row for row in metric_rows if row["mode"] == "train_step")
+    assert train_row["epoch"] == 1
+    assert train_row["global_step"] == 1
+    assert train_row["epoch_step"] == 1
+    assert train_row["epoch_steps_total"] == 1
+    assert "loss_total" in train_row
+    assert "loss_backbone_total" in train_row
+    assert "loss_local_total" in train_row
 
 
 def test_active_cli_minibatch_runs_base_rgbd_concat_without_prototype_root(tmp_path: Path) -> None:

@@ -73,6 +73,7 @@ MODEL_DEFAULTS = {
     "max_train_steps": 0,
     "max_val_images": 0,
     "eval_every_epochs": 1,
+    "log_every_steps": 50,
     "reference_max_views": 16,
     "reference_view_sampler": "pose_farthest",
     "prototype_root": "",
@@ -201,6 +202,7 @@ def _common_parser(*, mode: str, argv: list[str] | None) -> argparse.ArgumentPar
         parser.add_argument("--max-train-steps", type=int, default=0)
         parser.add_argument("--max-val-images", type=int, default=0)
         parser.add_argument("--eval-every-epochs", type=int, default=1)
+        parser.add_argument("--log-every-steps", type=int, default=int(MODEL_DEFAULTS["log_every_steps"]))
     else:
         parser.add_argument("--checkpoint", type=str, default="")
         parser.add_argument("--split", choices=["train", "val"], default="val")
@@ -301,6 +303,7 @@ def _model_payload(args: argparse.Namespace) -> dict[str, Any]:
         "max_val_images": int(getattr(args, "max_val_images", 0)),
         "max_images": int(getattr(args, "max_images", 0)),
         "epochs": int(getattr(args, "epochs", 0)),
+        "log_every_steps": int(getattr(args, "log_every_steps", MODEL_DEFAULTS["log_every_steps"])),
         "learning_rate": float(getattr(args, "learning_rate", 0.0)),
         "weight_decay": float(getattr(args, "weight_decay", 0.0)),
         "eval_every_epochs": int(getattr(args, "eval_every_epochs", 1)),
@@ -508,7 +511,76 @@ def _configure_model_for_stage(model: nn.Module, args: argparse.Namespace) -> No
     )
 
 
-def _build_loader(*, dataset_root: str, split: str, image_size: int, batch_size: int, num_workers: int, include_depth: bool, train: bool) -> DataLoader:
+def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+
+def _active_log_line(payload: dict[str, Any]) -> str:
+    ordered_keys = [
+        "mode",
+        "epoch",
+        "global_step",
+        "epoch_step",
+        "epoch_steps_total",
+        "loss_total",
+        "loss_backbone_total",
+        "loss_local_total",
+        "lr",
+        "step_time_sec",
+        "step_time_running_avg_sec",
+        "elapsed_sec",
+        "eta_sec",
+        "epoch_train_sec",
+        "eval_sec",
+        "best_updated",
+        "checkpoint_path",
+        "reason",
+        "metric",
+        "best_metric",
+        "wall_time_sec",
+        "final_checkpoint_path",
+        "best_checkpoint_path",
+    ]
+    parts: list[str] = []
+    for key in ordered_keys:
+        if key not in payload:
+            continue
+        value = payload[key]
+        if isinstance(value, float):
+            parts.append(f"{key}={value:.6f}")
+        else:
+            parts.append(f"{key}={value}")
+    for key, value in payload.items():
+        if key in ordered_keys:
+            continue
+        if isinstance(value, float):
+            parts.append(f"{key}={value:.6f}")
+        else:
+            parts.append(f"{key}={value}")
+    return "[active-train] " + " ".join(parts)
+
+
+def _emit_active_log(metrics_log_path: Path, payload: dict[str, Any]) -> None:
+    _append_jsonl(metrics_log_path, payload)
+    print(_active_log_line(payload), flush=True)
+
+
+def _move_active_tensor_to_device(tensor: Any, device: torch.device, *, non_blocking: bool) -> Any:
+    return tensor.to(device, non_blocking=non_blocking)
+
+
+def _build_loader(
+    *,
+    dataset_root: str,
+    split: str,
+    image_size: int,
+    batch_size: int,
+    num_workers: int,
+    include_depth: bool,
+    train: bool,
+    use_cuda: bool,
+) -> DataLoader:
     dataset = BaselineInstanceDataset(
         dataset_root=dataset_root,
         split=split,
@@ -517,13 +589,17 @@ def _build_loader(*, dataset_root: str, split: str, image_size: int, batch_size:
         include_annotations=True,
         include_instance_map=True,
     )
-    return DataLoader(
-        dataset,
-        batch_size=max(int(batch_size), 1),
-        shuffle=bool(train),
-        num_workers=int(num_workers),
-        collate_fn=lambda batch: batch,
-    )
+    loader_kwargs: dict[str, Any] = {
+        "batch_size": max(int(batch_size), 1),
+        "shuffle": bool(train),
+        "num_workers": int(num_workers),
+        "collate_fn": lambda batch: batch,
+        "pin_memory": bool(use_cuda),
+    }
+    if int(num_workers) > 0:
+        loader_kwargs["prefetch_factor"] = 2
+        loader_kwargs["persistent_workers"] = True
+    return DataLoader(dataset, **loader_kwargs)
 
 
 def _build_pixel_mask(pixel_values: torch.Tensor) -> torch.Tensor:
@@ -534,7 +610,12 @@ def _build_pixel_mask(pixel_values: torch.Tensor) -> torch.Tensor:
     )
 
 
-def _build_label_targets(samples: list[dict[str, Any]], *, device: torch.device) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
+def _build_label_targets(
+    samples: list[dict[str, Any]],
+    *,
+    device: torch.device,
+    non_blocking: bool = False,
+) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
     mask_labels = []
     class_labels = []
     for sample in samples:
@@ -544,8 +625,8 @@ def _build_label_targets(samples: list[dict[str, Any]], *, device: torch.device)
             mask_labels.append(torch.zeros((0, 1, 1), dtype=torch.float32, device=device))
             class_labels.append(torch.zeros((0,), dtype=torch.long, device=device))
             continue
-        mask_labels.append(masks.float().to(device))
-        class_labels.append(labels.long().to(device))
+        mask_labels.append(_move_active_tensor_to_device(masks.float(), device, non_blocking=non_blocking))
+        class_labels.append(_move_active_tensor_to_device(labels.long(), device, non_blocking=non_blocking))
     return mask_labels, class_labels
 
 
@@ -1118,14 +1199,23 @@ def _evaluate_active(
     refinement_invocations = 0
     graph_invocations = 0
     total_predictions = 0
+    non_blocking = bool(device.type == "cuda")
     with torch.no_grad():
         for batch_index, samples in enumerate(loader):
             if int(max_images) > 0 and batch_index >= int(max_images):
                 break
-            images = torch.stack([sample["image"].float() for sample in samples], dim=0).to(device)
+            images = _move_active_tensor_to_device(
+                torch.stack([sample["image"].float() for sample in samples], dim=0),
+                device,
+                non_blocking=non_blocking,
+            )
             depths = None
             if str(depth_mode) != "rgb":
-                depths = torch.stack([sample["depth"].float() for sample in samples], dim=0).to(device)
+                depths = _move_active_tensor_to_device(
+                    torch.stack([sample["depth"].float() for sample in samples], dim=0),
+                    device,
+                    non_blocking=non_blocking,
+                )
             pixel_values = prepare_active_input_batch(images=images, depths=depths, depth_mode=depth_mode)
             pixel_mask = _build_pixel_mask(pixel_values)
             start = time.perf_counter()
@@ -1225,7 +1315,7 @@ def _evaluate_active(
     return metrics, speed
 
 
-def _train_local_modules(
+def _train_local_modules_with_metrics(
     *,
     model: ActiveInstanceModel,
     samples: list[dict[str, Any]],
@@ -1235,12 +1325,27 @@ def _train_local_modules(
     prototype_source: PrototypeBankSource | None,
     crop_size: int,
     crop_pad: int,
-) -> torch.Tensor:
+) -> tuple[torch.Tensor, dict[str, float]]:
     variant_spec = get_active_variant_spec(variant_name)
     if not variant_spec.use_local_refine or model.refiner is None:
-        return pixel_values.sum() * 0.0
+        zero = pixel_values.sum() * 0.0
+        return zero, {
+            "loss_local_total": 0.0,
+            "loss_local_mask": 0.0,
+            "loss_local_boundary": 0.0,
+            "loss_local_reference_positive": 0.0,
+            "loss_local_reference_negative": 0.0,
+            "loss_local_graph": 0.0,
+        }
     feature_map = model.feature_proj(backbone_outputs.pixel_decoder_last_hidden_state)
     losses: list[torch.Tensor] = []
+    component_totals = {
+        "loss_local_mask": 0.0,
+        "loss_local_boundary": 0.0,
+        "loss_local_reference_positive": 0.0,
+        "loss_local_reference_negative": 0.0,
+        "loss_local_graph": 0.0,
+    }
     for sample_index, sample in enumerate(samples):
         masks = sample.get("masks")
         if masks is None:
@@ -1299,13 +1404,17 @@ def _train_local_modules(
             loss_mask = F.binary_cross_entropy_with_logits(refined["refined_mask_logits"][0, 0], gt_crop)
             loss_boundary = F.binary_cross_entropy_with_logits(refined["refined_boundary_logits"][0, 0], gt_boundary)
             loss = loss_mask + 0.5 * loss_boundary
+            component_totals["loss_local_mask"] += float(loss_mask.detach().cpu())
+            component_totals["loss_local_boundary"] += float((0.5 * loss_boundary).detach().cpu())
             if variant_spec.use_reference_rescue and refined["reference_match_logits"] is not None:
                 if len(reference_examples) > 1:
                     positive_target = torch.ones_like(refined["reference_match_logits"])
-                    loss = loss + 0.05 * F.binary_cross_entropy_with_logits(
+                    positive_loss = 0.05 * F.binary_cross_entropy_with_logits(
                         refined["reference_match_logits"],
                         positive_target,
                     )
+                    loss = loss + positive_loss
+                    component_totals["loss_local_reference_positive"] += float(positive_loss.detach().cpu())
                     negative_rgb, negative_depth, negative_mask = reference_examples[1][0]
                     negative_refined = model.refiner(
                         query_crop=query_crop,
@@ -1316,10 +1425,12 @@ def _train_local_modules(
                         reference_mask=negative_mask,
                     )
                     negative_target = torch.zeros_like(negative_refined["reference_match_logits"])
-                    loss = loss + 0.05 * F.binary_cross_entropy_with_logits(
+                    negative_loss = 0.05 * F.binary_cross_entropy_with_logits(
                         negative_refined["reference_match_logits"],
                         negative_target,
                     )
+                    loss = loss + negative_loss
+                    component_totals["loss_local_reference_negative"] += float(negative_loss.detach().cpu())
             if variant_spec.use_graph_rescue and model.graph_head is not None:
                 gt_crops = torch.stack(
                     [
@@ -1328,17 +1439,54 @@ def _train_local_modules(
                     ],
                     dim=0,
                 )
-                loss = loss + 0.1 * _graph_rescue_training_loss(
+                graph_loss = 0.1 * _graph_rescue_training_loss(
                     graph_head=model.graph_head,
                     crop_features=refined["crop_features"][0],
                     coarse_mask_prob=coarse_mask[0, 0],
                     depth_crop=None if query_crop.shape[1] <= 3 else query_crop[0, 3:4],
                     instance_mask_crops=gt_crops,
                 )
+                loss = loss + graph_loss
+                component_totals["loss_local_graph"] += float(graph_loss.detach().cpu())
             losses.append(loss)
     if not losses:
-        return pixel_values.sum() * 0.0
-    return torch.stack(losses).mean()
+        zero = pixel_values.sum() * 0.0
+        return zero, {
+            "loss_local_total": 0.0,
+            **component_totals,
+        }
+    local_loss = torch.stack(losses).mean()
+    loss_count = float(len(losses))
+    return local_loss, {
+        "loss_local_total": float(local_loss.detach().cpu()),
+        **{
+            key: float(value / loss_count)
+            for key, value in component_totals.items()
+        },
+    }
+
+
+def _train_local_modules(
+    *,
+    model: ActiveInstanceModel,
+    samples: list[dict[str, Any]],
+    pixel_values: torch.Tensor,
+    backbone_outputs: Any,
+    variant_name: str,
+    prototype_source: PrototypeBankSource | None,
+    crop_size: int,
+    crop_pad: int,
+) -> torch.Tensor:
+    return _train_local_modules_with_metrics(
+        model=model,
+        samples=samples,
+        pixel_values=pixel_values,
+        backbone_outputs=backbone_outputs,
+        variant_name=variant_name,
+        prototype_source=prototype_source,
+        crop_size=crop_size,
+        crop_pad=crop_pad,
+    )[0]
 
 
 def train_active(args: argparse.Namespace) -> None:
@@ -1359,6 +1507,7 @@ def train_active(args: argparse.Namespace) -> None:
         num_workers=int(args.num_workers),
         include_depth=include_depth,
         train=True,
+        use_cuda=bool(device.type == "cuda"),
     )
     val_loader = _build_loader(
         dataset_root=str(args.dataset_root),
@@ -1368,6 +1517,7 @@ def train_active(args: argparse.Namespace) -> None:
         num_workers=int(args.num_workers),
         include_depth=include_depth,
         train=False,
+        use_cuda=bool(device.type == "cuda"),
     )
     model = _build_active_model(args).to(device)
     _configure_model_for_stage(model, args)
@@ -1386,23 +1536,43 @@ def train_active(args: argparse.Namespace) -> None:
     ann_file = Path(args.dataset_root).resolve() / "annotations" / "instances_val.json"
     params_trainable = sum(int(param.numel()) for param in trainable_params)
     (output_dir / "params_trainable.txt").write_text(f"{params_trainable}\n", encoding="utf-8")
+    metrics_log_path = output_dir / "metrics_log.jsonl"
+    if metrics_log_path.exists():
+        metrics_log_path.unlink()
     best_ap = float("-inf")
     best_ckpt = output_dir / "model_best.pth"
-    start = time.time()
+    start = time.perf_counter()
     if device.type == "cuda" and torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats(device)
     step_count = 0
     eval_interval = max(int(getattr(args, "eval_every_epochs", 1)), 1)
+    log_every_steps = max(int(getattr(args, "log_every_steps", MODEL_DEFAULTS["log_every_steps"])), 1)
+    epoch_steps_total = len(train_loader)
+    planned_total_steps = int(epoch_steps_total * int(args.epochs))
+    if int(args.max_train_steps) > 0:
+        planned_total_steps = min(planned_total_steps, int(args.max_train_steps))
+    running_step_time_total = 0.0
+    non_blocking = bool(device.type == "cuda")
     for epoch_index in range(int(args.epochs)):
         model.train()
-        for samples in train_loader:
-            images = torch.stack([sample["image"].float() for sample in samples], dim=0).to(device)
+        epoch_train_start = time.perf_counter()
+        for epoch_step, samples in enumerate(train_loader, start=1):
+            step_start = time.perf_counter()
+            images = _move_active_tensor_to_device(
+                torch.stack([sample["image"].float() for sample in samples], dim=0),
+                device,
+                non_blocking=non_blocking,
+            )
             depths = None
             if include_depth:
-                depths = torch.stack([sample["depth"].float() for sample in samples], dim=0).to(device)
+                depths = _move_active_tensor_to_device(
+                    torch.stack([sample["depth"].float() for sample in samples], dim=0),
+                    device,
+                    non_blocking=non_blocking,
+                )
             pixel_values = prepare_active_input_batch(images=images, depths=depths, depth_mode=str(args.depth_mode))
             pixel_mask = _build_pixel_mask(pixel_values)
-            mask_labels, class_labels = _build_label_targets(samples, device=device)
+            mask_labels, class_labels = _build_label_targets(samples, device=device, non_blocking=non_blocking)
             with autocast(device_type=device.type, enabled=bool(device.type == "cuda")):
                 outputs = _run_backbone(
                     model=model,
@@ -1411,10 +1581,10 @@ def train_active(args: argparse.Namespace) -> None:
                     mask_labels=mask_labels,
                     class_labels=class_labels,
                 )
-                loss = outputs.loss
-                if loss is None:
-                    loss = pixel_values.sum() * 0.0
-                loss = loss + _train_local_modules(
+                backbone_loss = outputs.loss
+                if backbone_loss is None:
+                    backbone_loss = pixel_values.sum() * 0.0
+                local_loss, local_metrics = _train_local_modules_with_metrics(
                     model=model,
                     samples=samples,
                     pixel_values=pixel_values,
@@ -1424,19 +1594,65 @@ def train_active(args: argparse.Namespace) -> None:
                     crop_size=int(args.crop_size),
                     crop_pad=int(args.crop_pad),
                 )
+                loss = backbone_loss + local_loss
             optimizer.zero_grad(set_to_none=True)
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
             step_count += 1
+            step_time_sec = float(time.perf_counter() - step_start)
+            running_step_time_total += step_time_sec
+            running_avg_step_time_sec = float(running_step_time_total / max(step_count, 1))
+            elapsed_sec = float(time.perf_counter() - start)
+            remaining_steps = max(int(planned_total_steps) - int(step_count), 0)
+            eta_sec = float(running_avg_step_time_sec * remaining_steps)
+            if (
+                step_count == 1
+                or step_count % log_every_steps == 0
+                or step_count >= planned_total_steps
+                or (int(args.max_train_steps) > 0 and step_count >= int(args.max_train_steps))
+            ):
+                row = {
+                    "mode": "train_step",
+                    "epoch": int(epoch_index + 1),
+                    "global_step": int(step_count),
+                    "epoch_step": int(epoch_step),
+                    "epoch_steps_total": int(epoch_steps_total),
+                    "loss_total": float(loss.detach().cpu()),
+                    "loss_backbone_total": float(backbone_loss.detach().cpu()),
+                    "loss_local_total": float(local_metrics.get("loss_local_total", 0.0)),
+                    "lr": float(optimizer.param_groups[0]["lr"]),
+                    "step_time_sec": step_time_sec,
+                    "step_time_running_avg_sec": running_avg_step_time_sec,
+                    "elapsed_sec": elapsed_sec,
+                    "eta_sec": eta_sec,
+                }
+                loss_dict = getattr(outputs, "loss_dict", None)
+                if isinstance(loss_dict, dict):
+                    for key, value in loss_dict.items():
+                        row[f"loss_backbone_{key}"] = float(value.detach().cpu())
+                row.update(local_metrics)
+                _emit_active_log(metrics_log_path, row)
             if int(args.max_train_steps) > 0 and step_count >= int(args.max_train_steps):
                 break
+        epoch_train_sec = float(time.perf_counter() - epoch_train_start)
+        _emit_active_log(
+            metrics_log_path,
+            {
+                "mode": "epoch_train",
+                "epoch": int(epoch_index + 1),
+                "epoch_train_sec": epoch_train_sec,
+                "global_step": int(step_count),
+                "best_metric": None if not math.isfinite(best_ap) else float(best_ap),
+            },
+        )
         stopping_early = int(args.max_train_steps) > 0 and step_count >= int(args.max_train_steps)
         should_eval = stopping_early or (
             (epoch_index + 1) % eval_interval == 0
             and (epoch_index + 1) < int(args.epochs)
         )
         if should_eval:
+            eval_start = time.perf_counter()
             metrics, speed = _evaluate_active(
                 model=model,
                 loader=val_loader,
@@ -1454,14 +1670,46 @@ def train_active(args: argparse.Namespace) -> None:
                 save_raw=False,
                 depth_mode=str(args.depth_mode),
             )
+            eval_sec = float(time.perf_counter() - eval_start)
             segm_ap = float(metrics.get("segm/AP", 0.0))
-            if segm_ap >= best_ap:
+            best_updated = bool(segm_ap >= best_ap)
+            if best_updated:
                 best_ap = segm_ap
                 torch.save(_checkpoint_payload(model, args), best_ckpt)
+                _emit_active_log(
+                    metrics_log_path,
+                    {
+                        "mode": "checkpoint",
+                        "epoch": int(epoch_index + 1),
+                        "checkpoint_path": str(best_ckpt.resolve()),
+                        "reason": "best",
+                        "metric": segm_ap,
+                    },
+                )
+            eval_row = {
+                "mode": "epoch_eval",
+                "epoch": int(epoch_index + 1),
+                "eval_sec": eval_sec,
+                "best_updated": best_updated,
+                "metric": segm_ap,
+                "best_metric": float(best_ap),
+            }
+            eval_row.update(metrics)
+            _emit_active_log(metrics_log_path, eval_row)
         if stopping_early:
             break
     final_ckpt = output_dir / "model_final.pth"
     torch.save(_checkpoint_payload(model, args), final_ckpt)
+    _emit_active_log(
+        metrics_log_path,
+        {
+            "mode": "checkpoint",
+            "epoch": int(epoch_index + 1 if int(args.epochs) > 0 else 0),
+            "checkpoint_path": str(final_ckpt.resolve()),
+            "reason": "final",
+        },
+    )
+    final_eval_start = time.perf_counter()
     metrics, speed = _evaluate_active(
         model=model,
         loader=val_loader,
@@ -1479,14 +1727,35 @@ def train_active(args: argparse.Namespace) -> None:
         save_raw=False,
         depth_mode=str(args.depth_mode),
     )
+    final_eval_sec = float(time.perf_counter() - final_eval_start)
     final_ap = float(metrics.get("segm/AP", 0.0))
     if final_ap >= best_ap:
         best_ap = final_ap
         torch.save(_checkpoint_payload(model, args), best_ckpt)
+        _emit_active_log(
+            metrics_log_path,
+            {
+                "mode": "checkpoint",
+                "epoch": int(epoch_index + 1 if int(args.epochs) > 0 else 0),
+                "checkpoint_path": str(best_ckpt.resolve()),
+                "reason": "best",
+                "metric": final_ap,
+            },
+        )
+    final_eval_row = {
+        "mode": "epoch_eval",
+        "epoch": int(epoch_index + 1 if int(args.epochs) > 0 else 0),
+        "eval_sec": final_eval_sec,
+        "best_updated": bool(final_ap >= best_ap),
+        "metric": final_ap,
+        "best_metric": float(best_ap),
+    }
+    final_eval_row.update(metrics)
+    _emit_active_log(metrics_log_path, final_eval_row)
     peak_memory_mb = 0.0
     if device.type == "cuda" and torch.cuda.is_available():
         peak_memory_mb = float(torch.cuda.max_memory_allocated(device) / (1024.0 * 1024.0))
-    wall_time_sec = int(time.time() - start)
+    wall_time_sec = int(time.perf_counter() - start)
     (output_dir / "peak_memory_mb.txt").write_text(f"{peak_memory_mb:.4f}\n", encoding="utf-8")
     (output_dir / "wall_time_sec.txt").write_text(f"{wall_time_sec}\n", encoding="utf-8")
     summary = build_run_summary_payload(
@@ -1508,6 +1777,16 @@ def train_active(args: argparse.Namespace) -> None:
         },
     )
     write_json(output_dir / "run_summary.json", summary)
+    _emit_active_log(
+        metrics_log_path,
+        {
+            "mode": "run_final",
+            "wall_time_sec": float(wall_time_sec),
+            "best_metric": float(best_ap),
+            "final_checkpoint_path": str(final_ckpt.resolve()),
+            "best_checkpoint_path": str(best_ckpt.resolve()),
+        },
+    )
 
 
 def eval_active(args: argparse.Namespace) -> None:
@@ -1552,6 +1831,7 @@ def eval_active(args: argparse.Namespace) -> None:
         num_workers=int(args.num_workers),
         include_depth=str(args.depth_mode) != "rgb",
         train=False,
+        use_cuda=bool(device.type == "cuda"),
     )
     ann_file = Path(args.dataset_root).resolve() / "annotations" / f"instances_{args.split}.json"
     metrics, speed = _evaluate_active(
@@ -1631,6 +1911,7 @@ def infer_active(args: argparse.Namespace) -> None:
         num_workers=int(args.num_workers),
         include_depth=str(args.depth_mode) != "rgb",
         train=False,
+        use_cuda=bool(device.type == "cuda"),
     )
     ann_file = Path(args.dataset_root).resolve() / "annotations" / f"instances_{args.split}.json"
     metrics, speed = _evaluate_active(

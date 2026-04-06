@@ -3,8 +3,15 @@ from __future__ import annotations
 import json
 
 import pytest
+import torch
 
-from gisec.train.train_active import parse_eval_args, parse_train_args
+import gisec.train.train_active as train_active_module
+from gisec.train.train_active import (
+    _build_loader,
+    _move_active_tensor_to_device,
+    parse_eval_args,
+    parse_train_args,
+)
 
 
 def _write_run_summary(output_dir, *, variant: str) -> None:
@@ -158,3 +165,69 @@ def test_active_eval_cli_accepts_partial_checkpoint_debug_flag(tmp_path) -> None
     )
 
     assert args.allow_partial_checkpoint_load is True
+
+
+def test_active_train_cli_exposes_log_every_steps(tmp_path) -> None:
+    args = parse_train_args(
+        [
+            "--dataset-root",
+            str(tmp_path / "dataset"),
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--variant",
+            "base_rgb_1024",
+            "--log-every-steps",
+            "7",
+        ]
+    )
+
+    assert args.log_every_steps == 7
+
+
+def test_active_loader_uses_cuda_runtime_flags(monkeypatch, tmp_path) -> None:
+    class _DummyDataset(torch.utils.data.Dataset):
+        def __len__(self) -> int:
+            return 2
+
+        def __getitem__(self, index: int):
+            return {
+                "image": torch.zeros((3, 8, 8), dtype=torch.float32),
+                "depth": torch.zeros((1, 8, 8), dtype=torch.float32),
+            }
+
+    monkeypatch.setattr(
+        train_active_module,
+        "BaselineInstanceDataset",
+        lambda **kwargs: _DummyDataset(),
+    )
+
+    loader = _build_loader(
+        dataset_root=str(tmp_path / "dataset"),
+        split="train",
+        image_size=64,
+        batch_size=1,
+        num_workers=1,
+        include_depth=False,
+        train=True,
+        use_cuda=True,
+    )
+
+    assert loader.pin_memory is True
+    assert loader.prefetch_factor == 2
+    assert loader.persistent_workers is True
+
+
+def test_active_tensor_move_uses_requested_non_blocking_flag() -> None:
+    class _Recorder:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def to(self, device, *, non_blocking=False):
+            self.calls.append((device, non_blocking))
+            return self
+
+    tensor = _Recorder()
+    moved = _move_active_tensor_to_device(tensor, torch.device("cpu"), non_blocking=True)
+
+    assert moved is tensor
+    assert tensor.calls == [(torch.device("cpu"), True)]
