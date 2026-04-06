@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import random
 import subprocess
 import time
 from dataclasses import dataclass
@@ -9,7 +11,7 @@ from typing import Any, Dict, List
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Sampler
 from torch.utils.data.distributed import DistributedSampler
 
 from gisec.config.variants import VariantSpec, get_variant_spec
@@ -696,6 +698,61 @@ def build_device(device_name: str, local_rank: int | None = None) -> torch.devic
     return torch.device("cpu")
 
 
+def resolve_num_workers(num_workers: int | None) -> int:
+    return min(8, os.cpu_count() or 1) if num_workers is None else int(num_workers)
+
+
+class PartGroupedBatchSampler(Sampler[list[int]]):
+    def __init__(self, groups: list[list[int]], *, batch_size: int, shuffle: bool) -> None:
+        self.groups = [list(group) for group in groups if group]
+        self.batch_size = int(batch_size)
+        self.shuffle = bool(shuffle)
+
+    def __iter__(self):
+        groups = [list(group) for group in self.groups]
+        if self.shuffle:
+            for group in groups:
+                random.shuffle(group)
+            random.shuffle(groups)
+        batches: list[list[int]] = []
+        for group in groups:
+            for start in range(0, len(group), self.batch_size):
+                batch = group[start: start + self.batch_size]
+                if batch:
+                    batches.append(batch)
+        if self.shuffle:
+            random.shuffle(batches)
+        yield from batches
+
+    def __len__(self) -> int:
+        return sum((len(group) + self.batch_size - 1) // self.batch_size for group in self.groups)
+
+
+def build_part_grouped_batch_sampler(
+    *,
+    file_names: list[str],
+    available_parts: list[str],
+    batch_size: int,
+    shuffle: bool,
+) -> PartGroupedBatchSampler | None:
+    if not available_parts or int(batch_size) <= 1:
+        return None
+    grouped_indices: dict[str, list[int]] = {}
+    for index, file_name in enumerate(file_names):
+        try:
+            part_key = extract_query_part_key(str(file_name), available_parts)
+        except KeyError:
+            part_key = str(file_name)
+        grouped_indices.setdefault(part_key, []).append(int(index))
+    if len(grouped_indices) <= 1:
+        return None
+    return PartGroupedBatchSampler(
+        list(grouped_indices.values()),
+        batch_size=int(batch_size),
+        shuffle=bool(shuffle),
+    )
+
+
 def build_loader(
     *,
     dataset_root: str,
@@ -703,17 +760,20 @@ def build_loader(
     image_size: int,
     train: bool,
     batch_size: int,
-    num_workers: int,
+    num_workers: int | None,
     use_cuda: bool,
     distributed: bool = False,
     rank: int = 0,
     world_size: int = 1,
+    reference_part_keys: list[str] | None = None,
 ) -> DataLoader:
     from gisec.datasets.ecc_query_dataset import ECCGraphDataset, collate_graph_batch
 
+    resolved_num_workers = resolve_num_workers(num_workers)
     dataset = ECCGraphDataset(dataset_root, split, image_size, train)
     sampler = None
     shuffle = train
+    batch_sampler = None
     if distributed:
         sampler = DistributedSampler(
             dataset,
@@ -723,14 +783,32 @@ def build_loader(
             drop_last=False,
         )
         shuffle = False
+    elif train:
+        batch_sampler = build_part_grouped_batch_sampler(
+            file_names=list(getattr(dataset, "file_names", [])),
+            available_parts=list(reference_part_keys or []),
+            batch_size=int(batch_size),
+            shuffle=bool(train),
+        )
+        if batch_sampler is not None:
+            shuffle = False
+    loader_kwargs: dict[str, Any] = {
+        "num_workers": resolved_num_workers,
+        "pin_memory": use_cuda,
+        "collate_fn": collate_graph_batch,
+    }
+    if batch_sampler is not None:
+        loader_kwargs["batch_sampler"] = batch_sampler
+    else:
+        loader_kwargs["batch_size"] = batch_size
+        loader_kwargs["shuffle"] = shuffle
+        loader_kwargs["sampler"] = sampler
+    if resolved_num_workers > 0:
+        loader_kwargs["prefetch_factor"] = 2
+        loader_kwargs["persistent_workers"] = True
     return DataLoader(
         dataset,
-        batch_size=batch_size,
-        shuffle=shuffle,
-        sampler=sampler,
-        num_workers=num_workers,
-        pin_memory=use_cuda,
-        collate_fn=collate_graph_batch,
+        **loader_kwargs,
     )
 
 

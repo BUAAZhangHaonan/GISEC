@@ -168,6 +168,8 @@ class ECCGraphDataset(Dataset):
         self.coco = coco_cls(
             str(self.root / "annotations" / f"instances_{split}.json"))
         self.image_ids = sorted(self.coco.getImgIds())
+        self.image_infos = [self.coco.loadImgs([int(image_id)])[0] for image_id in self.image_ids]
+        self.file_names = [str(info["file_name"]) for info in self.image_infos]
         depth_candidates = [
             self.root / "depth" / split,
             self.root / "depth" / "depth_npy" / split,
@@ -183,7 +185,7 @@ class ECCGraphDataset(Dataset):
         from gisec.train.query_targets import build_ownership_target as build_query_ownership_target
 
         image_id = int(self.image_ids[index])
-        info = self.coco.loadImgs([image_id])[0]
+        info = self.image_infos[index]
         image = cv2.imread(
             str(self.root / "images" / self.split / info["file_name"]), cv2.IMREAD_COLOR)
         if image is None:

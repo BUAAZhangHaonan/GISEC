@@ -63,7 +63,7 @@ def test_forward_with_reference_routing_skips_prototype_resolution_when_mode_is_
         def __call__(self, images, query_depth, prototype_cache, **kwargs):
             return {"fg_logits": images[:, :1] + query_depth[:, :1] * 0.0 + 1.0}
 
-    outputs, prototype_caches = forward_with_reference_routing(
+    outputs, prototype_caches, routing_stats = forward_with_reference_routing(
         model=DummyModel(),
         images=torch.zeros((1, 3, 8, 8), dtype=torch.float32),
         depths=torch.zeros((1, 1, 8, 8), dtype=torch.float32),
@@ -74,3 +74,4 @@ def test_forward_with_reference_routing_skips_prototype_resolution_when_mode_is_
 
     assert prototype_caches == [None]
     assert tuple(outputs["fg_logits"].shape) == (1, 1, 8, 8)
+    assert routing_stats["forward_call_count"] == 1

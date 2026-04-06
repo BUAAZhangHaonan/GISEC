@@ -24,6 +24,7 @@ class _NoReferenceModel:
         reference_conditioning_mode: str,
         reference_routing_mode: str,
         reference_skip_margin: float,
+        return_reference_routing: bool = True,
     ) -> dict[str, torch.Tensor]:
         self.prototype_caches.append(prototype_cache)
         self.reference_modes.append(reference_conditioning_mode)
@@ -86,7 +87,7 @@ def test_no_reference_variants_reject_explicit_reference_conditioning(tmp_path) 
 def test_forward_with_reference_routing_skips_prototype_resolution_when_conditioning_is_off() -> None:
     model = _NoReferenceModel()
 
-    outputs, prototype_caches = forward_with_reference_routing(
+    outputs, prototype_caches, routing_stats = forward_with_reference_routing(
         model=model,
         images=torch.zeros((1, 3, 4, 4), dtype=torch.float32),
         depths=torch.zeros((1, 1, 4, 4), dtype=torch.float32),
@@ -101,3 +102,4 @@ def test_forward_with_reference_routing_skips_prototype_resolution_when_conditio
     assert prototype_caches == [None]
     assert model.prototype_caches == [None]
     assert model.reference_modes == ["off"]
+    assert routing_stats["forward_call_count"] == 1
