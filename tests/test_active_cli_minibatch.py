@@ -387,3 +387,81 @@ def test_active_cli_minibatch_runs_refine_reference_graph_variant_with_prototype
     assert summary["modality"] == "rgbd_concat"
     assert "refinement_invocation_rate" in summary["metrics"]
     assert "local_graph_invocation_rate" in summary["metrics"]
+
+
+def test_active_cli_minibatch_supports_final_only_eval_and_epoch_resume(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    dataset_root = tmp_path / "dataset"
+    output_root = tmp_path / "resume_out"
+    _write_dataset(dataset_root)
+
+    first_result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gisec.cli.train",
+            *_active_args(dataset_root, output_root, variant="base_rgb_1024"),
+            "--epochs",
+            "2",
+            "--max-train-steps",
+            "1",
+            "--eval-every-epochs",
+            "0",
+            "--log-every-steps",
+            "1",
+            "--resume-save-every-epochs",
+            "1",
+        ],
+        cwd=str(repo_root),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    resume_checkpoint = output_root / "resume_last.pth"
+    assert resume_checkpoint.exists()
+    metric_rows = [
+        json.loads(line)
+        for line in (output_root / "metrics_log.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert sum(1 for row in metric_rows if row["mode"] == "epoch_eval") == 1
+    assert first_result.stdout.count("mode=epoch_eval") == 1
+    initial_resume_payload = torch.load(str(resume_checkpoint), map_location="cpu", weights_only=False)
+    assert initial_resume_payload["completed_epoch"] == 1
+    assert initial_resume_payload["global_step"] == 1
+    assert "optimizer_state_dict" in initial_resume_payload
+    assert "scaler_state_dict" in initial_resume_payload
+    assert "rng_state" in initial_resume_payload
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gisec.cli.train",
+            *_active_args(dataset_root, output_root, variant="base_rgb_1024"),
+            "--epochs",
+            "2",
+            "--max-train-steps",
+            "2",
+            "--eval-every-epochs",
+            "0",
+            "--log-every-steps",
+            "1",
+            "--resume-save-every-epochs",
+            "1",
+            "--resume-checkpoint",
+            str(resume_checkpoint),
+        ],
+        cwd=str(repo_root),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    resumed_rows = [
+        json.loads(line)
+        for line in (output_root / "metrics_log.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    resumed_train_row = next(row for row in resumed_rows if row["mode"] == "train_step")
+    assert resumed_train_row["epoch"] == 2
+    assert resumed_train_row["global_step"] == 2

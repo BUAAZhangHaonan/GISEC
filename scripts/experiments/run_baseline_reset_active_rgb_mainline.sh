@@ -36,6 +36,20 @@ join_args() {
   printf '%s' "${joined}"
 }
 
+resume_checkpoint_path() {
+  local out_dir="$1"
+  printf '%s\n' "${out_dir}/resume_last.pth"
+}
+
+archive_incomplete_stage_dir() {
+  local root_log="$1"
+  local stage_dir="$2"
+  local archive_dir="${stage_dir}_interrupted_$(date '+%Y%m%d-%H%M%S')"
+  mv "${stage_dir}" "${archive_dir}"
+  mkdir -p "${stage_dir}"
+  runner_log "${MODE}" "${root_log}" "[active-rgb-mainline] archived_incomplete_stage=${archive_dir}"
+}
+
 log_stage_summary() {
   local root_log="$1"
   local stage_name="$2"
@@ -43,12 +57,14 @@ log_stage_summary() {
   local eval_dir="$4"
   local init_checkpoint="$5"
   local prototype_root="$6"
-  local next_artifact="$7"
+  local resume_checkpoint="$7"
+  local next_artifact="$8"
   runner_log "${MODE}" "${root_log}" "[active-rgb-mainline] stage=${stage_name}"
   runner_log "${MODE}" "${root_log}" "[active-rgb-mainline] train_dir=${train_dir}"
   runner_log "${MODE}" "${root_log}" "[active-rgb-mainline] eval_dir=${eval_dir}"
   runner_log "${MODE}" "${root_log}" "[active-rgb-mainline] init_checkpoint=${init_checkpoint}"
   runner_log "${MODE}" "${root_log}" "[active-rgb-mainline] prototype_root=${prototype_root}"
+  runner_log "${MODE}" "${root_log}" "[active-rgb-mainline] resume_checkpoint=${resume_checkpoint}"
   runner_log "${MODE}" "${root_log}" "[active-rgb-mainline] next_artifact=${next_artifact}"
 }
 
@@ -108,27 +124,44 @@ for index in "${!ACTIVE_STAGES[@]}"; do
   fi
 
   prototype_arg=""
-  if [[ "${stage_name}" == *"_ref"* ]]; then
+  if [[ "${stage_name}" == *"_refine_ref"* ]]; then
     prototype_arg="${PROTOTYPE_ROOT}"
   fi
+  resume_checkpoint=""
+  train_resume_checkpoint="$(resume_checkpoint_path "${train_dir}")"
+  if [[ -f "${train_resume_checkpoint}" && ! -f "${train_dir}/run_summary.json" ]]; then
+    resume_checkpoint="${train_resume_checkpoint}"
+  fi
 
-  log_stage_summary "${ROOT_LOG}" "${stage_name}" "${train_dir}" "${eval_dir}" "${init_checkpoint:-<scratch>}" "${prototype_arg:-<none>}" "${train_dir}/model_best.pth"
+  log_stage_summary "${ROOT_LOG}" "${stage_name}" "${train_dir}" "${eval_dir}" "${init_checkpoint:-<scratch>}" "${prototype_arg:-<none>}" "${resume_checkpoint:-<none>}" "${train_dir}/model_best.pth"
 
   if train_complete "${train_dir}"; then
     runner_log "${MODE}" "${ROOT_LOG}" "[active-rgb-mainline] SKIP train ${stage_name}"
   else
+    if [[ -z "${resume_checkpoint}" && -d "${train_dir}" ]] && compgen -G "${train_dir}/*" > /dev/null; then
+      if [[ "${MODE}" == "run" ]]; then
+        archive_incomplete_stage_dir "${ROOT_LOG}" "${train_dir}"
+      else
+        runner_log "${MODE}" "${ROOT_LOG}" "[active-rgb-mainline] WOULD_ARCHIVE incomplete_stage=${train_dir}"
+      fi
+    fi
     train_args=(
       -m gisec.cli.train
       --dataset-root "${DATASET_ROOT}"
       --config "${config_path}"
       --output-dir "${train_dir}"
       --device cuda
+      --eval-every-epochs 0
+      --resume-save-every-epochs 1
     )
     if [[ -n "${prototype_arg}" ]]; then
       train_args+=(--prototype-root "${prototype_arg}")
     fi
     if [[ -n "${init_checkpoint}" ]]; then
       train_args+=(--init-checkpoint "${init_checkpoint}")
+    fi
+    if [[ -n "${resume_checkpoint}" ]]; then
+      train_args+=(--resume-checkpoint "${resume_checkpoint}")
     fi
     if [[ "${MODE}" == "dry-run" ]]; then
       train_args+=(--dry-run)
@@ -146,7 +179,7 @@ for index in "${!ACTIVE_STAGES[@]}"; do
   fi
 
   checkpoint_path="${train_dir}/model_best.pth"
-  log_stage_summary "${ROOT_LOG}" "${stage_name}" "${train_dir}" "${eval_dir}" "${checkpoint_path}" "${prototype_arg:-<none>}" "${eval_dir}/run_summary.json"
+  log_stage_summary "${ROOT_LOG}" "${stage_name}" "${train_dir}" "${eval_dir}" "${checkpoint_path}" "${prototype_arg:-<none>}" "${resume_checkpoint:-<none>}" "${eval_dir}/run_summary.json"
   if eval_complete "${eval_dir}"; then
     runner_log "${MODE}" "${ROOT_LOG}" "[active-rgb-mainline] SKIP eval ${stage_name}"
   else

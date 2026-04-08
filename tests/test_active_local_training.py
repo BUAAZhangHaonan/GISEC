@@ -44,13 +44,14 @@ class _RecordingRefiner(nn.Module):
         reference_mask: torch.Tensor | None = None,
     ) -> dict[str, torch.Tensor | None]:
         self.seen_coarse_masks.append(coarse_mask_prob.detach().clone())
+        batch_size = int(coarse_mask_prob.shape[0])
         height, width = coarse_mask_prob.shape[-2:]
         device = coarse_mask_prob.device
         dtype = coarse_mask_prob.dtype
         return {
-            "refined_mask_logits": torch.zeros((1, 1, height, width), dtype=dtype, device=device),
-            "refined_boundary_logits": torch.zeros((1, 1, height, width), dtype=dtype, device=device),
-            "crop_features": torch.zeros((1, 16, height, width), dtype=dtype, device=device),
+            "refined_mask_logits": torch.zeros((batch_size, 1, height, width), dtype=dtype, device=device),
+            "refined_boundary_logits": torch.zeros((batch_size, 1, height, width), dtype=dtype, device=device),
+            "crop_features": torch.zeros((batch_size, 16, height, width), dtype=dtype, device=device),
             "reference_match_logits": None,
         }
 
@@ -74,7 +75,11 @@ class _RecordingReferenceRefiner(_RecordingRefiner):
             reference_depth=reference_depth,
             reference_mask=reference_mask,
         )
-        result["reference_match_logits"] = torch.zeros((1, 1), dtype=coarse_mask_prob.dtype, device=coarse_mask_prob.device)
+        result["reference_match_logits"] = torch.zeros(
+            (int(coarse_mask_prob.shape[0]), 1),
+            dtype=coarse_mask_prob.dtype,
+            device=coarse_mask_prob.device,
+        )
         return result
 
 
@@ -232,3 +237,135 @@ def test_train_local_modules_skips_reference_match_aux_without_negative_bank(tmp
 
     assert torch.isfinite(loss)
     assert len(model.refiner.seen_coarse_masks) == 1
+
+
+def test_train_local_modules_batches_refiner_forward_across_matches(monkeypatch) -> None:
+    model = _DummyActiveModel()
+    pixel_values = torch.zeros((1, 4, 8, 8), dtype=torch.float32)
+    gt_a = torch.zeros((8, 8), dtype=torch.float32)
+    gt_b = torch.zeros((8, 8), dtype=torch.float32)
+    gt_a[1:4, 1:4] = 1.0
+    gt_b[4:7, 4:7] = 1.0
+    pred_a = torch.zeros((8, 8), dtype=torch.float32)
+    pred_b = torch.zeros((8, 8), dtype=torch.float32)
+    pred_a[1:4, 1:4] = 1.0
+    pred_b[4:7, 4:7] = 1.0
+
+    monkeypatch.setattr(
+        train_active_module,
+        "_query_instances_from_outputs",
+        lambda **kwargs: [
+            {
+                "query_index": 0,
+                "score": 0.9,
+                "category_id": 1,
+                "mask_probs": pred_a,
+                "binary_mask": (pred_a >= 0.5).float(),
+            },
+            {
+                "query_index": 1,
+                "score": 0.8,
+                "category_id": 1,
+                "mask_probs": pred_b,
+                "binary_mask": (pred_b >= 0.5).float(),
+            },
+        ],
+    )
+
+    sample = {
+        "image": torch.zeros((3, 8, 8), dtype=torch.float32),
+        "depth": torch.zeros((1, 8, 8), dtype=torch.float32),
+        "masks": torch.stack([gt_a, gt_b], dim=0),
+        "file_name": "PARTA_scene_0001.png",
+    }
+    backbone_outputs = SimpleNamespace(
+        pixel_decoder_last_hidden_state=torch.zeros((1, 16, 8, 8), dtype=torch.float32),
+        class_queries_logits=torch.zeros((1, 2, 2), dtype=torch.float32),
+        masks_queries_logits=torch.zeros((1, 2, 8, 8), dtype=torch.float32),
+    )
+
+    loss = _train_local_modules(
+        model=model,
+        samples=[sample],
+        pixel_values=pixel_values,
+        backbone_outputs=backbone_outputs,
+        variant_name="base_rgbd_1024_refine",
+        prototype_source=None,
+        crop_size=4,
+        crop_pad=0,
+    )
+
+    assert torch.isfinite(loss)
+    assert len(model.refiner.seen_coarse_masks) == 1
+    assert model.refiner.seen_coarse_masks[0].shape[0] == 2
+
+
+def test_train_local_modules_batches_reference_positive_and_negative_forwards(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "prototype_banks"
+    _write_part_bank(root, part_key="PARTA")
+    _write_part_bank(root, part_key="PARTB")
+    source = PrototypeBankSource(
+        root=root,
+        image_size=32,
+        contract_mode="compat",
+        max_views=4,
+        view_sampler="all",
+    )
+    model = _DummyReferenceActiveModel()
+    pixel_values = torch.zeros((1, 4, 8, 8), dtype=torch.float32)
+    gt_a = torch.zeros((8, 8), dtype=torch.float32)
+    gt_b = torch.zeros((8, 8), dtype=torch.float32)
+    gt_a[1:4, 1:4] = 1.0
+    gt_b[4:7, 4:7] = 1.0
+    pred_a = torch.zeros((8, 8), dtype=torch.float32)
+    pred_b = torch.zeros((8, 8), dtype=torch.float32)
+    pred_a[1:4, 1:4] = 1.0
+    pred_b[4:7, 4:7] = 1.0
+
+    monkeypatch.setattr(
+        train_active_module,
+        "_query_instances_from_outputs",
+        lambda **kwargs: [
+            {
+                "query_index": 0,
+                "score": 0.9,
+                "category_id": 1,
+                "mask_probs": pred_a,
+                "binary_mask": (pred_a >= 0.5).float(),
+            },
+            {
+                "query_index": 1,
+                "score": 0.8,
+                "category_id": 1,
+                "mask_probs": pred_b,
+                "binary_mask": (pred_b >= 0.5).float(),
+            },
+        ],
+    )
+
+    sample = {
+        "image": torch.zeros((3, 8, 8), dtype=torch.float32),
+        "depth": torch.zeros((1, 8, 8), dtype=torch.float32),
+        "masks": torch.stack([gt_a, gt_b], dim=0),
+        "file_name": "PARTA_scene_0001.png",
+    }
+    backbone_outputs = SimpleNamespace(
+        pixel_decoder_last_hidden_state=torch.zeros((1, 16, 8, 8), dtype=torch.float32),
+        class_queries_logits=torch.zeros((1, 2, 2), dtype=torch.float32),
+        masks_queries_logits=torch.zeros((1, 2, 8, 8), dtype=torch.float32),
+    )
+
+    loss = _train_local_modules(
+        model=model,
+        samples=[sample],
+        pixel_values=pixel_values,
+        backbone_outputs=backbone_outputs,
+        variant_name="base_rgbd_1024_refine_ref",
+        prototype_source=source,
+        crop_size=4,
+        crop_pad=0,
+    )
+
+    assert torch.isfinite(loss)
+    assert len(model.refiner.seen_coarse_masks) == 2
+    assert all(tensor.shape[0] == 2 for tensor in model.refiner.seen_coarse_masks)

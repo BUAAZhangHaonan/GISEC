@@ -78,9 +78,11 @@ MODEL_DEFAULTS = {
     "reference_view_sampler": "pose_farthest",
     "prototype_root": "",
     "init_checkpoint": "",
+    "resume_checkpoint": "",
     "checkpoint": "",
     "split": "val",
     "dry_run": False,
+    "resume_save_every_epochs": 1,
 }
 
 ACTIVE_DEPTH_MODES = ("rgb", "rgbd_concat", "rgbd_concat_valid_mask")
@@ -165,6 +167,7 @@ def _common_parser(*, mode: str, argv: list[str] | None) -> argparse.ArgumentPar
     parser.add_argument("--output-dir")
     parser.add_argument("--prototype-root", default="")
     parser.add_argument("--init-checkpoint", default="")
+    parser.add_argument("--resume-checkpoint", default="")
     parser.add_argument(
         "--variant",
         choices=list(active_variant_names()),
@@ -203,6 +206,7 @@ def _common_parser(*, mode: str, argv: list[str] | None) -> argparse.ArgumentPar
         parser.add_argument("--max-val-images", type=int, default=0)
         parser.add_argument("--eval-every-epochs", type=int, default=1)
         parser.add_argument("--log-every-steps", type=int, default=int(MODEL_DEFAULTS["log_every_steps"]))
+        parser.add_argument("--resume-save-every-epochs", type=int, default=int(MODEL_DEFAULTS["resume_save_every_epochs"]))
     else:
         parser.add_argument("--checkpoint", type=str, default="")
         parser.add_argument("--split", choices=["train", "val"], default="val")
@@ -297,6 +301,7 @@ def _model_payload(args: argparse.Namespace) -> dict[str, Any]:
         "reference_view_sampler": str(args.reference_view_sampler),
         "prototype_root": str(getattr(args, "prototype_root", "")),
         "init_checkpoint": str(getattr(args, "init_checkpoint", "")),
+        "resume_checkpoint": str(getattr(args, "resume_checkpoint", "")),
         "checkpoint": str(getattr(args, "checkpoint", "")),
         "split": str(getattr(args, "split", "val")),
         "max_train_steps": int(getattr(args, "max_train_steps", 0)),
@@ -308,6 +313,7 @@ def _model_payload(args: argparse.Namespace) -> dict[str, Any]:
         "weight_decay": float(getattr(args, "weight_decay", 0.0)),
         "eval_every_epochs": int(getattr(args, "eval_every_epochs", 1)),
         "allow_partial_checkpoint_load": bool(getattr(args, "allow_partial_checkpoint_load", False)),
+        "resume_save_every_epochs": int(getattr(args, "resume_save_every_epochs", MODEL_DEFAULTS["resume_save_every_epochs"])),
     }
 
 
@@ -318,6 +324,104 @@ def _checkpoint_payload(model: nn.Module, args: argparse.Namespace) -> dict[str,
         "depth_mode": str(args.depth_mode),
         "model": _model_payload(args),
     }
+
+
+def _serialize_train_args(args: argparse.Namespace) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    for key, value in vars(args).items():
+        if str(key).startswith("_"):
+            continue
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            payload[str(key)] = value
+        else:
+            payload[str(key)] = str(value)
+    return payload
+
+
+def _capture_rng_state() -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "python": random.getstate(),
+        "numpy": np.random.get_state(),
+        "torch_cpu": torch.get_rng_state(),
+    }
+    if torch.cuda.is_available():
+        payload["torch_cuda"] = torch.cuda.get_rng_state_all()
+    return payload
+
+
+def _restore_rng_state(payload: dict[str, Any] | None) -> None:
+    if not isinstance(payload, dict):
+        return
+    python_state = payload.get("python")
+    if python_state is not None:
+        random.setstate(python_state)
+    numpy_state = payload.get("numpy")
+    if numpy_state is not None:
+        np.random.set_state(numpy_state)
+    torch_cpu_state = payload.get("torch_cpu")
+    if torch_cpu_state is not None:
+        torch.set_rng_state(torch_cpu_state)
+    torch_cuda_state = payload.get("torch_cuda")
+    if torch_cuda_state is not None and torch.cuda.is_available():
+        torch.cuda.set_rng_state_all(torch_cuda_state)
+
+
+def _resume_payload(
+    *,
+    model: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scaler: GradScaler,
+    args: argparse.Namespace,
+    completed_epoch: int,
+    global_step: int,
+    best_metric: float,
+    running_step_time_total: float,
+) -> dict[str, Any]:
+    return {
+        **_checkpoint_payload(model, args),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "scaler_state_dict": scaler.state_dict(),
+        "completed_epoch": int(completed_epoch),
+        "global_step": int(global_step),
+        "best_metric": float(best_metric),
+        "running_step_time_total": float(running_step_time_total),
+        "train_args": _serialize_train_args(args),
+        "rng_state": _capture_rng_state(),
+    }
+
+
+def _load_resume_payload(
+    *,
+    model: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scaler: GradScaler,
+    args: argparse.Namespace,
+) -> tuple[int, int, float, float]:
+    resume_checkpoint = Path(str(args.resume_checkpoint)).resolve()
+    if not resume_checkpoint.exists():
+        raise FileNotFoundError(resume_checkpoint)
+    payload = torch.load(str(resume_checkpoint), map_location="cpu", weights_only=False)
+    _validate_checkpoint_variant(
+        expected_variant=str(args.variant),
+        checkpoint_payload=payload,
+        checkpoint_path=resume_checkpoint,
+    )
+    _load_module_state_dict(
+        model,
+        _extract_state_dict(payload),
+        allow_partial=False,
+        context=f"resume checkpoint {resume_checkpoint}",
+    )
+    optimizer.load_state_dict(dict(payload.get("optimizer_state_dict", {})))
+    scaler_state = payload.get("scaler_state_dict")
+    if isinstance(scaler_state, dict):
+        scaler.load_state_dict(scaler_state)
+    _restore_rng_state(payload.get("rng_state"))
+    completed_epoch = int(payload.get("completed_epoch", 0))
+    global_step = int(payload.get("global_step", 0))
+    best_metric = float(payload.get("best_metric", float("-inf")))
+    running_step_time_total = float(payload.get("running_step_time_total", 0.0))
+    return completed_epoch, global_step, best_metric, running_step_time_total
 
 
 def _extract_state_dict(payload: dict[str, Any], *, prefix_backbone: bool = False) -> dict[str, Any]:
@@ -531,6 +635,9 @@ def _active_log_line(payload: dict[str, Any]) -> str:
         "step_time_running_avg_sec",
         "elapsed_sec",
         "eta_sec",
+        "local_refine_sec",
+        "local_reference_sec",
+        "local_graph_sec",
         "epoch_train_sec",
         "eval_sec",
         "best_updated",
@@ -564,6 +671,21 @@ def _active_log_line(payload: dict[str, Any]) -> str:
 def _emit_active_log(metrics_log_path: Path, payload: dict[str, Any]) -> None:
     _append_jsonl(metrics_log_path, payload)
     print(_active_log_line(payload), flush=True)
+
+
+def _backward_active_loss(
+    *,
+    optimizer: torch.optim.Optimizer,
+    scaler: GradScaler,
+    loss: torch.Tensor,
+) -> bool:
+    optimizer.zero_grad(set_to_none=True)
+    if not bool(loss.requires_grad):
+        return False
+    scaler.scale(loss).backward()
+    scaler.step(optimizer)
+    scaler.update()
+    return True
 
 
 def _move_active_tensor_to_device(tensor: Any, device: torch.device, *, non_blocking: bool) -> Any:
@@ -1315,6 +1437,22 @@ def _evaluate_active(
     return metrics, speed
 
 
+def _expand_reference_batch(
+    reference_tensors: tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None],
+    *,
+    batch_size: int,
+) -> tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]:
+    rgb, depth, mask = reference_tensors
+    if rgb is None or depth is None or mask is None:
+        return None, None, None
+    expand_shape = (int(batch_size), -1, -1, -1, -1)
+    return (
+        rgb.expand(*expand_shape).contiguous(),
+        depth.expand(*expand_shape).contiguous(),
+        mask.expand(*expand_shape).contiguous(),
+    )
+
+
 def _train_local_modules_with_metrics(
     *,
     model: ActiveInstanceModel,
@@ -1336,15 +1474,22 @@ def _train_local_modules_with_metrics(
             "loss_local_reference_positive": 0.0,
             "loss_local_reference_negative": 0.0,
             "loss_local_graph": 0.0,
+            "local_refine_sec": 0.0,
+            "local_reference_sec": 0.0,
+            "local_graph_sec": 0.0,
         }
     feature_map = model.feature_proj(backbone_outputs.pixel_decoder_last_hidden_state)
-    losses: list[torch.Tensor] = []
+    loss_sum = pixel_values.sum() * 0.0
+    loss_count = 0
     component_totals = {
         "loss_local_mask": 0.0,
         "loss_local_boundary": 0.0,
         "loss_local_reference_positive": 0.0,
         "loss_local_reference_negative": 0.0,
         "loss_local_graph": 0.0,
+        "local_refine_sec": 0.0,
+        "local_reference_sec": 0.0,
+        "local_graph_sec": 0.0,
     }
     for sample_index, sample in enumerate(samples):
         masks = sample.get("masks")
@@ -1373,6 +1518,13 @@ def _train_local_modules_with_metrics(
             crop_size=int(crop_size),
             device=pixel_values.device,
         )
+        if not matches:
+            continue
+        query_crops: list[torch.Tensor] = []
+        feature_crops: list[torch.Tensor] = []
+        coarse_masks: list[torch.Tensor] = []
+        gt_crops: list[torch.Tensor] = []
+        match_rows: list[dict[str, Any]] = []
         for prediction_index, gt_index, _iou in matches:
             prediction = predictions[int(prediction_index)]
             instance_mask = gt_masks[int(gt_index)]
@@ -1383,86 +1535,124 @@ def _train_local_modules_with_metrics(
             )
             feature_bbox = _scale_bbox(bbox, source_shape=image_shape, target_shape=feature_shape)
             gt_crop = crop_and_resize(instance_mask.unsqueeze(0), bbox=bbox, output_size=int(crop_size), mode="nearest")[0]
-            query_crop = crop_and_resize(pixel_values[sample_index], bbox=bbox, output_size=int(crop_size), mode="bilinear").unsqueeze(0)
-            feature_crop = crop_and_resize(feature_map[sample_index], bbox=feature_bbox, output_size=int(crop_size), mode="bilinear").unsqueeze(0)
+            query_crop = crop_and_resize(pixel_values[sample_index], bbox=bbox, output_size=int(crop_size), mode="bilinear")
+            feature_crop = crop_and_resize(feature_map[sample_index], bbox=feature_bbox, output_size=int(crop_size), mode="bilinear")
             coarse_mask = crop_and_resize(
                 prediction["mask_probs"].unsqueeze(0),
                 bbox=bbox,
                 output_size=int(crop_size),
                 mode="bilinear",
-            ).unsqueeze(0)
-            reference_rgb, reference_depth, reference_mask = positive_reference
-            refined = model.refiner(
-                query_crop=query_crop,
-                coarse_mask_prob=coarse_mask,
-                feature_crop=feature_crop,
-                reference_rgb=reference_rgb,
-                reference_depth=reference_depth,
-                reference_mask=reference_mask,
             )
-            gt_boundary = boundary_target_from_mask(gt_crop)
-            loss_mask = F.binary_cross_entropy_with_logits(refined["refined_mask_logits"][0, 0], gt_crop)
-            loss_boundary = F.binary_cross_entropy_with_logits(refined["refined_boundary_logits"][0, 0], gt_boundary)
-            loss = loss_mask + 0.5 * loss_boundary
-            component_totals["loss_local_mask"] += float(loss_mask.detach().cpu())
-            component_totals["loss_local_boundary"] += float((0.5 * loss_boundary).detach().cpu())
-            if variant_spec.use_reference_rescue and refined["reference_match_logits"] is not None:
-                if len(reference_examples) > 1:
-                    positive_target = torch.ones_like(refined["reference_match_logits"])
-                    positive_loss = 0.05 * F.binary_cross_entropy_with_logits(
-                        refined["reference_match_logits"],
-                        positive_target,
-                    )
-                    loss = loss + positive_loss
-                    component_totals["loss_local_reference_positive"] += float(positive_loss.detach().cpu())
-                    negative_rgb, negative_depth, negative_mask = reference_examples[1][0]
-                    negative_refined = model.refiner(
-                        query_crop=query_crop,
-                        coarse_mask_prob=coarse_mask,
-                        feature_crop=feature_crop,
-                        reference_rgb=negative_rgb,
-                        reference_depth=negative_depth,
-                        reference_mask=negative_mask,
-                    )
-                    negative_target = torch.zeros_like(negative_refined["reference_match_logits"])
-                    negative_loss = 0.05 * F.binary_cross_entropy_with_logits(
-                        negative_refined["reference_match_logits"],
-                        negative_target,
-                    )
-                    loss = loss + negative_loss
-                    component_totals["loss_local_reference_negative"] += float(negative_loss.detach().cpu())
-            if variant_spec.use_graph_rescue and model.graph_head is not None:
-                gt_crops = torch.stack(
+            query_crops.append(query_crop)
+            feature_crops.append(feature_crop)
+            coarse_masks.append(coarse_mask)
+            gt_crops.append(gt_crop)
+            match_rows.append(
+                {
+                    "bbox": bbox,
+                    "query_crop": query_crop,
+                }
+            )
+        batch_size = len(match_rows)
+        query_crop_batch = torch.stack(query_crops, dim=0)
+        feature_crop_batch = torch.stack(feature_crops, dim=0)
+        coarse_mask_batch = torch.stack(coarse_masks, dim=0)
+        gt_crop_batch = torch.stack(gt_crops, dim=0)
+        gt_boundary_batch = torch.stack(
+            [boundary_target_from_mask(gt_crop) for gt_crop in gt_crop_batch],
+            dim=0,
+        )
+        reference_rgb, reference_depth, reference_mask = _expand_reference_batch(
+            positive_reference,
+            batch_size=batch_size,
+        )
+        refine_start = time.perf_counter()
+        refined = model.refiner(
+            query_crop=query_crop_batch,
+            coarse_mask_prob=coarse_mask_batch,
+            feature_crop=feature_crop_batch,
+            reference_rgb=reference_rgb,
+            reference_depth=reference_depth,
+            reference_mask=reference_mask,
+        )
+        component_totals["local_refine_sec"] += float(time.perf_counter() - refine_start)
+        loss_mask = F.binary_cross_entropy_with_logits(refined["refined_mask_logits"][:, 0], gt_crop_batch)
+        loss_boundary = F.binary_cross_entropy_with_logits(refined["refined_boundary_logits"][:, 0], gt_boundary_batch)
+        sample_loss_sum = (loss_mask + 0.5 * loss_boundary) * float(batch_size)
+        component_totals["loss_local_mask"] += float(loss_mask.detach().cpu()) * float(batch_size)
+        component_totals["loss_local_boundary"] += float((0.5 * loss_boundary).detach().cpu()) * float(batch_size)
+        if variant_spec.use_reference_rescue and refined["reference_match_logits"] is not None and len(reference_examples) > 1:
+            reference_start = time.perf_counter()
+            positive_target = torch.ones_like(refined["reference_match_logits"])
+            positive_loss = 0.05 * F.binary_cross_entropy_with_logits(
+                refined["reference_match_logits"],
+                positive_target,
+            )
+            negative_rgb, negative_depth, negative_mask = _expand_reference_batch(
+                reference_examples[1][0],
+                batch_size=batch_size,
+            )
+            negative_refined = model.refiner(
+                query_crop=query_crop_batch,
+                coarse_mask_prob=coarse_mask_batch,
+                feature_crop=feature_crop_batch,
+                reference_rgb=negative_rgb,
+                reference_depth=negative_depth,
+                reference_mask=negative_mask,
+            )
+            negative_target = torch.zeros_like(negative_refined["reference_match_logits"])
+            negative_loss = 0.05 * F.binary_cross_entropy_with_logits(
+                negative_refined["reference_match_logits"],
+                negative_target,
+            )
+            component_totals["local_reference_sec"] += float(time.perf_counter() - reference_start)
+            sample_loss_sum = sample_loss_sum + (positive_loss + negative_loss) * float(batch_size)
+            component_totals["loss_local_reference_positive"] += float(positive_loss.detach().cpu()) * float(batch_size)
+            component_totals["loss_local_reference_negative"] += float(negative_loss.detach().cpu()) * float(batch_size)
+        if variant_spec.use_graph_rescue and model.graph_head is not None:
+            graph_start = time.perf_counter()
+            graph_losses: list[torch.Tensor] = []
+            for match_index, match in enumerate(match_rows):
+                gt_instance_crops = torch.stack(
                     [
-                        crop_and_resize(mask.unsqueeze(0), bbox=bbox, output_size=int(crop_size), mode="nearest")[0]
+                        crop_and_resize(mask.unsqueeze(0), bbox=match["bbox"], output_size=int(crop_size), mode="nearest")[0]
                         for mask in gt_masks
                     ],
                     dim=0,
                 )
-                graph_loss = 0.1 * _graph_rescue_training_loss(
-                    graph_head=model.graph_head,
-                    crop_features=refined["crop_features"][0],
-                    coarse_mask_prob=coarse_mask[0, 0],
-                    depth_crop=None if query_crop.shape[1] <= 3 else query_crop[0, 3:4],
-                    instance_mask_crops=gt_crops,
+                graph_losses.append(
+                    0.1 * _graph_rescue_training_loss(
+                        graph_head=model.graph_head,
+                        crop_features=refined["crop_features"][match_index],
+                        coarse_mask_prob=coarse_mask_batch[match_index, 0],
+                        depth_crop=None if query_crop_batch.shape[1] <= 3 else query_crop_batch[match_index, 3:4],
+                        instance_mask_crops=gt_instance_crops,
+                    )
                 )
-                loss = loss + graph_loss
-                component_totals["loss_local_graph"] += float(graph_loss.detach().cpu())
-            losses.append(loss)
-    if not losses:
+            component_totals["local_graph_sec"] += float(time.perf_counter() - graph_start)
+            if graph_losses:
+                graph_loss_sum = torch.stack(graph_losses).sum()
+                sample_loss_sum = sample_loss_sum + graph_loss_sum
+                component_totals["loss_local_graph"] += float(graph_loss_sum.detach().cpu())
+        loss_sum = loss_sum + sample_loss_sum
+        loss_count += int(batch_size)
+    if loss_count <= 0:
         zero = pixel_values.sum() * 0.0
         return zero, {
             "loss_local_total": 0.0,
             **component_totals,
         }
-    local_loss = torch.stack(losses).mean()
-    loss_count = float(len(losses))
+    local_loss = loss_sum / float(loss_count)
     return local_loss, {
         "loss_local_total": float(local_loss.detach().cpu()),
         **{
             key: float(value / loss_count)
             for key, value in component_totals.items()
+            if key.startswith("loss_")
         },
+        "local_refine_sec": float(component_totals["local_refine_sec"]),
+        "local_reference_sec": float(component_totals["local_reference_sec"]),
+        "local_graph_sec": float(component_totals["local_graph_sec"]),
     }
 
 
@@ -1539,13 +1729,19 @@ def train_active(args: argparse.Namespace) -> None:
     metrics_log_path = output_dir / "metrics_log.jsonl"
     if metrics_log_path.exists():
         metrics_log_path.unlink()
+    resume_last_ckpt = output_dir / "resume_last.pth"
     best_ap = float("-inf")
     best_ckpt = output_dir / "model_best.pth"
     start = time.perf_counter()
     if device.type == "cuda" and torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats(device)
     step_count = 0
-    eval_interval = max(int(getattr(args, "eval_every_epochs", 1)), 1)
+    completed_epoch = 0
+    eval_interval = max(int(getattr(args, "eval_every_epochs", 1)), 0)
+    resume_save_every_epochs = max(
+        int(getattr(args, "resume_save_every_epochs", MODEL_DEFAULTS["resume_save_every_epochs"])),
+        1,
+    )
     log_every_steps = max(int(getattr(args, "log_every_steps", MODEL_DEFAULTS["log_every_steps"])), 1)
     epoch_steps_total = len(train_loader)
     planned_total_steps = int(epoch_steps_total * int(args.epochs))
@@ -1553,7 +1749,25 @@ def train_active(args: argparse.Namespace) -> None:
         planned_total_steps = min(planned_total_steps, int(args.max_train_steps))
     running_step_time_total = 0.0
     non_blocking = bool(device.type == "cuda")
-    for epoch_index in range(int(args.epochs)):
+    if str(getattr(args, "resume_checkpoint", "")).strip():
+        completed_epoch, step_count, best_ap, running_step_time_total = _load_resume_payload(
+            model=model,
+            optimizer=optimizer,
+            scaler=scaler,
+            args=args,
+        )
+        _emit_active_log(
+            metrics_log_path,
+            {
+                "mode": "run_resume",
+                "epoch": int(completed_epoch),
+                "global_step": int(step_count),
+                "checkpoint_path": str(Path(str(args.resume_checkpoint)).resolve()),
+                "best_metric": None if not math.isfinite(best_ap) else float(best_ap),
+            },
+        )
+    last_epoch = int(completed_epoch)
+    for epoch_index in range(int(completed_epoch), int(args.epochs)):
         model.train()
         epoch_train_start = time.perf_counter()
         for epoch_step, samples in enumerate(train_loader, start=1):
@@ -1595,10 +1809,11 @@ def train_active(args: argparse.Namespace) -> None:
                     crop_pad=int(args.crop_pad),
                 )
                 loss = backbone_loss + local_loss
-            optimizer.zero_grad(set_to_none=True)
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
+            _backward_active_loss(
+                optimizer=optimizer,
+                scaler=scaler,
+                loss=loss,
+            )
             step_count += 1
             step_time_sec = float(time.perf_counter() - step_start)
             running_step_time_total += step_time_sec
@@ -1646,11 +1861,28 @@ def train_active(args: argparse.Namespace) -> None:
                 "best_metric": None if not math.isfinite(best_ap) else float(best_ap),
             },
         )
+        last_epoch = int(epoch_index + 1)
+        if (epoch_index + 1) % resume_save_every_epochs == 0:
+            torch.save(
+                _resume_payload(
+                    model=model,
+                    optimizer=optimizer,
+                    scaler=scaler,
+                    args=args,
+                    completed_epoch=int(epoch_index + 1),
+                    global_step=int(step_count),
+                    best_metric=float(best_ap),
+                    running_step_time_total=float(running_step_time_total),
+                ),
+                resume_last_ckpt,
+            )
         stopping_early = int(args.max_train_steps) > 0 and step_count >= int(args.max_train_steps)
-        should_eval = stopping_early or (
-            (epoch_index + 1) % eval_interval == 0
-            and (epoch_index + 1) < int(args.epochs)
-        )
+        should_eval = False
+        if eval_interval > 0:
+            should_eval = stopping_early or (
+                (epoch_index + 1) % eval_interval == 0
+                and (epoch_index + 1) < int(args.epochs)
+            )
         if should_eval:
             eval_start = time.perf_counter()
             metrics, speed = _evaluate_active(
@@ -1704,7 +1936,7 @@ def train_active(args: argparse.Namespace) -> None:
         metrics_log_path,
         {
             "mode": "checkpoint",
-            "epoch": int(epoch_index + 1 if int(args.epochs) > 0 else 0),
+            "epoch": int(last_epoch),
             "checkpoint_path": str(final_ckpt.resolve()),
             "reason": "final",
         },
@@ -1729,14 +1961,15 @@ def train_active(args: argparse.Namespace) -> None:
     )
     final_eval_sec = float(time.perf_counter() - final_eval_start)
     final_ap = float(metrics.get("segm/AP", 0.0))
-    if final_ap >= best_ap:
+    final_best_updated = bool(final_ap >= best_ap)
+    if final_best_updated:
         best_ap = final_ap
         torch.save(_checkpoint_payload(model, args), best_ckpt)
         _emit_active_log(
             metrics_log_path,
             {
                 "mode": "checkpoint",
-                "epoch": int(epoch_index + 1 if int(args.epochs) > 0 else 0),
+                "epoch": int(last_epoch),
                 "checkpoint_path": str(best_ckpt.resolve()),
                 "reason": "best",
                 "metric": final_ap,
@@ -1744,9 +1977,9 @@ def train_active(args: argparse.Namespace) -> None:
         )
     final_eval_row = {
         "mode": "epoch_eval",
-        "epoch": int(epoch_index + 1 if int(args.epochs) > 0 else 0),
+        "epoch": int(last_epoch),
         "eval_sec": final_eval_sec,
-        "best_updated": bool(final_ap >= best_ap),
+        "best_updated": final_best_updated,
         "metric": final_ap,
         "best_metric": float(best_ap),
     }

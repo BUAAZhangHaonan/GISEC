@@ -7,6 +7,7 @@ import torch
 
 import gisec.train.train_active as train_active_module
 from gisec.train.train_active import (
+    _backward_active_loss,
     _build_loader,
     _move_active_tensor_to_device,
     parse_eval_args,
@@ -184,6 +185,26 @@ def test_active_train_cli_exposes_log_every_steps(tmp_path) -> None:
     assert args.log_every_steps == 7
 
 
+def test_active_train_cli_exposes_resume_checkpoint_and_save_cadence(tmp_path) -> None:
+    args = parse_train_args(
+        [
+            "--dataset-root",
+            str(tmp_path / "dataset"),
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--variant",
+            "base_rgb_1024",
+            "--resume-checkpoint",
+            str(tmp_path / "resume_last.pth"),
+            "--resume-save-every-epochs",
+            "3",
+        ]
+    )
+
+    assert args.resume_checkpoint == str(tmp_path / "resume_last.pth")
+    assert args.resume_save_every_epochs == 3
+
+
 def test_active_loader_uses_cuda_runtime_flags(monkeypatch, tmp_path) -> None:
     class _DummyDataset(torch.utils.data.Dataset):
         def __len__(self) -> int:
@@ -231,3 +252,18 @@ def test_active_tensor_move_uses_requested_non_blocking_flag() -> None:
 
     assert moved is tensor
     assert tensor.calls == [(torch.device("cpu"), True)]
+
+
+def test_active_backward_skips_optimizer_step_for_constant_loss() -> None:
+    model = torch.nn.Linear(2, 1)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+    scaler = torch.amp.GradScaler("cpu", enabled=False)
+
+    stepped = _backward_active_loss(
+        optimizer=optimizer,
+        scaler=scaler,
+        loss=torch.tensor(0.0),
+    )
+
+    assert stepped is False
+    assert all(param.grad is None for param in model.parameters())
