@@ -49,8 +49,13 @@ class GISECModel(nn.Module):
             node_dim=node_dim, edge_dim=edge_dim, hidden_dim=graph_hidden_dim)
 
     @torch.no_grad()
-    def build_prototype_cache(self, bank: PrototypeBank, device: torch.device) -> PrototypeCache:
-        return self.backbone.build_prototype_cache(bank, device)
+    def build_prototype_cache(
+        self,
+        bank: PrototypeBank,
+        device: torch.device,
+        build_batch_size: int = 0,
+    ) -> PrototypeCache:
+        return self.backbone.build_prototype_cache(bank, device, build_batch_size=build_batch_size)
 
     def forward(
         self,

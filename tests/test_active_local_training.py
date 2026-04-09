@@ -8,9 +8,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import pytest
 
 import gisec.train.train_active as train_active_module
-from gisec.active.model import crop_and_resize, expand_bbox, mask_bbox
+from gisec.active.model import LocalRefinementModule, crop_and_resize, expand_bbox, mask_bbox
 from gisec.datasets.prototype_bank import PrototypeBankSource
 from gisec.train.train_active import _reference_match_examples, _train_local_modules
 
@@ -369,3 +370,34 @@ def test_train_local_modules_batches_reference_positive_and_negative_forwards(tm
     assert torch.isfinite(loss)
     assert len(model.refiner.seen_coarse_masks) == 2
     assert all(tensor.shape[0] == 2 for tensor in model.refiner.seen_coarse_masks)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required to reproduce the fp16 reference-path failure mode")
+def test_local_refinement_module_keeps_zero_descriptors_finite_under_cuda_autocast() -> None:
+    module = LocalRefinementModule(
+        query_channels=3,
+        feature_channels=4,
+        hidden_dim=8,
+        use_reference=True,
+    ).cuda()
+    query_crop = torch.zeros((2, 3, 32, 32), dtype=torch.float32, device="cuda")
+    coarse_mask_prob = torch.zeros((2, 1, 32, 32), dtype=torch.float32, device="cuda")
+    feature_crop = torch.zeros((2, 4, 32, 32), dtype=torch.float32, device="cuda")
+    reference_rgb = torch.zeros((2, 4, 3, 32, 32), dtype=torch.float32, device="cuda")
+    reference_depth = torch.zeros((2, 4, 1, 32, 32), dtype=torch.float32, device="cuda")
+    reference_mask = torch.zeros((2, 4, 1, 32, 32), dtype=torch.float32, device="cuda")
+
+    with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
+        outputs = module(
+            query_crop=query_crop,
+            coarse_mask_prob=coarse_mask_prob,
+            feature_crop=feature_crop,
+            reference_rgb=reference_rgb,
+            reference_depth=reference_depth,
+            reference_mask=reference_mask,
+        )
+
+    assert torch.isfinite(outputs["refined_mask_logits"]).all()
+    assert torch.isfinite(outputs["refined_boundary_logits"]).all()
+    assert outputs["reference_match_logits"] is not None
+    assert torch.isfinite(outputs["reference_match_logits"]).all()

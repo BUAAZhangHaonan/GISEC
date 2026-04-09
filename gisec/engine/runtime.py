@@ -84,9 +84,11 @@ class PrototypeCacheSource:
         view_sampler: str = "all",
         dataset_root: str | None = None,
         query_stats_split: str = "train",
+        prototype_build_batch_size: int = 4,
     ) -> None:
         self.model = model
         self.device = device
+        self.prototype_build_batch_size = int(prototype_build_batch_size)
         self.source = PrototypeBankSource(
             root=Path(prototype_root),
             image_size=image_size,
@@ -100,20 +102,64 @@ class PrototypeCacheSource:
             available_parts=self.source.available_parts,
             split=query_stats_split,
         )
+        self._last_resolve_meta: dict[str, Any] = {}
 
     def clear(self) -> None:
         self._cache_by_root.clear()
+        self._last_resolve_meta = {}
 
-    def resolve_for_query(self, file_name: str) -> tuple[object, PrototypeBank]:
-        bank = self.source.load_for_query(file_name)
+    def _resolve_bank(self, bank: PrototypeBank, *, part_key: str | None) -> tuple[object, PrototypeBank, dict[str, Any]]:
         cache_key = bank.root.resolve()
+        cache_miss = False
+        cache_build_sec = 0.0
         if cache_key not in self._cache_by_root:
-            cache = cache_to_device(self.model.build_prototype_cache(bank, self.device), self.device)
-            part_key = None if self.source.is_single_bank else extract_query_part_key(file_name, self.source.available_parts)
+            cache_miss = True
+            cache_build_start = time.perf_counter()
+            cache = cache_to_device(
+                self.model.build_prototype_cache(
+                    bank,
+                    self.device,
+                    build_batch_size=self.prototype_build_batch_size,
+                ),
+                self.device,
+            )
+            cache_build_sec = float(time.perf_counter() - cache_build_start)
             if part_key is not None and part_key in self._query_shape_priors:
                 cache.shape_stats.update(self._query_shape_priors[part_key])
             self._cache_by_root[cache_key] = (cache, bank)
-        return self._cache_by_root[cache_key]
+        cache, cached_bank = self._cache_by_root[cache_key]
+        meta = {
+            "prototype_root": str(cache_key),
+            "prototype_cache_miss": bool(cache_miss),
+            "cache_build_sec": float(cache_build_sec),
+        }
+        self._last_resolve_meta = dict(meta)
+        return cache, cached_bank, meta
+
+    def resolve_for_query(self, file_name: str) -> tuple[object, PrototypeBank]:
+        bank = self.source.load_for_query(file_name)
+        part_key = None if self.source.is_single_bank else extract_query_part_key(file_name, self.source.available_parts)
+        cache, cached_bank, _meta = self._resolve_bank(bank, part_key=part_key)
+        return cache, cached_bank
+
+    def resolve_for_query_with_stats(self, file_name: str) -> tuple[object, PrototypeBank, dict[str, Any]]:
+        bank = self.source.load_for_query(file_name)
+        part_key = None if self.source.is_single_bank else extract_query_part_key(file_name, self.source.available_parts)
+        return self._resolve_bank(bank, part_key=part_key)
+
+    def prewarm_for_file_names(self, file_names: list[str]) -> None:
+        seen: set[Path] = set()
+        for file_name in file_names:
+            bank = self.source.load_for_query(file_name)
+            cache_key = bank.root.resolve()
+            if cache_key in seen:
+                continue
+            seen.add(cache_key)
+            part_key = None if self.source.is_single_bank else extract_query_part_key(str(file_name), self.source.available_parts)
+            self._resolve_bank(bank, part_key=part_key)
+
+    def last_resolve_meta(self) -> dict[str, Any]:
+        return dict(self._last_resolve_meta)
 
     def describe(self) -> dict[str, Any]:
         resolved_roots = sorted(str(root) for root in self._cache_by_root)
@@ -125,6 +171,7 @@ class PrototypeCacheSource:
             "view_sampler": self.source.view_sampler,
             "prototype_slot_count": int(getattr(self.model.backbone, "prototype_slot_count", 0)),
             "prototype_topk": int(getattr(self.model.backbone, "prototype_topk", 0)),
+            "prototype_build_batch_size": int(self.prototype_build_batch_size),
             "available_parts": len(self.source.available_parts),
             "resolved_roots": resolved_roots,
         }
@@ -916,6 +963,10 @@ def evaluate_and_export(
     match_rows: list[Dict[str, Any]] = []
     if prototype_source is not None:
         prototype_source.clear()
+        dataset_file_names = list(getattr(getattr(loader, "dataset", None), "file_names", []))
+        if dataset_file_names:
+            prewarm_names = dataset_file_names[: int(max_images)] if max_images is not None else dataset_file_names
+            prototype_source.prewarm_for_file_names(prewarm_names)
     if save_graph_diagnostics and diagnostics_path is not None and diagnostics_path.exists():
         diagnostics_path.unlink()
     if routing_rows_path is not None and routing_rows_path.exists():

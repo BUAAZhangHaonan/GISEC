@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import json
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterator, List
 
 import cv2
 import numpy as np
@@ -78,12 +78,89 @@ class PrototypeBankManifest:
 class PrototypeBank:
     root: Path
     view_ids: List[str]
-    images: torch.Tensor
-    depths: torch.Tensor
-    masks: torch.Tensor
     shape_stats: Dict[str, float]
     meta: Dict[str, Any]
     manifest: PrototypeBankManifest
+    image_size: int
+    view_records: list["PrototypeViewRecord"]
+    _images: torch.Tensor | None = field(default=None, init=False, repr=False)
+    _depths: torch.Tensor | None = field(default=None, init=False, repr=False)
+    _masks: torch.Tensor | None = field(default=None, init=False, repr=False)
+
+    def _load_record(self, record: "PrototypeViewRecord") -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        rgb = cv2.imread(str(record.rgb_path), cv2.IMREAD_COLOR)
+        if rgb is None:
+            raise FileNotFoundError(record.rgb_path)
+        rgb = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)
+        depth = _load_depth_array(record.depth_path)
+        mask = cv2.imread(str(record.mask_path), cv2.IMREAD_GRAYSCALE)
+        if mask is None:
+            raise FileNotFoundError(record.mask_path)
+        mask = (mask > 0).astype(np.uint8)
+        rgb = _resize_rgb(rgb, self.image_size)
+        depth = _resize_mask(depth, self.image_size).astype(np.float32)
+        mask = _resize_mask(mask, self.image_size).astype(np.uint8)
+        return (
+            torch.from_numpy(rgb.transpose(2, 0, 1)).float() / 255.0,
+            torch.from_numpy(depth[None, ...]).float(),
+            torch.from_numpy(mask[None, ...]).float(),
+        )
+
+    def materialize_tensors(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        if self._images is None or self._depths is None or self._masks is None:
+            images, depths, masks = [], [], []
+            for record in self.view_records:
+                image, depth, mask = self._load_record(record)
+                images.append(image)
+                depths.append(depth)
+                masks.append(mask)
+            self._images = torch.stack(images, dim=0)
+            self._depths = torch.stack(depths, dim=0)
+            self._masks = torch.stack(masks, dim=0)
+        return self._images, self._depths, self._masks
+
+    @property
+    def images(self) -> torch.Tensor:
+        return self.materialize_tensors()[0]
+
+    @property
+    def depths(self) -> torch.Tensor:
+        return self.materialize_tensors()[1]
+
+    @property
+    def masks(self) -> torch.Tensor:
+        return self.materialize_tensors()[2]
+
+    def iter_views(self, batch_size: int = 0) -> Iterator[tuple[torch.Tensor, torch.Tensor, torch.Tensor, list[str]]]:
+        resolved_batch_size = int(batch_size)
+        if resolved_batch_size <= 0 or resolved_batch_size >= len(self.view_records):
+            images, depths, masks = self.materialize_tensors()
+            yield images, depths, masks, list(self.view_ids)
+            return
+        for start in range(0, len(self.view_records), resolved_batch_size):
+            batch_records = self.view_records[start:start + resolved_batch_size]
+            batch_images, batch_depths, batch_masks = [], [], []
+            batch_ids: list[str] = []
+            for record in batch_records:
+                image, depth, mask = self._load_record(record)
+                batch_images.append(image)
+                batch_depths.append(depth)
+                batch_masks.append(mask)
+                batch_ids.append(record.view_id)
+            yield (
+                torch.stack(batch_images, dim=0),
+                torch.stack(batch_depths, dim=0),
+                torch.stack(batch_masks, dim=0),
+                batch_ids,
+            )
+
+
+@dataclass(frozen=True)
+class PrototypeViewRecord:
+    view_id: str
+    rgb_path: Path
+    depth_path: Path
+    mask_path: Path
 
 
 @dataclass
@@ -261,26 +338,29 @@ def load_prototype_bank(
         view_sampler=view_sampler,
     )
 
-    images, depths, masks = [], [], []
+    view_records: list[PrototypeViewRecord] = []
     area_ratios, aspect_ratios = [], []
     for view_id in view_ids:
-        rgb = cv2.imread(str(rgb_files[view_id]), cv2.IMREAD_COLOR)
-        if rgb is None:
-            raise FileNotFoundError(rgb_files[view_id])
-        rgb = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)
-        depth = _load_depth_array(depth_files[view_id])
+        rgb_path = rgb_files[view_id]
+        depth_path = depth_files[view_id]
+        mask_path = mask_files[view_id]
+        if not rgb_path.exists():
+            raise FileNotFoundError(rgb_path)
+        if not depth_path.exists():
+            raise FileNotFoundError(depth_path)
         mask = cv2.imread(str(mask_files[view_id]), cv2.IMREAD_GRAYSCALE)
         if mask is None:
             raise FileNotFoundError(mask_files[view_id])
         mask = (mask > 0).astype(np.uint8)
-
-        rgb = _resize_rgb(rgb, image_size)
-        depth = _resize_mask(depth, image_size).astype(np.float32)
         mask = _resize_mask(mask, image_size).astype(np.uint8)
-
-        images.append(torch.from_numpy(rgb.transpose(2, 0, 1)).float() / 255.0)
-        depths.append(torch.from_numpy(depth[None, ...]).float())
-        masks.append(torch.from_numpy(mask[None, ...]).float())
+        view_records.append(
+            PrototypeViewRecord(
+                view_id=view_id,
+                rgb_path=rgb_path,
+                depth_path=depth_path,
+                mask_path=mask_path,
+            )
+        )
         area_ratios.append(float(mask.mean()))
         aspect_ratios.append(_mask_to_bbox_aspect(mask))
 
@@ -353,14 +433,13 @@ def load_prototype_bank(
     return PrototypeBank(
         root=root,
         view_ids=view_ids,
-        images=torch.stack(images, dim=0),
-        depths=torch.stack(depths, dim=0),
-        masks=torch.stack(masks, dim=0),
         shape_stats={
             key: float(value) for key, value in shape_stats.items() if isinstance(value, (int, float))
         },
         meta=meta,
         manifest=manifest,
+        image_size=int(image_size),
+        view_records=view_records,
     )
 
 

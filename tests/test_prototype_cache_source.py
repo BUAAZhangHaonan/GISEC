@@ -8,6 +8,7 @@ import pytest
 import torch
 import json
 
+from gisec.datasets.prototype_bank import load_prototype_bank
 from gisec.engine.runtime import PrototypeCacheSource, prepare_prototype_cache
 from gisec.models.gisec_model import GISECModel
 
@@ -22,10 +23,10 @@ def _write_view(root: Path, stem: str, *, color: tuple[int, int, int]) -> None:
     cv2.imwrite(str(root / "mask" / f"{stem}.png"), mask)
 
 
-def _write_part_bank(root: Path, *, color: tuple[int, int, int]) -> Path:
+def _write_part_bank(root: Path, *, color: tuple[int, int, int], stems: tuple[str, ...] = ("view_000", "view_001")) -> Path:
     for name in ["rgb", "depth", "mask", "meta"]:
         (root / name).mkdir(parents=True)
-    for stem in ["view_000", "view_001"]:
+    for stem in stems:
         _write_view(root, stem, color=color)
     return root
 
@@ -186,3 +187,27 @@ def test_prototype_cache_source_overlays_query_scale_shape_priors(tmp_path: Path
 
     assert cache.shape_stats["area_q50"] == pytest.approx((8 * 10) / (64 * 64))
     assert cache.shape_stats["aspect_q50"] == pytest.approx(8 / 10)
+
+
+def test_build_prototype_cache_matches_across_chunk_sizes(tmp_path: Path) -> None:
+    root = tmp_path / "refs"
+    _write_part_bank(
+        root,
+        color=(20, 40, 60),
+        stems=("view_000", "view_001", "view_002", "view_003"),
+    )
+    bank = load_prototype_bank(root, image_size=64)
+    model = GISECModel(base_channels=8, prototype_slot_count=4)
+
+    cache_all = model.backbone.build_prototype_cache(bank, torch.device("cpu"), build_batch_size=0)
+    for build_batch_size in [1, 2, 4]:
+        cache_chunked = model.backbone.build_prototype_cache(
+            bank,
+            torch.device("cpu"),
+            build_batch_size=build_batch_size,
+        )
+        assert cache_chunked.routing_meta["view_ids"] == cache_all.routing_meta["view_ids"]
+        assert cache_chunked.shape_stats == cache_all.shape_stats
+        assert torch.allclose(cache_chunked.proto_b, cache_all.proto_b, atol=1e-5, rtol=1e-5)
+        assert torch.allclose(cache_chunked.proto_h, cache_all.proto_h, atol=1e-5, rtol=1e-5)
+        assert torch.allclose(cache_chunked.proto_d, cache_all.proto_d, atol=1e-5, rtol=1e-5)

@@ -16,13 +16,19 @@ PYTHON_CMD="conda run -n ${CONDA_ENV} python"
 ACTIVE_STAGES=(
   "base_rgbd_1024"
   "base_rgbd_1024_refine"
+)
+
+EXPERIMENTAL_ACTIVE_STAGES=(
   "base_rgbd_1024_refine_ref"
   "base_rgbd_1024_refine_ref_graph"
 )
 
+INCLUDE_EXPERIMENTAL_RESCUE_STAGES=0
+
 train_complete() {
   local out_dir="$1"
-  [[ -f "${out_dir}/model_best.pth" && -f "${out_dir}/run_summary.json" ]]
+  [[ -f "${out_dir}/model_best.pth" && -f "${out_dir}/run_summary.json" ]] || return 1
+  runner_run_state_is_success "${out_dir}"
 }
 
 eval_complete() {
@@ -69,6 +75,7 @@ while [[ $# -gt 0 ]]; do
     --output-root) OUTPUT_ROOT="$2"; shift 2 ;;
     --split) SPLIT="$2"; shift 2 ;;
     --conda-env) CONDA_ENV="$2"; shift 2 ;;
+    --include-experimental-rescue-stages) INCLUDE_EXPERIMENTAL_RESCUE_STAGES=1; shift ;;
     --run) MODE="run"; shift ;;
     --dry-run) MODE="dry-run"; shift ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
@@ -85,6 +92,11 @@ runner_log "${MODE}" "${ROOT_LOG}" "[active-mainline] dataset_root=${DATASET_ROO
 runner_log "${MODE}" "${ROOT_LOG}" "[active-mainline] prototype_root=${PROTOTYPE_ROOT}"
 runner_log "${MODE}" "${ROOT_LOG}" "[active-mainline] output_root=${OUTPUT_ROOT}"
 runner_log "${MODE}" "${ROOT_LOG}" "[active-mainline] split=${SPLIT}"
+runner_log "${MODE}" "${ROOT_LOG}" "[active-mainline] include_experimental_rescue_stages=${INCLUDE_EXPERIMENTAL_RESCUE_STAGES}"
+
+if [[ "${INCLUDE_EXPERIMENTAL_RESCUE_STAGES}" == "1" ]]; then
+  ACTIVE_STAGES+=("${EXPERIMENTAL_ACTIVE_STAGES[@]}")
+fi
 
 for index in "${!ACTIVE_STAGES[@]}"; do
   stage_name="${ACTIVE_STAGES[$index]}"
@@ -112,6 +124,12 @@ for index in "${!ACTIVE_STAGES[@]}"; do
     prototype_arg="${PROTOTYPE_ROOT}"
   fi
 
+  resume_checkpoint=""
+  train_resume_checkpoint="${train_dir}/resume_last.pth"
+  if [[ -f "${train_resume_checkpoint}" && ! -f "${train_dir}/run_summary.json" ]] && runner_run_state_allows_resume "${train_dir}"; then
+    resume_checkpoint="${train_resume_checkpoint}"
+  fi
+
   log_stage_summary "${ROOT_LOG}" "${stage_name}" "${train_dir}" "${eval_dir}" "${init_checkpoint:-<scratch>}" "${prototype_arg:-<none>}" "${train_dir}/model_best.pth"
 
   if train_complete "${train_dir}"; then
@@ -129,6 +147,9 @@ for index in "${!ACTIVE_STAGES[@]}"; do
     fi
     if [[ -n "${init_checkpoint}" ]]; then
       train_args+=(--init-checkpoint "${init_checkpoint}")
+    fi
+    if [[ -n "${resume_checkpoint}" ]]; then
+      train_args+=(--resume-checkpoint "${resume_checkpoint}")
     fi
     if [[ "${MODE}" == "dry-run" ]]; then
       train_args+=(--dry-run)

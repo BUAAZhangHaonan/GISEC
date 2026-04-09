@@ -1,7 +1,24 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
+
+
+def _write_run_state(path: Path, *, status: str, allow_resume: bool = False, failure_reason: str | None = None) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "status": status,
+                "allow_resume": allow_resume,
+                "failure_reason": failure_reason,
+                "last_finite_step": 0,
+                "last_finite_checkpoint": "",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
 
 def test_active_mainline_ladder_dry_run_lists_stage_chain(tmp_path: Path) -> None:
@@ -29,7 +46,9 @@ def test_active_mainline_ladder_dry_run_lists_stage_chain(tmp_path: Path) -> Non
     stdout = result.stdout
     assert "conda run -n gisec python -m gisec.cli.train" in stdout
     assert "stage=base_rgbd_1024" in stdout
-    assert "stage=base_rgbd_1024_refine_ref_graph" in stdout
+    assert "stage=base_rgbd_1024_refine" in stdout
+    assert "stage=base_rgbd_1024_refine_ref" not in stdout
+    assert "stage=base_rgbd_1024_refine_ref_graph" not in stdout
     refine_init = tmp_path / "active_official" / "train" / "base_rgbd_1024" / "model_best.pth"
     assert f"--init-checkpoint '{refine_init}'" in stdout or f"--init-checkpoint {refine_init}" in stdout
     assert "gisec.cli.eval" in stdout
@@ -59,12 +78,42 @@ def test_active_rgb_mainline_ladder_dry_run_lists_stage_chain(tmp_path: Path) ->
 
     stdout = result.stdout
     assert "stage=base_rgb_1024" in stdout
-    assert "stage=base_rgb_1024_refine_ref_graph" in stdout
+    assert "stage=base_rgb_1024_refine" in stdout
+    assert "stage=base_rgb_1024_refine_ref" not in stdout
+    assert "stage=base_rgb_1024_refine_ref_graph" not in stdout
     refine_init = tmp_path / "active_rgb_official" / "train" / "base_rgb_1024" / "model_best.pth"
     assert f"--init-checkpoint '{refine_init}'" in stdout or f"--init-checkpoint {refine_init}" in stdout
     assert "conda run -n gisec python -m gisec.cli.train" in stdout
     assert "gisec.cli.eval" in stdout
     assert "--eval-every-epochs 0" in stdout
+
+
+def test_active_rgb_mainline_dry_run_includes_experimental_rescue_stages_only_when_requested(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    script = repo_root / "scripts" / "experiments" / "run_baseline_reset_active_rgb_mainline.sh"
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(script),
+            "--dataset-root",
+            str(tmp_path / "dataset"),
+            "--prototype-root",
+            str(tmp_path / "prototype_bank"),
+            "--output-root",
+            str(tmp_path / "active_rgb_official"),
+            "--include-experimental-rescue-stages",
+            "--dry-run",
+        ],
+        cwd=str(tmp_path),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    stdout = result.stdout
+    assert "stage=base_rgb_1024_refine_ref" in stdout
+    assert "stage=base_rgb_1024_refine_ref_graph" in stdout
 
 
 def test_active_mainline_ladder_dry_run_skips_completed_stage(tmp_path: Path) -> None:
@@ -77,6 +126,7 @@ def test_active_mainline_ladder_dry_run_skips_completed_stage(tmp_path: Path) ->
     eval_dir.mkdir(parents=True)
     (train_dir / "model_best.pth").write_text("stub\n", encoding="utf-8")
     (train_dir / "run_summary.json").write_text("{}\n", encoding="utf-8")
+    _write_run_state(train_dir / "run_state.json", status="success")
     (eval_dir / "metrics.cocoeval.json").write_text("{}\n", encoding="utf-8")
     (eval_dir / "run_summary.json").write_text("{}\n", encoding="utf-8")
 
@@ -114,6 +164,7 @@ def test_active_rgb_mainline_ladder_dry_run_skips_completed_stage(tmp_path: Path
     eval_dir.mkdir(parents=True)
     (train_dir / "model_best.pth").write_text("stub\n", encoding="utf-8")
     (train_dir / "run_summary.json").write_text("{}\n", encoding="utf-8")
+    _write_run_state(train_dir / "run_state.json", status="success")
     (eval_dir / "metrics.cocoeval.json").write_text("{}\n", encoding="utf-8")
     (eval_dir / "run_summary.json").write_text("{}\n", encoding="utf-8")
 
@@ -141,7 +192,7 @@ def test_active_rgb_mainline_ladder_dry_run_skips_completed_stage(tmp_path: Path
     assert "stage=base_rgb_1024_refine" in stdout
 
 
-def test_active_rgb_mainline_ladder_dry_run_resumes_incomplete_stage_when_resume_checkpoint_exists(tmp_path: Path) -> None:
+def test_active_rgb_mainline_ladder_dry_run_resumes_incomplete_stage_only_when_run_state_allows_it(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     script = repo_root / "scripts" / "experiments" / "run_baseline_reset_active_rgb_mainline.sh"
     output_root = tmp_path / "active_rgb_official"
@@ -152,6 +203,7 @@ def test_active_rgb_mainline_ladder_dry_run_resumes_incomplete_stage_when_resume
     stage1_eval_dir.mkdir(parents=True)
     (stage1_train_dir / "model_best.pth").write_text("stub\n", encoding="utf-8")
     (stage1_train_dir / "run_summary.json").write_text("{}\n", encoding="utf-8")
+    _write_run_state(stage1_train_dir / "run_state.json", status="success")
     (stage1_eval_dir / "metrics.cocoeval.json").write_text("{}\n", encoding="utf-8")
     (stage1_eval_dir / "run_summary.json").write_text("{}\n", encoding="utf-8")
 
@@ -159,6 +211,7 @@ def test_active_rgb_mainline_ladder_dry_run_resumes_incomplete_stage_when_resume
     stage2_train_dir.mkdir(parents=True)
     resume_checkpoint = stage2_train_dir / "resume_last.pth"
     resume_checkpoint.write_text("stub\n", encoding="utf-8")
+    _write_run_state(stage2_train_dir / "run_state.json", status="running", allow_resume=True)
 
     result = subprocess.run(
         [
@@ -181,6 +234,51 @@ def test_active_rgb_mainline_ladder_dry_run_resumes_incomplete_stage_when_resume
     stdout = result.stdout
     assert "stage=base_rgb_1024_refine" in stdout
     assert f"--resume-checkpoint '{resume_checkpoint}'" in stdout or f"--resume-checkpoint {resume_checkpoint}" in stdout
+
+
+def test_active_rgb_mainline_ladder_dry_run_does_not_resume_without_run_state_allow_resume(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    script = repo_root / "scripts" / "experiments" / "run_baseline_reset_active_rgb_mainline.sh"
+    output_root = tmp_path / "active_rgb_official"
+
+    stage1_train_dir = output_root / "train" / "base_rgb_1024"
+    stage1_eval_dir = output_root / "eval" / "base_rgb_1024"
+    stage1_train_dir.mkdir(parents=True)
+    stage1_eval_dir.mkdir(parents=True)
+    (stage1_train_dir / "model_best.pth").write_text("stub\n", encoding="utf-8")
+    (stage1_train_dir / "run_summary.json").write_text("{}\n", encoding="utf-8")
+    _write_run_state(stage1_train_dir / "run_state.json", status="success")
+    (stage1_eval_dir / "metrics.cocoeval.json").write_text("{}\n", encoding="utf-8")
+    (stage1_eval_dir / "run_summary.json").write_text("{}\n", encoding="utf-8")
+
+    stage2_train_dir = output_root / "train" / "base_rgb_1024_refine"
+    stage2_train_dir.mkdir(parents=True)
+    resume_checkpoint = stage2_train_dir / "resume_last.pth"
+    resume_checkpoint.write_text("stub\n", encoding="utf-8")
+    _write_run_state(stage2_train_dir / "run_state.json", status="failed", allow_resume=False, failure_reason="non-finite loss")
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(script),
+            "--dataset-root",
+            str(tmp_path / "dataset"),
+            "--prototype-root",
+            str(tmp_path / "prototype_bank"),
+            "--output-root",
+            str(output_root),
+            "--dry-run",
+        ],
+        cwd=str(tmp_path),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    stdout = result.stdout
+    assert "stage=base_rgb_1024_refine" in stdout
+    assert f"--resume-checkpoint '{resume_checkpoint}'" not in stdout
+    assert f"--resume-checkpoint {resume_checkpoint}" not in stdout
 
 
 def test_launch_tmux_queue_dry_run_prints_session_and_command(tmp_path: Path) -> None:

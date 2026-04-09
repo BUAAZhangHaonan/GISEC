@@ -34,6 +34,12 @@ def test_load_prototype_bank_sorts_views_and_builds_shape_stats(tmp_path: Path) 
     assert tuple(bank.images.shape) == (2, 3, 64, 64)
     assert tuple(bank.depths.shape) == (2, 1, 64, 64)
     assert tuple(bank.masks.shape) == (2, 1, 64, 64)
+    batches = list(bank.iter_views(batch_size=1))
+    assert len(batches) == 2
+    assert batches[0][3] == ["a"]
+    assert tuple(batches[0][0].shape) == (1, 3, 64, 64)
+    assert tuple(batches[0][1].shape) == (1, 1, 64, 64)
+    assert tuple(batches[0][2].shape) == (1, 1, 64, 64)
     assert bank.shape_stats["mean_area_ratio"] > 0.0
 
 

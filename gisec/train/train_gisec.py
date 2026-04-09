@@ -569,11 +569,11 @@ def forward_with_reference_routing(
     reference_routing_mode: str = "soft_topk",
     reference_skip_margin: float = 0.0,
     return_reference_routing: bool = True,
-) -> tuple[dict[str, torch.Tensor], list[object], dict[str, int]]:
+) -> tuple[dict[str, torch.Tensor], list[object], dict[str, Any]]:
     reference_conditioning_mode = normalize_reference_conditioning_mode(reference_conditioning_mode)
     batch_size = int(images.shape[0])
     if batch_size == 0:
-        return {}, [], {"forward_call_count": 0, "unique_prototype_roots": 0}
+        return {}, [], {"forward_call_count": 0, "unique_prototype_roots": 0, "prototype_root": "", "prototype_cache_miss": 0, "cache_build_sec": 0.0}
     if prototype_source is None or str(reference_conditioning_mode) == "off":
         outputs = model(
             images,
@@ -584,14 +584,21 @@ def forward_with_reference_routing(
             reference_skip_margin=reference_skip_margin,
             return_reference_routing=return_reference_routing,
         )
-        return outputs, [None] * batch_size, {"forward_call_count": 1, "unique_prototype_roots": 0}
+        return outputs, [None] * batch_size, {
+            "forward_call_count": 1,
+            "unique_prototype_roots": 0,
+            "prototype_root": "",
+            "prototype_cache_miss": 0,
+            "cache_build_sec": 0.0,
+        }
 
     prototype_caches: list[object] = []
     group_indices: dict[str, list[int]] = {}
     group_caches: dict[str, object] = {}
     group_order: list[str] = []
+    resolve_meta_rows: list[dict[str, Any]] = []
     for batch_index, file_name in enumerate(file_names):
-        prototype_cache, bank = prototype_source.resolve_for_query(file_name)
+        prototype_cache, bank, resolve_meta = prototype_source.resolve_for_query_with_stats(file_name)
         cache_key = str(bank.root)
         if cache_key not in group_indices:
             group_indices[cache_key] = []
@@ -599,6 +606,7 @@ def forward_with_reference_routing(
             group_order.append(cache_key)
         group_indices[cache_key].append(int(batch_index))
         prototype_caches.append(prototype_cache)
+        resolve_meta_rows.append(resolve_meta)
 
     grouped_outputs: dict[str, list[Any]] = {}
     forward_call_count = 0
@@ -636,6 +644,9 @@ def forward_with_reference_routing(
     return merged_outputs, prototype_caches, {
         "forward_call_count": int(forward_call_count),
         "unique_prototype_roots": int(len(group_order)),
+        "prototype_root": ",".join(sorted({str(row.get("prototype_root", "")) for row in resolve_meta_rows if str(row.get("prototype_root", ""))})),
+        "prototype_cache_miss": int(any(bool(row.get("prototype_cache_miss", False)) for row in resolve_meta_rows)),
+        "cache_build_sec": float(sum(float(row.get("cache_build_sec", 0.0)) for row in resolve_meta_rows)),
     }
 
 
@@ -758,6 +769,9 @@ def train_main(args: argparse.Namespace) -> None:
             model.train()
             if prototype_source is not None:
                 prototype_source.clear()
+                dataset_file_names = list(getattr(getattr(train_loader, "dataset", None), "file_names", []))
+                if dataset_file_names:
+                    prototype_source.prewarm_for_file_names(dataset_file_names)
             if dist_context.enabled and hasattr(train_loader, "sampler") and hasattr(train_loader.sampler, "set_epoch"):
                 train_loader.sampler.set_epoch(epoch)
             epoch_graph_loss_values: list[float] = []
@@ -1006,6 +1020,9 @@ def train_main(args: argparse.Namespace) -> None:
                             "optimizer_step_sec": float(optimizer_step_sec),
                             "forward_call_count": int(routing_stats["forward_call_count"]),
                             "unique_prototype_roots": int(routing_stats["unique_prototype_roots"]),
+                            "prototype_root": str(routing_stats.get("prototype_root", "")),
+                            "prototype_cache_miss": int(routing_stats.get("prototype_cache_miss", 0)),
+                            "cache_build_sec": float(routing_stats.get("cache_build_sec", 0.0)),
                             "graph_edge_count": int(graph_edge_count),
                             "gpu_peak_memory_mb": (
                                 float(torch.cuda.max_memory_allocated(device) / (1024.0 * 1024.0))

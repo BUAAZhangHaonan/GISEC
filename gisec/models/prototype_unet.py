@@ -156,7 +156,7 @@ class PrototypeConditionedUNetBackbone(nn.Module):
         slot_count = int(proto_slots.shape[0])
         if slot_count <= self.prototype_slot_count:
             return torch.arange(slot_count, device=proto_slots.device)
-        descriptors = F.normalize(proto_slots.mean(dim=(-1, -2)), dim=1)
+        descriptors = F.normalize(proto_slots.mean(dim=(-1, -2)).float(), dim=1, eps=1.0e-6)
         selected = [0]
         while len(selected) < self.prototype_slot_count:
             selected_tensor = torch.tensor(selected, device=proto_slots.device, dtype=torch.long)
@@ -168,17 +168,33 @@ class PrototypeConditionedUNetBackbone(nn.Module):
         return torch.tensor(selected, device=proto_slots.device, dtype=torch.long)
 
     @torch.no_grad()
-    def build_prototype_cache(self, bank: PrototypeBank, device: torch.device) -> PrototypeCache:
-        images = bank.images.to(device)
-        masks = bank.masks.to(device)
-        depths = bank.depths.to(device)
-        feats = self._encode_query(images)
-        proto_b = self._masked_proto(feats["xb"], masks)
-        slot_indices = self._select_prototype_slot_indices(proto_b)
-        proto_b = proto_b[slot_indices]
-        proto_h = self._masked_proto(feats["x1"], masks)[slot_indices]
-        depth_feat = self.depth_geometry_stem(self._depth_to_geometry(depths))
-        proto_d = self._masked_proto(depth_feat, masks)[slot_indices]
+    def build_prototype_cache(
+        self,
+        bank: PrototypeBank,
+        device: torch.device,
+        build_batch_size: int = 0,
+    ) -> PrototypeCache:
+        proto_b_chunks: list[torch.Tensor] = []
+        proto_h_chunks: list[torch.Tensor] = []
+        proto_d_chunks: list[torch.Tensor] = []
+        collected_view_ids: list[str] = []
+        for images, depths, masks, view_ids in bank.iter_views(batch_size=int(build_batch_size)):
+            images = images.to(device)
+            depths = depths.to(device)
+            masks = masks.to(device)
+            feats = self._encode_query(images)
+            proto_b_chunks.append(self._masked_proto(feats["xb"], masks).cpu())
+            proto_h_chunks.append(self._masked_proto(feats["x1"], masks).cpu())
+            depth_feat = self.depth_geometry_stem(self._depth_to_geometry(depths))
+            proto_d_chunks.append(self._masked_proto(depth_feat, masks).cpu())
+            collected_view_ids.extend(view_ids)
+        proto_b_all = torch.cat(proto_b_chunks, dim=0)
+        proto_h_all = torch.cat(proto_h_chunks, dim=0)
+        proto_d_all = torch.cat(proto_d_chunks, dim=0)
+        slot_indices = self._select_prototype_slot_indices(proto_b_all)
+        proto_b = proto_b_all[slot_indices].to(device)
+        proto_h = proto_h_all[slot_indices].to(device)
+        proto_d = proto_d_all[slot_indices].to(device)
         return PrototypeCache(
             proto_b=proto_b,
             proto_h=proto_h,
@@ -187,7 +203,7 @@ class PrototypeConditionedUNetBackbone(nn.Module):
             routing_meta={
                 "slot_count": int(proto_b.shape[0]),
                 "topk": min(self.prototype_topk, int(proto_b.shape[0])),
-                "view_ids": [bank.view_ids[int(index)] for index in slot_indices.tolist()],
+                "view_ids": [collected_view_ids[int(index)] for index in slot_indices.tolist()],
             },
         )
 

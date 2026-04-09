@@ -48,6 +48,48 @@ runner_exec() {
   fi
 }
 
+runner_json_field() {
+  local json_path="$1"
+  local field="$2"
+  python - "$json_path" "$field" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+field = sys.argv[2]
+if not path.exists():
+    sys.exit(2)
+payload = json.loads(path.read_text(encoding="utf-8"))
+value = payload
+for part in field.split("."):
+    if not isinstance(value, dict) or part not in value:
+        sys.exit(3)
+    value = value[part]
+if isinstance(value, bool):
+    print("true" if value else "false")
+elif value is None:
+    print("null")
+else:
+    print(value)
+PY
+}
+
+runner_run_state_is_success() {
+  local out_dir="$1"
+  local run_state_path="${out_dir}/run_state.json"
+  [[ -f "${run_state_path}" ]] || return 1
+  [[ "$(runner_json_field "${run_state_path}" status 2>/dev/null || true)" == "success" ]]
+}
+
+runner_run_state_allows_resume() {
+  local out_dir="$1"
+  local run_state_path="${out_dir}/run_state.json"
+  [[ -f "${run_state_path}" ]] || return 1
+  [[ "$(runner_json_field "${run_state_path}" status 2>/dev/null || true)" == "running" ]] || return 1
+  [[ "$(runner_json_field "${run_state_path}" allow_resume 2>/dev/null || true)" == "true" ]]
+}
+
 runner_python_cmd() {
   if [[ -n "${GISEC_CONDA_ENV:-}" ]]; then
     printf 'conda run -n %s python' "${GISEC_CONDA_ENV}"

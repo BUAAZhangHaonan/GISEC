@@ -297,9 +297,12 @@ def test_active_cli_minibatch_runs_train_eval_infer_for_base_rgb(tmp_path: Path)
     ]
     eval_summary = json.loads((eval_root / "run_summary.json").read_text(encoding="utf-8"))
     infer_summary = json.loads((infer_root / "run_summary.json").read_text(encoding="utf-8"))
+    train_run_state = json.loads((train_root / "run_state.json").read_text(encoding="utf-8"))
     assert train_summary["variant"] == "base_rgb_1024"
     assert eval_summary["variant"] == "base_rgb_1024"
     assert infer_summary["variant"] == "base_rgb_1024"
+    assert train_run_state["status"] == "success"
+    assert train_run_state["allow_resume"] is False
     assert "split_gt_count" in train_summary["metrics"]
     assert "merge_pred_count" in train_summary["metrics"]
     assert "refinement_invocation_rate" in train_summary["metrics"]
@@ -337,7 +340,9 @@ def test_active_cli_minibatch_runs_base_rgbd_concat_without_prototype_root(tmp_p
     )
 
     summary = json.loads((output_root / "run_summary.json").read_text(encoding="utf-8"))
+    run_state = json.loads((output_root / "run_state.json").read_text(encoding="utf-8"))
     assert summary["variant"] == "base_rgbd_1024"
+    assert run_state["status"] == "success"
     assert summary["modality"] == "rgbd_concat"
     assert summary["benchmark"]["input_mode"] == "rgbd_concat"
     assert summary["metrics"]["refinement_invocation_rate"] == 0.0
@@ -383,7 +388,9 @@ def test_active_cli_minibatch_runs_refine_reference_graph_variant_with_prototype
     )
 
     summary = json.loads((output_root / "run_summary.json").read_text(encoding="utf-8"))
+    run_state = json.loads((output_root / "run_state.json").read_text(encoding="utf-8"))
     assert summary["variant"] == "base_rgbd_1024_refine_ref_graph"
+    assert run_state["status"] == "success"
     assert summary["modality"] == "rgbd_concat"
     assert "refinement_invocation_rate" in summary["metrics"]
     assert "local_graph_invocation_rate" in summary["metrics"]

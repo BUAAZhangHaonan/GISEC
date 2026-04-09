@@ -182,6 +182,9 @@ def test_train_gisec_minibatch(tmp_path: Path) -> None:
     assert "step_total_sec" in profile_rows[0]
     assert "forward_call_count" in profile_rows[0]
     assert "unique_prototype_roots" in profile_rows[0]
+    assert "prototype_root" in profile_rows[0]
+    assert "prototype_cache_miss" in profile_rows[0]
+    assert "cache_build_sec" in profile_rows[0]
     assert "graph_edge_count" in profile_rows[0]
     assert "gpu_peak_memory_mb" in profile_rows[0]
     assert profile_summary["profiled_steps"] == 1

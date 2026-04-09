@@ -16,13 +16,19 @@ PYTHON_CMD="conda run -n ${CONDA_ENV} python"
 ACTIVE_STAGES=(
   "base_rgb_1024"
   "base_rgb_1024_refine"
+)
+
+EXPERIMENTAL_ACTIVE_STAGES=(
   "base_rgb_1024_refine_ref"
   "base_rgb_1024_refine_ref_graph"
 )
 
+INCLUDE_EXPERIMENTAL_RESCUE_STAGES=0
+
 train_complete() {
   local out_dir="$1"
-  [[ -f "${out_dir}/model_best.pth" && -f "${out_dir}/run_summary.json" ]]
+  [[ -f "${out_dir}/model_best.pth" && -f "${out_dir}/run_summary.json" ]] || return 1
+  runner_run_state_is_success "${out_dir}"
 }
 
 eval_complete() {
@@ -85,6 +91,7 @@ while [[ $# -gt 0 ]]; do
     --output-root) OUTPUT_ROOT="$2"; shift 2 ;;
     --split) SPLIT="$2"; shift 2 ;;
     --conda-env) CONDA_ENV="$2"; shift 2 ;;
+    --include-experimental-rescue-stages) INCLUDE_EXPERIMENTAL_RESCUE_STAGES=1; shift ;;
     --run) MODE="run"; shift ;;
     --dry-run) MODE="dry-run"; shift ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
@@ -101,6 +108,11 @@ runner_log "${MODE}" "${ROOT_LOG}" "[active-rgb-mainline] dataset_root=${DATASET
 runner_log "${MODE}" "${ROOT_LOG}" "[active-rgb-mainline] prototype_root=${PROTOTYPE_ROOT}"
 runner_log "${MODE}" "${ROOT_LOG}" "[active-rgb-mainline] output_root=${OUTPUT_ROOT}"
 runner_log "${MODE}" "${ROOT_LOG}" "[active-rgb-mainline] split=${SPLIT}"
+runner_log "${MODE}" "${ROOT_LOG}" "[active-rgb-mainline] include_experimental_rescue_stages=${INCLUDE_EXPERIMENTAL_RESCUE_STAGES}"
+
+if [[ "${INCLUDE_EXPERIMENTAL_RESCUE_STAGES}" == "1" ]]; then
+  ACTIVE_STAGES+=("${EXPERIMENTAL_ACTIVE_STAGES[@]}")
+fi
 
 for index in "${!ACTIVE_STAGES[@]}"; do
   stage_name="${ACTIVE_STAGES[$index]}"
@@ -129,7 +141,7 @@ for index in "${!ACTIVE_STAGES[@]}"; do
   fi
   resume_checkpoint=""
   train_resume_checkpoint="$(resume_checkpoint_path "${train_dir}")"
-  if [[ -f "${train_resume_checkpoint}" && ! -f "${train_dir}/run_summary.json" ]]; then
+  if [[ -f "${train_resume_checkpoint}" && ! -f "${train_dir}/run_summary.json" ]] && runner_run_state_allows_resume "${train_dir}"; then
     resume_checkpoint="${train_resume_checkpoint}"
   fi
 

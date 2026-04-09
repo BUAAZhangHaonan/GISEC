@@ -11,6 +11,10 @@ import torch.nn.functional as F
 from gisec.models.graph_head import GraphEdgeScorer
 
 
+def normalize_descriptor_tensor(descriptor: torch.Tensor, *, dim: int, eps: float = 1.0e-6) -> torch.Tensor:
+    return F.normalize(descriptor.float(), dim=dim, eps=float(eps))
+
+
 def normalize_depth(depth: torch.Tensor) -> torch.Tensor:
     depth = depth.float()
     finite = torch.isfinite(depth)
@@ -211,8 +215,8 @@ class LocalRefinementModule(nn.Module):
             flat_reference = flat_reference.reshape(batch_size * view_count, flat_reference.shape[2], flat_reference.shape[3], flat_reference.shape[4])
             encoded_reference = self.reference_encoder(flat_reference)
             encoded_reference = encoded_reference.reshape(batch_size, view_count, encoded_reference.shape[1], encoded_reference.shape[2], encoded_reference.shape[3])
-            query_desc = F.normalize(query_features.mean(dim=(-1, -2)), dim=1)
-            ref_desc = F.normalize(encoded_reference.mean(dim=(-1, -2)), dim=2)
+            query_desc = normalize_descriptor_tensor(query_features.mean(dim=(-1, -2)), dim=1)
+            ref_desc = normalize_descriptor_tensor(encoded_reference.mean(dim=(-1, -2)), dim=2)
             similarity = torch.einsum("bd,bvd->bv", query_desc, ref_desc)
             topk = min(2, int(view_count))
             top_weights, top_indices = torch.topk(similarity, k=topk, dim=1)
