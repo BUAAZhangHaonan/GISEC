@@ -208,27 +208,44 @@ class LocalRefinementModule(nn.Module):
         top_indices = None
         top_weights = None
         if self.use_reference and reference_rgb is not None and reference_depth is not None and reference_mask is not None:
-            batch_size, view_count = reference_rgb.shape[:2]
-            if batch_size != int(query_crop.shape[0]):
-                raise ValueError("Reference batch size must match query batch size")
+            query_batch_size = int(query_crop.shape[0])
+            reference_batch_size, view_count = reference_rgb.shape[:2]
+            if reference_batch_size not in {1, query_batch_size}:
+                raise ValueError("Reference batch size must be 1 or match query batch size")
             flat_reference = torch.cat([reference_rgb, reference_depth, reference_mask], dim=2)
-            flat_reference = flat_reference.reshape(batch_size * view_count, flat_reference.shape[2], flat_reference.shape[3], flat_reference.shape[4])
+            flat_reference = flat_reference.reshape(
+                reference_batch_size * view_count,
+                flat_reference.shape[2],
+                flat_reference.shape[3],
+                flat_reference.shape[4],
+            )
             encoded_reference = self.reference_encoder(flat_reference)
-            encoded_reference = encoded_reference.reshape(batch_size, view_count, encoded_reference.shape[1], encoded_reference.shape[2], encoded_reference.shape[3])
+            encoded_reference = encoded_reference.reshape(
+                reference_batch_size,
+                view_count,
+                encoded_reference.shape[1],
+                encoded_reference.shape[2],
+                encoded_reference.shape[3],
+            )
             query_desc = normalize_descriptor_tensor(query_features.mean(dim=(-1, -2)), dim=1)
             ref_desc = normalize_descriptor_tensor(encoded_reference.mean(dim=(-1, -2)), dim=2)
-            similarity = torch.einsum("bd,bvd->bv", query_desc, ref_desc)
+            if reference_batch_size == 1 and query_batch_size > 1:
+                similarity = torch.einsum("bd,vd->bv", query_desc, ref_desc[0])
+                gather_source = encoded_reference.expand(query_batch_size, -1, -1, -1, -1)
+            else:
+                similarity = torch.einsum("bd,bvd->bv", query_desc, ref_desc)
+                gather_source = encoded_reference
             topk = min(2, int(view_count))
             top_weights, top_indices = torch.topk(similarity, k=topk, dim=1)
             top_weights = torch.softmax(top_weights, dim=1)
             gather_index = top_indices[:, :, None, None, None].expand(
-                batch_size,
+                query_batch_size,
                 topk,
-                encoded_reference.shape[2],
-                encoded_reference.shape[3],
-                encoded_reference.shape[4],
+                gather_source.shape[2],
+                gather_source.shape[3],
+                gather_source.shape[4],
             )
-            top_reference = torch.gather(encoded_reference, dim=1, index=gather_index)
+            top_reference = torch.gather(gather_source, dim=1, index=gather_index)
             reference_context = (top_reference * top_weights[:, :, None, None, None]).sum(dim=1)
             fused = self.fusion(torch.cat([query_features, reference_context], dim=1))
             reference_match_logits = self.reference_match_head(fused.mean(dim=(-1, -2)))

@@ -33,6 +33,7 @@ class _RecordingRefiner(nn.Module):
     def __init__(self) -> None:
         super().__init__()
         self.seen_coarse_masks: list[torch.Tensor] = []
+        self.seen_reference_shapes: list[tuple[tuple[int, ...] | None, tuple[int, ...] | None, tuple[int, ...] | None]] = []
 
     def forward(
         self,
@@ -45,6 +46,13 @@ class _RecordingRefiner(nn.Module):
         reference_mask: torch.Tensor | None = None,
     ) -> dict[str, torch.Tensor | None]:
         self.seen_coarse_masks.append(coarse_mask_prob.detach().clone())
+        self.seen_reference_shapes.append(
+            (
+                None if reference_rgb is None else tuple(int(value) for value in reference_rgb.shape),
+                None if reference_depth is None else tuple(int(value) for value in reference_depth.shape),
+                None if reference_mask is None else tuple(int(value) for value in reference_mask.shape),
+            )
+        )
         batch_size = int(coarse_mask_prob.shape[0])
         height, width = coarse_mask_prob.shape[-2:]
         device = coarse_mask_prob.device
@@ -370,6 +378,99 @@ def test_train_local_modules_batches_reference_positive_and_negative_forwards(tm
     assert torch.isfinite(loss)
     assert len(model.refiner.seen_coarse_masks) == 2
     assert all(tensor.shape[0] == 2 for tensor in model.refiner.seen_coarse_masks)
+
+
+def test_train_local_modules_shares_reference_bank_across_matched_queries(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "prototype_banks"
+    _write_part_bank(root, part_key="PARTA")
+    _write_part_bank(root, part_key="PARTB")
+    source = PrototypeBankSource(
+        root=root,
+        image_size=32,
+        contract_mode="compat",
+        max_views=4,
+        view_sampler="all",
+    )
+    model = _DummyReferenceActiveModel()
+    pixel_values = torch.zeros((1, 4, 8, 8), dtype=torch.float32)
+    gt_a = torch.zeros((8, 8), dtype=torch.float32)
+    gt_b = torch.zeros((8, 8), dtype=torch.float32)
+    gt_a[1:4, 1:4] = 1.0
+    gt_b[4:7, 4:7] = 1.0
+    pred_a = torch.zeros((8, 8), dtype=torch.float32)
+    pred_b = torch.zeros((8, 8), dtype=torch.float32)
+    pred_a[1:4, 1:4] = 1.0
+    pred_b[4:7, 4:7] = 1.0
+
+    monkeypatch.setattr(
+        train_active_module,
+        "_query_instances_from_outputs",
+        lambda **kwargs: [
+            {
+                "query_index": 0,
+                "score": 0.9,
+                "category_id": 1,
+                "mask_probs": pred_a,
+                "binary_mask": (pred_a >= 0.5).float(),
+            },
+            {
+                "query_index": 1,
+                "score": 0.8,
+                "category_id": 1,
+                "mask_probs": pred_b,
+                "binary_mask": (pred_b >= 0.5).float(),
+            },
+        ],
+    )
+
+    sample = {
+        "image": torch.zeros((3, 8, 8), dtype=torch.float32),
+        "depth": torch.zeros((1, 8, 8), dtype=torch.float32),
+        "masks": torch.stack([gt_a, gt_b], dim=0),
+        "file_name": "PARTA_scene_0001.png",
+    }
+    backbone_outputs = SimpleNamespace(
+        pixel_decoder_last_hidden_state=torch.zeros((1, 16, 8, 8), dtype=torch.float32),
+        class_queries_logits=torch.zeros((1, 2, 2), dtype=torch.float32),
+        masks_queries_logits=torch.zeros((1, 2, 8, 8), dtype=torch.float32),
+    )
+
+    loss = _train_local_modules(
+        model=model,
+        samples=[sample],
+        pixel_values=pixel_values,
+        backbone_outputs=backbone_outputs,
+        variant_name="base_rgbd_1024_refine_ref",
+        prototype_source=source,
+        crop_size=4,
+        crop_pad=0,
+    )
+
+    assert torch.isfinite(loss)
+    assert len(model.refiner.seen_reference_shapes) == 2
+    assert all(shape_row[0] == (1, 1, 3, 4, 4) for shape_row in model.refiner.seen_reference_shapes)
+    assert all(shape_row[1] == (1, 1, 1, 4, 4) for shape_row in model.refiner.seen_reference_shapes)
+    assert all(shape_row[2] == (1, 1, 1, 4, 4) for shape_row in model.refiner.seen_reference_shapes)
+
+
+def test_local_refinement_module_accepts_shared_reference_bank() -> None:
+    module = LocalRefinementModule(
+        query_channels=3,
+        feature_channels=4,
+        hidden_dim=8,
+        use_reference=True,
+    )
+    outputs = module(
+        query_crop=torch.zeros((2, 3, 16, 16), dtype=torch.float32),
+        coarse_mask_prob=torch.zeros((2, 1, 16, 16), dtype=torch.float32),
+        feature_crop=torch.zeros((2, 4, 16, 16), dtype=torch.float32),
+        reference_rgb=torch.zeros((1, 3, 3, 16, 16), dtype=torch.float32),
+        reference_depth=torch.zeros((1, 3, 1, 16, 16), dtype=torch.float32),
+        reference_mask=torch.zeros((1, 3, 1, 16, 16), dtype=torch.float32),
+    )
+
+    assert outputs["reference_match_logits"] is not None
+    assert tuple(outputs["reference_match_logits"].shape) == (2, 1)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required to reproduce the fp16 reference-path failure mode")

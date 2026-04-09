@@ -1629,12 +1629,12 @@ def _expand_reference_batch(
     rgb, depth, mask = reference_tensors
     if rgb is None or depth is None or mask is None:
         return None, None, None
-    expand_shape = (int(batch_size), -1, -1, -1, -1)
-    return (
-        rgb.expand(*expand_shape).contiguous(),
-        depth.expand(*expand_shape).contiguous(),
-        mask.expand(*expand_shape).contiguous(),
-    )
+    reference_batch_size = int(rgb.shape[0])
+    if reference_batch_size not in {1, int(batch_size)}:
+        raise ValueError(
+            f"Reference batch size must be 1 or match query batch size, got {reference_batch_size} vs {int(batch_size)}"
+        )
+    return rgb, depth, mask
 
 
 def _project_local_features_float32(model: ActiveInstanceModel, feature_map: torch.Tensor) -> torch.Tensor:
