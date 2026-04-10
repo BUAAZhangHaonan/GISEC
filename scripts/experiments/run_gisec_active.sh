@@ -66,7 +66,12 @@ for config_stem in "${CONFIGS[@]}"; do
     echo "Config not found: ${config_path}" >&2
     exit 1
   fi
-  output_dir="${OUTPUT_ROOT}/${config_stem}"
+  train_output_dir="${OUTPUT_ROOT}/train/${config_stem}"
+  eval_output_dir="${OUTPUT_ROOT}/eval/${config_stem}"
+  output_dir="${train_output_dir}"
+  if [[ "${COMMAND}" == "eval" ]]; then
+    output_dir="${eval_output_dir}"
+  fi
   mkdir -p "${output_dir}"
   runner_log "${MODE}" "${RUN_LOG}" "[gisec-active] config=${config_stem}"
   args=(
@@ -85,7 +90,7 @@ for config_stem in "${CONFIGS[@]}"; do
     args+=("--depth-mode" "${DEPTH_MODE}")
   fi
   if [[ "${COMMAND}" == "eval" ]]; then
-    args+=("--checkpoint" "${output_dir}/model_best.pth" "--split" "val")
+    args+=("--checkpoint" "${train_output_dir}/model_best.pth" "--split" "val")
   fi
   if [[ "${MODE}" == "dry-run" ]]; then
     args+=("--dry-run")

@@ -17,6 +17,7 @@ from gisec.train.train_query import (
     _classify_failure,
     _compute_alpha_losses,
     _reduce_alpha_losses,
+    run_uq_eval,
 )
 from gisec.engine.query_factory import build_query_model
 
@@ -107,6 +108,47 @@ def test_query_uq_minibatch_runs_single_stage_training_and_eval(tmp_path: Path) 
     failure_summary = json.loads((output_root / "failure_summary.json").read_text(encoding="utf-8"))
     assert failure_summary["total_images"] == 1
     assert set(failure_summary["counts"]).issuperset({"normal", "empty", "oversized_blob", "severe_under_count", "severe_over_split"})
+
+
+def test_query_uq_eval_runs_without_checkpoint_rewrite_or_train_rows(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "dataset"
+    train_root = tmp_path / "train_out"
+    eval_root = tmp_path / "eval_out"
+    _write_dataset(dataset_root)
+
+    run_uq_minibatch(
+        dataset_root=dataset_root,
+        output_dir=train_root,
+        model_id="UQ-s",
+        device="cpu",
+        image_size=64,
+        batch_size=1,
+        num_workers=0,
+        max_train_steps=1,
+        max_val_images=1,
+        min_area=8,
+    )
+
+    checkpoint = train_root / "model_best.pth"
+    checkpoint_bytes = checkpoint.read_bytes()
+    run_uq_eval(
+        dataset_root=dataset_root,
+        output_dir=eval_root,
+        model_id="UQ-s",
+        checkpoint=checkpoint,
+        device="cpu",
+        image_size=64,
+        batch_size=1,
+        num_workers=0,
+        max_val_images=1,
+        min_area=8,
+    )
+
+    assert not (eval_root / "model_best.pth").exists()
+    assert checkpoint.read_bytes() == checkpoint_bytes
+    metric_rows = [json.loads(line) for line in (eval_root / "metrics_log.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert metric_rows
+    assert all(row["mode"] == "eval" for row in metric_rows)
 
 
 def test_query_alpha_targets_are_built_from_query_semantics_not_legacy_scaled_offsets() -> None:

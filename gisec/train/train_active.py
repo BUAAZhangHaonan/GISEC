@@ -710,33 +710,35 @@ def _is_process_alive(pid: int) -> bool:
     return True
 
 
+def _stage_lock_path(output_dir: Path) -> Path:
+    return output_dir.with_name(f"{output_dir.name}.train.lock")
+
+
 def _acquire_stage_lock(output_dir: Path) -> Path:
-    lock_path = output_dir / "train.lock"
+    lock_path = _stage_lock_path(output_dir)
     payload = {
         "pid": int(os.getpid()),
         "created_at": float(time.time()),
+        "output_dir": str(output_dir),
     }
-    while True:
+    try:
+        fd = os.open(str(lock_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL)
+    except FileExistsError as exc:
+        existing_pid = None
         try:
-            fd = os.open(str(lock_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL)
-        except FileExistsError:
-            existing_pid = -1
-            if lock_path.exists():
-                try:
-                    existing = _read_json(lock_path)
-                    existing_pid = int(existing.get("pid", -1))
-                except Exception:
-                    existing_pid = -1
-            if _is_process_alive(existing_pid):
-                raise RuntimeError(f"Training stage lock is already held by pid={existing_pid}: {lock_path}")
-            try:
-                lock_path.unlink()
-            except FileNotFoundError:
-                pass
-            continue
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
-        return lock_path
+            existing = _read_json(lock_path)
+            existing_pid = int(existing.get("pid", -1))
+        except Exception:
+            existing_pid = None
+        if existing_pid is not None and _is_process_alive(existing_pid):
+            raise RuntimeError(f"Training stage lock is already held by pid={existing_pid}: {lock_path}") from exc
+        raise RuntimeError(
+            "Training stage lock already exists and must be removed manually before retrying: "
+            f"{lock_path}"
+        ) from exc
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    return lock_path
 
 
 def _release_stage_lock(lock_path: Path | None) -> None:
@@ -1913,83 +1915,84 @@ def train_active(args: argparse.Namespace) -> None:
     variant_spec = get_active_variant_spec(args.variant)
     device = build_device(str(args.device))
     output_dir = Path(args.output_dir).resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
-    include_depth = str(args.depth_mode) != "rgb"
-    train_loader = _build_loader(
-        dataset_root=str(args.dataset_root),
-        split="train",
-        image_size=int(args.image_size),
-        batch_size=int(args.batch),
-        num_workers=int(args.num_workers),
-        include_depth=include_depth,
-        train=True,
-        use_cuda=bool(device.type == "cuda"),
-    )
-    val_loader = _build_loader(
-        dataset_root=str(args.dataset_root),
-        split="val",
-        image_size=int(args.image_size),
-        batch_size=1,
-        num_workers=int(args.num_workers),
-        include_depth=include_depth,
-        train=False,
-        use_cuda=bool(device.type == "cuda"),
-    )
-    model = _build_active_model(args).to(device)
-    _configure_model_for_stage(model, args)
-    prototype_source = None
-    if variant_spec.requires_prototype_root:
-        prototype_source = PrototypeBankSource(
-            root=Path(str(args.prototype_root)).resolve(),
-            image_size=int(args.crop_size),
-            contract_mode="compat",
-            max_views=int(args.reference_max_views),
-            view_sampler=str(args.reference_view_sampler),
-        )
-    trainable_params = [param for param in model.parameters() if param.requires_grad]
-    optimizer = torch.optim.AdamW(trainable_params, lr=float(args.learning_rate), weight_decay=float(args.weight_decay))
-    scaler = GradScaler(enabled=bool(device.type == "cuda"))
-    ann_file = Path(args.dataset_root).resolve() / "annotations" / "instances_val.json"
-    params_trainable = sum(int(param.numel()) for param in trainable_params)
-    (output_dir / "params_trainable.txt").write_text(f"{params_trainable}\n", encoding="utf-8")
-    metrics_log_path = output_dir / "metrics_log.jsonl"
-    if metrics_log_path.exists():
-        metrics_log_path.unlink()
-    resume_last_ckpt = output_dir / "resume_last.pth"
-    best_ap = float("-inf")
-    best_ckpt = output_dir / "model_best.pth"
-    start = time.perf_counter()
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
     lock_path = _acquire_stage_lock(output_dir)
-    if device.type == "cuda" and torch.cuda.is_available():
-        torch.cuda.reset_peak_memory_stats(device)
-    step_count = 0
-    completed_epoch = 0
+    include_depth = str(args.depth_mode) != "rgb"
     last_finite_step = 0
     last_finite_checkpoint = ""
-    eval_interval = max(int(getattr(args, "eval_every_epochs", 1)), 0)
-    resume_save_every_epochs = max(
-        int(getattr(args, "resume_save_every_epochs", MODEL_DEFAULTS["resume_save_every_epochs"])),
-        1,
-    )
-    log_every_steps = max(int(getattr(args, "log_every_steps", MODEL_DEFAULTS["log_every_steps"])), 1)
-    epoch_steps_total = len(train_loader)
-    planned_total_steps = int(epoch_steps_total * int(args.epochs))
-    if int(args.max_train_steps) > 0:
-        planned_total_steps = min(planned_total_steps, int(args.max_train_steps))
-    running_step_time_total = 0.0
-    non_blocking = bool(device.type == "cuda")
-    resume_guard_payload = None
-    if str(getattr(args, "resume_checkpoint", "")).strip():
-        resume_guard_payload = _validate_resume_checkpoint_allowed(Path(str(args.resume_checkpoint)).resolve())
-    _write_run_state(
-        output_dir,
-        status="running",
-        allow_resume=bool(resume_guard_payload is not None),
-        failure_reason=None,
-        last_finite_step=0,
-        last_finite_checkpoint="" if resume_guard_payload is None else str(Path(str(args.resume_checkpoint)).resolve()),
-    )
     try:
+        train_loader = _build_loader(
+            dataset_root=str(args.dataset_root),
+            split="train",
+            image_size=int(args.image_size),
+            batch_size=int(args.batch),
+            num_workers=int(args.num_workers),
+            include_depth=include_depth,
+            train=True,
+            use_cuda=bool(device.type == "cuda"),
+        )
+        val_loader = _build_loader(
+            dataset_root=str(args.dataset_root),
+            split="val",
+            image_size=int(args.image_size),
+            batch_size=1,
+            num_workers=int(args.num_workers),
+            include_depth=include_depth,
+            train=False,
+            use_cuda=bool(device.type == "cuda"),
+        )
+        model = _build_active_model(args).to(device)
+        _configure_model_for_stage(model, args)
+        prototype_source = None
+        if variant_spec.requires_prototype_root:
+            prototype_source = PrototypeBankSource(
+                root=Path(str(args.prototype_root)).resolve(),
+                image_size=int(args.crop_size),
+                contract_mode="compat",
+                max_views=int(args.reference_max_views),
+                view_sampler=str(args.reference_view_sampler),
+            )
+        trainable_params = [param for param in model.parameters() if param.requires_grad]
+        optimizer = torch.optim.AdamW(trainable_params, lr=float(args.learning_rate), weight_decay=float(args.weight_decay))
+        scaler = GradScaler(enabled=bool(device.type == "cuda"))
+        ann_file = Path(args.dataset_root).resolve() / "annotations" / "instances_val.json"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        params_trainable = sum(int(param.numel()) for param in trainable_params)
+        (output_dir / "params_trainable.txt").write_text(f"{params_trainable}\n", encoding="utf-8")
+        metrics_log_path = output_dir / "metrics_log.jsonl"
+        if metrics_log_path.exists():
+            metrics_log_path.unlink()
+        resume_last_ckpt = output_dir / "resume_last.pth"
+        best_ap = float("-inf")
+        best_ckpt = output_dir / "model_best.pth"
+        start = time.perf_counter()
+        if device.type == "cuda" and torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats(device)
+        step_count = 0
+        completed_epoch = 0
+        eval_interval = max(int(getattr(args, "eval_every_epochs", 1)), 0)
+        resume_save_every_epochs = max(
+            int(getattr(args, "resume_save_every_epochs", MODEL_DEFAULTS["resume_save_every_epochs"])),
+            1,
+        )
+        log_every_steps = max(int(getattr(args, "log_every_steps", MODEL_DEFAULTS["log_every_steps"])), 1)
+        epoch_steps_total = len(train_loader)
+        planned_total_steps = int(epoch_steps_total * int(args.epochs))
+        if int(args.max_train_steps) > 0:
+            planned_total_steps = min(planned_total_steps, int(args.max_train_steps))
+        running_step_time_total = 0.0
+        non_blocking = bool(device.type == "cuda")
+        resume_guard_payload = None
+        if str(getattr(args, "resume_checkpoint", "")).strip():
+            resume_guard_payload = _validate_resume_checkpoint_allowed(Path(str(args.resume_checkpoint)).resolve())
+        _write_run_state(
+            output_dir,
+            status="running",
+            allow_resume=bool(resume_guard_payload is not None),
+            failure_reason=None,
+            last_finite_step=0,
+            last_finite_checkpoint="" if resume_guard_payload is None else str(Path(str(args.resume_checkpoint)).resolve()),
+        )
         if str(getattr(args, "resume_checkpoint", "")).strip():
             completed_epoch, step_count, best_ap, running_step_time_total = _load_resume_payload(
                 model=model,

@@ -30,6 +30,9 @@ def test_active_runner_dry_run_lists_active_train_command(tmp_path: Path) -> Non
     assert "config=base_rgbd_1024_refine" in result.stdout
     assert "python -m gisec.cli.train" in result.stdout
     assert "configs/active/base_rgbd_1024_refine.yaml" in result.stdout
+    assert f"--output-dir '{tmp_path / 'out' / 'train' / 'base_rgbd_1024_refine'}'" in result.stdout or (
+        f"--output-dir {tmp_path / 'out' / 'train' / 'base_rgbd_1024_refine'}" in result.stdout
+    )
 
 
 def test_active_runner_dry_run_lists_eval_command_and_reference_root(tmp_path: Path) -> None:
@@ -62,6 +65,12 @@ def test_active_runner_dry_run_lists_eval_command_and_reference_root(tmp_path: P
     assert "python -m gisec.cli.eval" in result.stdout
     assert "--checkpoint" in result.stdout
     assert "--prototype-root" in result.stdout
+    assert f"--output-dir '{tmp_path / 'out' / 'eval' / 'base_rgbd_1024_refine_ref_graph'}'" in result.stdout or (
+        f"--output-dir {tmp_path / 'out' / 'eval' / 'base_rgbd_1024_refine_ref_graph'}" in result.stdout
+    )
+    assert f"--checkpoint '{tmp_path / 'out' / 'train' / 'base_rgbd_1024_refine_ref_graph' / 'model_best.pth'}'" in result.stdout or (
+        f"--checkpoint {tmp_path / 'out' / 'train' / 'base_rgbd_1024_refine_ref_graph' / 'model_best.pth'}" in result.stdout
+    )
 
 
 def test_active_runner_dry_run_forwards_init_checkpoint_and_prototype_root(tmp_path: Path) -> None:
@@ -95,6 +104,9 @@ def test_active_runner_dry_run_forwards_init_checkpoint_and_prototype_root(tmp_p
     assert "gisec.cli.train" in result.stdout
     assert f"--init-checkpoint '{checkpoint}'" in result.stdout or f"--init-checkpoint {checkpoint}" in result.stdout
     assert f"--prototype-root '{tmp_path / 'prototype_bank'}'" in result.stdout or f"--prototype-root {tmp_path / 'prototype_bank'}" in result.stdout
+    assert f"--output-dir '{tmp_path / 'out' / 'train' / 'base_rgbd_1024_refine_ref_graph'}'" in result.stdout or (
+        f"--output-dir {tmp_path / 'out' / 'train' / 'base_rgbd_1024_refine_ref_graph'}" in result.stdout
+    )
 
 
 def test_active_runner_dry_run_forwards_depth_mode_override(tmp_path: Path) -> None:
@@ -123,3 +135,6 @@ def test_active_runner_dry_run_forwards_depth_mode_override(tmp_path: Path) -> N
 
     assert "gisec.cli.train" in result.stdout
     assert "--depth-mode 'rgbd_concat_valid_mask'" in result.stdout or "--depth-mode rgbd_concat_valid_mask" in result.stdout
+    assert f"--output-dir '{tmp_path / 'out' / 'train' / 'base_rgbd_1024'}'" in result.stdout or (
+        f"--output-dir {tmp_path / 'out' / 'train' / 'base_rgbd_1024'}" in result.stdout
+    )

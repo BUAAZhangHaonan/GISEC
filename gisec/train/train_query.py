@@ -199,114 +199,42 @@ def _write_subset_annotations(
     return output_path
 
 
-def run_uq_minibatch(
+def _load_query_model_state(
     *,
-    dataset_root: Path,
-    output_dir: Path,
     model_id: str,
-    checkpoint: Path | None = None,
-    device: str = "cpu",
-    image_size: int = 64,
-    batch_size: int = 1,
-    num_workers: int = 0,
-    max_train_steps: int = 1,
-    max_val_images: int = 1,
-    min_area: int = 8,
-    lr: float = 1.0e-4,
-    head_lr_multiplier: float = 10.0,
-    fg_loss_weight: float = 1.0,
-    boundary_loss_weight: float = 0.5,
-    core_loss_weight: float = 4.0,
-    ownership_loss_weight: float = 0.25,
-    ownership_warmup_steps: int = 16,
-) -> None:
-    start_time = time.perf_counter()
-    dataset_root = Path(dataset_root).resolve()
-    output_dir = Path(output_dir).resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
-    device_obj = torch.device(device)
-
-    train_dataset = ECCGraphDataset(str(dataset_root), "train", image_size, train=True)
-    val_dataset = ECCGraphDataset(str(dataset_root), "val", image_size, train=False)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, collate_fn=collate_graph_batch)
-    val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=num_workers, collate_fn=collate_graph_batch)
-
+    device_obj: torch.device,
+    checkpoint: Path | None,
+) -> torch.nn.Module:
     model = build_query_model(model_id).to(device_obj)
     if checkpoint is not None and Path(checkpoint).exists():
         state = torch.load(Path(checkpoint), map_location=device_obj)
         model.load_state_dict(state["model"] if isinstance(state, dict) and "model" in state else state)
-    optimizer = _build_alpha_optimizer(model, lr=lr, head_lr_multiplier=head_lr_multiplier)
-    loss_weights = {
-        "fg": float(fg_loss_weight),
-        "boundary": float(boundary_loss_weight),
-        "core": float(core_loss_weight),
-        "ownership": float(ownership_loss_weight),
-    }
-    metrics_log_path = output_dir / "metrics_log.jsonl"
-    if metrics_log_path.exists():
-        metrics_log_path.unlink()
+    return model
 
-    train_steps = 0
-    model.train()
-    for batch in train_loader:
-        images = batch["images"].to(device_obj)
-        depths = batch["depths"].to(device_obj)
-        alpha_targets = {
-            key: value.to(device_obj)
-            for key, value in _build_alpha_targets_from_batch(batch).items()
-        }
 
-        outputs = model(images, depths)
-        losses = _compute_alpha_losses(outputs, alpha_targets)
-        loss_fg = losses["fg"]
-        loss_boundary = losses["boundary"]
-        loss_core = losses["core"]
-        loss_ownership = losses["ownership"]
-        loss = _reduce_alpha_losses(
-            losses,
-            step_index=train_steps + 1,
-            ownership_warmup_steps=ownership_warmup_steps,
-            loss_weights=loss_weights,
+def _validate_eval_output_dir(output_dir: Path, checkpoint: Path) -> None:
+    if output_dir.resolve() == checkpoint.resolve().parent:
+        raise ValueError(
+            "eval output_dir must differ from checkpoint directory to avoid in-place artifact writeback"
         )
-        optimizer.zero_grad(set_to_none=True)
-        loss.backward()
-        optimizer.step()
 
-        object_count = 0.0
-        split_count = 0.0
-        avg_cores_per_object = 0.0
-        for batch_idx in range(images.shape[0]):
-            pred_map, stats = predict_instance_map(
-                fg_logits=outputs["fg_logits"][batch_idx, 0].detach().cpu(),
-                boundary_logits=outputs["boundary_logits"][batch_idx, 0].detach().cpu(),
-                core_heatmap=outputs["core_heatmap"][batch_idx, 0].detach().cpu(),
-                ownership_offsets=outputs["ownership_offsets"][batch_idx].detach().cpu(),
-                min_area=min_area,
-            )
-            object_count += stats["object_count"]
-            split_count += stats["split_count"]
-            avg_cores_per_object += stats["avg_cores_per_object"]
 
-        row = {
-            "mode": "train",
-            "step": train_steps + 1,
-            "loss": float(loss.detach().cpu()),
-            "loss_fg": float(loss_fg.detach().cpu()),
-            "loss_boundary": float(loss_boundary.detach().cpu()),
-            "loss_core": float(loss_core.detach().cpu()),
-            "loss_ownership": float(loss_ownership.detach().cpu()),
-            "object_count": float(object_count / max(images.shape[0], 1)),
-            "split_count": float(split_count / max(images.shape[0], 1)),
-            "avg_cores_per_object": float(avg_cores_per_object / max(images.shape[0], 1)),
-        }
-        _append_jsonl(metrics_log_path, row)
-        train_steps += 1
-        if train_steps >= int(max_train_steps):
-            break
-
-    checkpoint_path = output_dir / "model_best.pth"
-    torch.save({"model": model.state_dict()}, checkpoint_path)
-
+def _run_uq_eval_outputs(
+    *,
+    dataset_root: Path,
+    output_dir: Path,
+    model_id: str,
+    model: torch.nn.Module,
+    val_loader: DataLoader,
+    device_obj: torch.device,
+    image_size: int,
+    batch_size: int,
+    max_train_steps: int,
+    max_val_images: int,
+    min_area: int,
+    start_time: float,
+    metrics_log_path: Path,
+) -> None:
     mask_rows: list[dict[str, float]] = []
     pathology_rows: list[dict[str, float]] = []
     match_rows: list[dict[str, float]] = []
@@ -408,4 +336,168 @@ def run_uq_minibatch(
             wall_time_sec=float(time.perf_counter() - start_time),
             results_json=str(results_json),
         ),
+    )
+
+
+def run_uq_minibatch(
+    *,
+    dataset_root: Path,
+    output_dir: Path,
+    model_id: str,
+    checkpoint: Path | None = None,
+    device: str = "cpu",
+    image_size: int = 64,
+    batch_size: int = 1,
+    num_workers: int = 0,
+    max_train_steps: int = 1,
+    max_val_images: int = 1,
+    min_area: int = 8,
+    lr: float = 1.0e-4,
+    head_lr_multiplier: float = 10.0,
+    fg_loss_weight: float = 1.0,
+    boundary_loss_weight: float = 0.5,
+    core_loss_weight: float = 4.0,
+    ownership_loss_weight: float = 0.25,
+    ownership_warmup_steps: int = 16,
+) -> None:
+    start_time = time.perf_counter()
+    dataset_root = Path(dataset_root).resolve()
+    output_dir = Path(output_dir).resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    device_obj = torch.device(device)
+
+    train_dataset = ECCGraphDataset(str(dataset_root), "train", image_size, train=True)
+    val_dataset = ECCGraphDataset(str(dataset_root), "val", image_size, train=False)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, collate_fn=collate_graph_batch)
+    val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=num_workers, collate_fn=collate_graph_batch)
+
+    model = _load_query_model_state(model_id=model_id, device_obj=device_obj, checkpoint=checkpoint)
+    optimizer = _build_alpha_optimizer(model, lr=lr, head_lr_multiplier=head_lr_multiplier)
+    loss_weights = {
+        "fg": float(fg_loss_weight),
+        "boundary": float(boundary_loss_weight),
+        "core": float(core_loss_weight),
+        "ownership": float(ownership_loss_weight),
+    }
+    metrics_log_path = output_dir / "metrics_log.jsonl"
+    if metrics_log_path.exists():
+        metrics_log_path.unlink()
+
+    train_steps = 0
+    model.train()
+    for batch in train_loader:
+        images = batch["images"].to(device_obj)
+        depths = batch["depths"].to(device_obj)
+        alpha_targets = {
+            key: value.to(device_obj)
+            for key, value in _build_alpha_targets_from_batch(batch).items()
+        }
+
+        outputs = model(images, depths)
+        losses = _compute_alpha_losses(outputs, alpha_targets)
+        loss_fg = losses["fg"]
+        loss_boundary = losses["boundary"]
+        loss_core = losses["core"]
+        loss_ownership = losses["ownership"]
+        loss = _reduce_alpha_losses(
+            losses,
+            step_index=train_steps + 1,
+            ownership_warmup_steps=ownership_warmup_steps,
+            loss_weights=loss_weights,
+        )
+        optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        optimizer.step()
+
+        object_count = 0.0
+        split_count = 0.0
+        avg_cores_per_object = 0.0
+        for batch_idx in range(images.shape[0]):
+            pred_map, stats = predict_instance_map(
+                fg_logits=outputs["fg_logits"][batch_idx, 0].detach().cpu(),
+                boundary_logits=outputs["boundary_logits"][batch_idx, 0].detach().cpu(),
+                core_heatmap=outputs["core_heatmap"][batch_idx, 0].detach().cpu(),
+                ownership_offsets=outputs["ownership_offsets"][batch_idx].detach().cpu(),
+                min_area=min_area,
+            )
+            object_count += stats["object_count"]
+            split_count += stats["split_count"]
+            avg_cores_per_object += stats["avg_cores_per_object"]
+
+        row = {
+            "mode": "train",
+            "step": train_steps + 1,
+            "loss": float(loss.detach().cpu()),
+            "loss_fg": float(loss_fg.detach().cpu()),
+            "loss_boundary": float(loss_boundary.detach().cpu()),
+            "loss_core": float(loss_core.detach().cpu()),
+            "loss_ownership": float(loss_ownership.detach().cpu()),
+            "object_count": float(object_count / max(images.shape[0], 1)),
+            "split_count": float(split_count / max(images.shape[0], 1)),
+            "avg_cores_per_object": float(avg_cores_per_object / max(images.shape[0], 1)),
+        }
+        _append_jsonl(metrics_log_path, row)
+        train_steps += 1
+        if train_steps >= int(max_train_steps):
+            break
+
+    checkpoint_path = output_dir / "model_best.pth"
+    torch.save({"model": model.state_dict()}, checkpoint_path)
+    _run_uq_eval_outputs(
+        dataset_root=dataset_root,
+        output_dir=output_dir,
+        model_id=model_id,
+        model=model,
+        val_loader=val_loader,
+        device_obj=device_obj,
+        image_size=image_size,
+        batch_size=batch_size,
+        max_train_steps=max_train_steps,
+        max_val_images=max_val_images,
+        min_area=min_area,
+        start_time=start_time,
+        metrics_log_path=metrics_log_path,
+    )
+
+
+def run_uq_eval(
+    *,
+    dataset_root: Path,
+    output_dir: Path,
+    model_id: str,
+    checkpoint: Path,
+    device: str = "cpu",
+    image_size: int = 64,
+    batch_size: int = 1,
+    num_workers: int = 0,
+    max_val_images: int = 1,
+    min_area: int = 8,
+) -> None:
+    start_time = time.perf_counter()
+    dataset_root = Path(dataset_root).resolve()
+    output_dir = Path(output_dir).resolve()
+    checkpoint = Path(checkpoint).resolve()
+    _validate_eval_output_dir(output_dir, checkpoint)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    device_obj = torch.device(device)
+    val_dataset = ECCGraphDataset(str(dataset_root), "val", image_size, train=False)
+    val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=num_workers, collate_fn=collate_graph_batch)
+    model = _load_query_model_state(model_id=model_id, device_obj=device_obj, checkpoint=checkpoint)
+    metrics_log_path = output_dir / "metrics_log.jsonl"
+    if metrics_log_path.exists():
+        metrics_log_path.unlink()
+    _run_uq_eval_outputs(
+        dataset_root=dataset_root,
+        output_dir=output_dir,
+        model_id=model_id,
+        model=model,
+        val_loader=val_loader,
+        device_obj=device_obj,
+        image_size=image_size,
+        batch_size=batch_size,
+        max_train_steps=0,
+        max_val_images=max_val_images,
+        min_area=min_area,
+        start_time=start_time,
+        metrics_log_path=metrics_log_path,
     )

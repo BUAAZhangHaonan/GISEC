@@ -36,27 +36,41 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _collect_removals() -> list[Path]:
+def _collect_removals(
+    *,
+    output_root: Path | None = None,
+    experiments_root: Path | None = None,
+    baselines_root: Path | None = None,
+    analysis_tmp_patterns: tuple[str, ...] | None = None,
+    keep_experiment_dirs: set[str] | None = None,
+    keep_baseline_dirs: set[str] | None = None,
+) -> list[Path]:
+    output_root = OUTPUT_ROOT if output_root is None else output_root
+    experiments_root = EXPERIMENTS_ROOT if experiments_root is None else experiments_root
+    baselines_root = BASELINES_ROOT if baselines_root is None else baselines_root
+    analysis_tmp_patterns = ANALYSIS_TMP_PATTERNS if analysis_tmp_patterns is None else analysis_tmp_patterns
+    keep_experiment_dirs = KEEP_EXPERIMENT_DIRS if keep_experiment_dirs is None else keep_experiment_dirs
+    keep_baseline_dirs = KEEP_BASELINE_DIRS if keep_baseline_dirs is None else keep_baseline_dirs
     removals: list[Path] = []
-    analysis_root = OUTPUT_ROOT / "analysis"
-    for pattern in ANALYSIS_TMP_PATTERNS:
-        removals.extend(sorted(path.resolve() for path in analysis_root.glob(pattern) if path.is_dir()))
+    analysis_root = output_root / "analysis"
+    for pattern in analysis_tmp_patterns:
+        removals.extend(sorted(path for path in analysis_root.glob(pattern) if path.is_dir()))
 
-    if EXPERIMENTS_ROOT.exists():
-        for path in sorted(EXPERIMENTS_ROOT.iterdir()):
+    if experiments_root.exists():
+        for path in sorted(experiments_root.iterdir()):
             if not path.is_dir():
                 continue
             if path.name == "baselines":
                 continue
-            if path.name not in KEEP_EXPERIMENT_DIRS:
-                removals.append(path.resolve())
+            if path.name not in keep_experiment_dirs:
+                removals.append(path)
 
-    if BASELINES_ROOT.exists():
-        for path in sorted(BASELINES_ROOT.iterdir()):
+    if baselines_root.exists():
+        for path in sorted(baselines_root.iterdir()):
             if not path.is_dir():
                 continue
-            if path.name not in KEEP_BASELINE_DIRS:
-                removals.append(path.resolve())
+            if path.name not in keep_baseline_dirs:
+                removals.append(path)
 
     unique: list[Path] = []
     seen: set[Path] = set()
@@ -67,9 +81,34 @@ def _collect_removals() -> list[Path]:
     return unique
 
 
+def _approve_removal_path(path: Path, *, output_root: Path) -> Path:
+    if path.is_symlink():
+        raise ValueError(f"Refusing to delete symlinked path: {path}")
+    resolved_root = output_root.resolve()
+    resolved_path = path.resolve()
+    try:
+        resolved_path.relative_to(resolved_root)
+    except ValueError as exc:
+        raise ValueError(f"Refusing to delete path outside output root: {path}") from exc
+    return path
+
+
+def _approve_removals(paths: list[Path], *, output_root: Path | None = None) -> list[Path]:
+    output_root = OUTPUT_ROOT if output_root is None else output_root
+    approved: list[Path] = []
+    for path in paths:
+        approved.append(_approve_removal_path(path, output_root=output_root))
+    return approved
+
+
+def _remove_paths(paths: list[Path]) -> None:
+    for path in paths:
+        shutil.rmtree(path)
+
+
 def main() -> None:
     args = parse_args()
-    removals = _collect_removals()
+    removals = _approve_removals(_collect_removals(), output_root=OUTPUT_ROOT)
     if not removals:
         print("No obsolete output artifacts found.")
         return
@@ -79,8 +118,7 @@ def main() -> None:
     if not args.execute:
         print("\nDry-run only. Re-run with --execute to delete these paths.")
         return
-    for path in removals:
-        shutil.rmtree(path)
+    _remove_paths(removals)
     print(f"\nRemoved {len(removals)} paths.")
 
 

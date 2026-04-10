@@ -120,10 +120,13 @@ bash scripts/experiments/run_gisec_active.sh \
 ```
 
 The script iterates through the canonical active configs, toggles between `train` and `eval`, and optionally switches to `dry-run` mode. Prototype roots are only required once reference or graph rescue enters the chain, and `--init-checkpoint is required` for refine-stage active training.
+The runner now keeps phase outputs separate by default: train artifacts go to `output-root/train/<config>`, eval artifacts go to `output-root/eval/<config>`, and eval reads checkpoints from the matching train directory.
 
 For staged active training, `--init-checkpoint is required` once the variant enters the `base_rgbd_1024_refine*` chain. The refine, reference, and graph stages are not valid from random initialization.
 
 Use `--depth-mode rgbd_concat_valid_mask` when the active `base_rgbd_*` chain should include the extra valid-depth mask channel without changing the canonical family names.
+
+For `Query Alpha` eval, keep `--output-dir` separate from the checkpoint directory. Eval is now write-isolated and refuses in-place artifact writeback into the training checkpoint root.
 
 ### Legacy Train / Eval
 

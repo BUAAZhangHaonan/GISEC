@@ -151,14 +151,38 @@ def test_train_active_refuses_to_start_when_stage_lock_is_owned_by_live_pid(
     args = _args(tmp_path, variant="base_rgb_1024")
     _patch_minimal_training(monkeypatch, model=model)
     output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "train.lock").write_text(
+    lock_path = output_dir.with_name(f"{output_dir.name}.train.lock")
+    lock_path.write_text(
         json.dumps({"pid": os.getpid(), "created_at": "2026-04-09T00:00:00"}) + "\n",
         encoding="utf-8",
     )
 
     with pytest.raises(RuntimeError, match="lock"):
         train_active(args)
+
+    assert not output_dir.exists()
+    assert not (output_dir / "params_trainable.txt").exists()
+    assert lock_path.exists()
+
+
+def test_train_active_fails_closed_on_stale_or_malformed_stage_lock_without_mutating_run_dir(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = _TinyActiveModel()
+    args = _args(tmp_path, variant="base_rgb_1024")
+    _patch_minimal_training(monkeypatch, model=model)
+    output_dir = Path(args.output_dir)
+    lock_path = output_dir.with_name(f"{output_dir.name}.train.lock")
+    lock_path.write_text("{not-json}\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="lock"):
+        train_active(args)
+
+    assert not output_dir.exists()
+    assert not (output_dir / "run_state.json").exists()
+    assert not (output_dir / "metrics_log.jsonl").exists()
+    assert lock_path.exists()
 
 
 def test_train_active_rejects_resume_checkpoint_without_running_run_state(
