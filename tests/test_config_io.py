@@ -8,6 +8,7 @@ import yaml
 
 from argparse import Namespace
 
+from gisec.config.io import load_yaml_config
 from gisec.train.train_gisec import (
     parse_eval_args,
     parse_infer_args,
@@ -280,6 +281,83 @@ def test_parse_train_args_reads_seed_default(tmp_path: Path) -> None:
     args = parse_train_args(["--config", str(config_path)])
 
     assert args.seed == 123
+
+
+def test_load_yaml_config_rejects_duplicate_keys(tmp_path: Path) -> None:
+    config_path = tmp_path / "duplicate.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "train:",
+                "  epochs: 10",
+                "train:",
+                "  epochs: 4",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Duplicate YAML key"):
+        load_yaml_config(config_path)
+
+
+def test_parse_train_args_rejects_duplicate_keys_via_config_entrypoint(tmp_path: Path) -> None:
+    config_path = tmp_path / "duplicate.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "common:",
+                "  dataset_root: /tmp/dataset",
+                "  prototype_root: /tmp/prototypes",
+                "  output_dir: /tmp/out",
+                "train:",
+                "  epochs: 10",
+                "train:",
+                "  epochs: 4",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Duplicate YAML key"):
+        parse_train_args(
+            [
+                "--config",
+                str(config_path),
+                "--dataset-root",
+                "/tmp/dataset",
+                "--prototype-root",
+                "/tmp/prototypes",
+                "--output-dir",
+                "/tmp/out",
+            ]
+        )
+
+
+def test_parse_train_args_reads_stage2_baseline_config() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    config_path = repo_root / "configs" / "baseline" / "instance_fragment_generator_rgb_stage2.yaml"
+
+    args = parse_train_args(
+        [
+            "--config",
+            str(config_path),
+            "--dataset-root",
+            "/tmp/dataset",
+            "--prototype-root",
+            "/tmp/prototypes",
+            "--output-dir",
+            "/tmp/out",
+        ]
+    )
+
+    assert args.epochs == 4
+    assert args.batch_size == 64
+    assert args.num_workers == 4
+    assert args.learning_rate == 0.001
+    assert args.max_train_steps == 0
 
 
 def test_parse_train_args_allows_smoke_config_to_override_reference_policy(tmp_path: Path) -> None:

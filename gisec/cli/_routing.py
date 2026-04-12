@@ -25,19 +25,26 @@ def _summary_variant(path: Path | None) -> str | None:
     return None if variant in (None, "") else str(variant)
 
 
+def _flag_values(argv: list[str], flag: str) -> list[str]:
+    values: list[str] = []
+    prefix = f"{flag}="
+    for index, token in enumerate(argv):
+        if token == flag and index + 1 < len(argv):
+            values.append(argv[index + 1])
+        elif token.startswith(prefix):
+            values.append(token[len(prefix) :])
+    return values
+
+
 def explicit_cli_variant(argv: list[str]) -> str | None:
     variant = None
-    for index, token in enumerate(argv):
-        if token == "--variant" and index + 1 < len(argv):
-            variant = argv[index + 1]
+    for value in _flag_values(argv, "--variant"):
+        variant = value
     return None if variant in {"", None} else str(variant)
 
 
 def _config_variant(argv: list[str]) -> str | None:
-    config_paths: list[str] = []
-    for index, token in enumerate(argv):
-        if token == "--config" and index + 1 < len(argv):
-            config_paths.append(argv[index + 1])
+    config_paths = _flag_values(argv, "--config")
     if not config_paths:
         return None
     merged = merge_config_dicts(load_yaml_config(Path(path)) for path in config_paths)
@@ -48,11 +55,12 @@ def _config_variant(argv: list[str]) -> str | None:
 def resolve_run_directory_variant(argv: list[str]) -> str | None:
     checkpoint_path = None
     output_dir = None
-    for index, token in enumerate(argv):
-        if token == "--checkpoint" and index + 1 < len(argv):
-            checkpoint_path = argv[index + 1]
-        if token == "--output-dir" and index + 1 < len(argv):
-            output_dir = argv[index + 1]
+    checkpoint_values = _flag_values(argv, "--checkpoint")
+    output_dir_values = _flag_values(argv, "--output-dir")
+    if checkpoint_values:
+        checkpoint_path = checkpoint_values[-1]
+    if output_dir_values:
+        output_dir = output_dir_values[-1]
     active_variants = set(active_variant_names())
     checkpoint = _existing(checkpoint_path)
     output_root = _existing(output_dir)

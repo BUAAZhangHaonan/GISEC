@@ -20,8 +20,25 @@ _SECTION_ALIASES = {
 }
 
 
+class _UniqueKeyLoader(yaml.SafeLoader):
+    pass
+
+
+def _construct_unique_mapping(loader: yaml.SafeLoader, node: yaml.nodes.MappingNode, deep: bool = False) -> dict[str, Any]:
+    mapping: dict[Any, Any] = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in mapping:
+            raise ValueError(f"Duplicate YAML key: {key!r}")
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+_UniqueKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping)
+
+
 def load_yaml_config(path: str | Path) -> dict[str, Any]:
-    payload = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    payload = yaml.load(Path(path).read_text(encoding="utf-8"), Loader=_UniqueKeyLoader) or {}
     if not isinstance(payload, dict):
         raise ValueError(f"Expected YAML mapping at {path}, got {type(payload).__name__}")
     return payload
