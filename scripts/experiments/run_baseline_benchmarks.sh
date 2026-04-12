@@ -9,14 +9,15 @@ MODE="dry-run"
 GROUP="all"
 OUTPUT_ROOT="${REPO_ROOT}/output/experiments/baselines"
 DATASET_ROOT="${BASELINE_DATASET_ROOT:-/home/k100/zhn/electronic-components-grasp-and-segment/gisec/datasets/20260318_1K_1566}"
-PYTHON_CMD="$(runner_python_cmd)"
+PYTHON_CMD=()
+runner_python_cmd_array PYTHON_CMD
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --group) GROUP="$2"; shift 2 ;;
     --output-root) OUTPUT_ROOT="$2"; shift 2 ;;
     --dataset-root) DATASET_ROOT="$2"; shift 2 ;;
-    --python) PYTHON_CMD="$2"; shift 2 ;;
+    --python) runner_parse_words_array PYTHON_CMD "$2"; shift 2 ;;
     --run) MODE="run"; shift ;;
     --dry-run) MODE="dry-run"; shift ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
@@ -92,8 +93,11 @@ runner_log "${MODE}" "${RUN_LOG}" "[baseline-bench] output_root=${OUTPUT_ROOT}"
 
 for config_name in "${CONFIGS[@]}"; do
   config_path="${REPO_ROOT}/configs/baseline/${config_name}"
-  stem="${config_name%.yaml}"
+  stem="${config_name}.yaml"
   out_dir="${OUTPUT_ROOT}/${stem}"
   runner_log "${MODE}" "${RUN_LOG}" "[baseline-bench] config=${stem} output=${out_dir}"
-  runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${PYTHON_CMD} scripts/experiments/run_baseline_config.py --config '${config_path}' --dataset-root '${DATASET_ROOT}' --output-dir '${out_dir}'"
-done
+  runner_exec "${MODE}" "${RUN_LOG}" "${REPO_ROOT}" \
+    "${PYTHON_CMD[@]}" scripts/experiments/run_baseline_config.py \
+    --config "${config_path}" \
+    --dataset-root "${DATASET_ROOT}" \
+    --output-dir "${out_dir}"

@@ -16,7 +16,7 @@ G1_CHECKPOINT="${OUTPUT_ROOT}/phase_a/legacy/G1_train/model_best.pth"
 MERGE_ORDER_ROOT=""
 CONTRACT_MODE="compat"
 NUM_WORKERS="16"
-PYTHON_CMD="conda run -n ${CONDA_ENV} python"
+PYTHON_CMD=(conda run -n "${CONDA_ENV}" python)
 
 train_complete() {
   local out_dir="$1"
@@ -26,12 +26,6 @@ train_complete() {
 eval_complete() {
   local out_dir="$1"
   [[ -f "${out_dir}/run_summary.json" && -f "${out_dir}/metrics.cocoeval.json" ]]
-}
-
-join_args() {
-  local joined=""
-  printf -v joined ' %q' "$@"
-  printf '%s' "${joined}"
 }
 
 log_stage_summary() {
@@ -51,10 +45,10 @@ log_stage_summary() {
 run_stage_command() {
   local root_log="$1"
   local stage_dir="$2"
-  local command="$3"
+  shift 2
   local stage_log
   stage_log="$(runner_setup_log "${stage_dir}" "${MODE}")"
-  runner_exec "${MODE}" "${stage_log}" "${command}"
+  runner_exec "${MODE}" "${stage_log}" "${REPO_ROOT}" "$@"
   runner_log "${MODE}" "${root_log}" "[legacy-support] completed_dir=${stage_dir}"
 }
 
@@ -73,7 +67,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-PYTHON_CMD="conda run -n ${CONDA_ENV} python"
+PYTHON_CMD=(conda run -n "${CONDA_ENV}" python)
 G3_TRAIN_DIR="${OUTPUT_ROOT}/phase_b/legacy/G3_train_retry2"
 G3_EVAL_DIR="${OUTPUT_ROOT}/phase_b/legacy/G3_best_eval"
 MERGE_ORDER_ROOT="${OUTPUT_ROOT}/phase_d/legacy_merge_order"
@@ -99,7 +93,7 @@ else
     --config "${REPO_ROOT}/configs/train/full_legacy_20ep.yaml"
     --dataset-root "${DATASET_ROOT}"
     --prototype-root "${PROTOTYPE_ROOT}"
-    --output-dir "${G3_TRAIN_DIR}"
+    --output-dir "${G3_TRAIN_DIR=""
     --variant G3
     --device cuda
     --contract-mode "${CONTRACT_MODE}"
@@ -108,20 +102,19 @@ else
   if [[ "${MODE}" == "dry-run" ]]; then
     train_args+=(--dry-run)
   fi
-  train_cmd="cd '${REPO_ROOT}' && ${PYTHON_CMD}$(join_args "${train_args[@]}")"
-  run_stage_command "${ROOT_LOG}" "${G3_TRAIN_DIR}" "${train_cmd}"
-  if [[ "${MODE}" == "run" && ! -f "${G3_TRAIN_DIR}/model_best.pth" ]]; then
+  run_stage_command "${ROOT_LOG}" "${G3_TRAIN_DIR}" "${PYTHON_CMD[@]}" "${train_args[@]}"
+  if [[ "${MODE}" == "run" && ! -f "${G3_TRAIN_DIR=/model_best.pth" ]]; then
     echo "Legacy G3 train failed to produce model_best.pth: ${G3_TRAIN_DIR}" >&2
     exit 1
   fi
-  if [[ "${MODE}" == "run" && ! -f "${G3_TRAIN_DIR}/run_summary.json" ]]; then
-    echo "Legacy G3 train failed to produce run_summary.json: ${G3_TRAIN_DIR}" >&2
+  if [[ "${MODE}" == "run" && ! -f "${G3_TRAIN_DIR=/run_summary.json" ]]; then
+    echo "Legacy G3 train failed to produce run_summary.json: ${G3_TRAIN_DIR=}" >&2
     exit 1
   fi
 fi
 
-log_stage_summary "${ROOT_LOG}" "G3_best_eval" "${G3_EVAL_DIR}" "${G3_TRAIN_DIR}/model_best.pth" "${PROTOTYPE_ROOT}" "${G3_EVAL_DIR}/run_summary.json"
-if eval_complete "${G3_EVAL_DIR}"; then
+log_stage_summary "${ROOT_LOG}" "G1_edge_type_8d_best_eval" "${EVAL_DIR=-dry-run>" "${EVAL_DIR}/run_summary.json"
+if eval_complete "${EVAL_DIR}"; then
   runner_log "${MODE}" "${ROOT_LOG}" "[legacy-support] SKIP eval G3"
 else
   eval_args=(
@@ -131,8 +124,8 @@ else
     --config "${REPO_ROOT}/configs/train/full_legacy_20ep.yaml"
     --dataset-root "${DATASET_ROOT}"
     --prototype-root "${PROTOTYPE_ROOT}"
-    --output-dir "${G3_EVAL_DIR}"
-    --checkpoint "${G3_TRAIN_DIR}/model_best.pth"
+    --output-dir "${EVAL_DIR=""
+    --checkpoint "${G3_TRAIN_DIR=/model_best.pth"
     --variant G3
     --device cuda
     --contract-mode "${CONTRACT_MODE}"
@@ -143,14 +136,13 @@ else
   if [[ "${MODE}" == "dry-run" ]]; then
     eval_args+=(--dry-run)
   fi
-  eval_cmd="cd '${REPO_ROOT}' && ${PYTHON_CMD}$(join_args "${eval_args[@]}")"
-  run_stage_command "${ROOT_LOG}" "${G3_EVAL_DIR}" "${eval_cmd}"
-  if [[ "${MODE}" == "run" && ! -f "${G3_EVAL_DIR}/run_summary.json" ]]; then
+  run_stage_command "${ROOT_LOG}" "${G3_EVAL_DIR}" "${PYTHON_CMD[@]}" "${eval_args[@]}"
+  if [[ "${MODE}" == "run" && ! -f "${G3_EVAL_DIR=/run_summary.json" ]]; then
     echo "Legacy G3 eval failed to produce run_summary.json: ${G3_EVAL_DIR}" >&2
     exit 1
   fi
   if [[ "${MODE}" == "run" && ! -f "${G3_EVAL_DIR}/metrics.cocoeval.json" ]]; then
-    echo "Legacy G3 eval failed to produce metrics.cocoeval.json: ${G3_EVAL_DIR}" >&2
+    echo "Legacy G3 eval failed to produce metrics.cocoeval.json: ${G3_EVAL_DIR=}" >&2
     exit 1
   fi
 fi
@@ -184,8 +176,7 @@ for merge_order in score random; do
   if [[ "${MODE}" == "dry-run" ]]; then
     merge_args+=(--dry-run)
   fi
-  merge_cmd="cd '${REPO_ROOT}' && ${PYTHON_CMD}$(join_args "${merge_args[@]}")"
-  run_stage_command "${ROOT_LOG}" "${merge_dir}" "${merge_cmd}"
+  run_stage_command "${ROOT_LOG}" "${merge_dir}" "${PYTHON_CMD[@]}" "${merge_args[@]}"
   if [[ "${MODE}" == "run" && ! -f "${merge_dir}/run_summary.json" ]]; then
     echo "Legacy merge-order eval failed to produce run_summary.json: ${merge_dir}" >&2
     exit 1

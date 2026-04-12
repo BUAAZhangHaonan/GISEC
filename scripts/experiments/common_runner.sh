@@ -29,23 +29,67 @@ runner_log() {
   fi
 }
 
+runner_shell_join() {
+  local rendered=""
+  printf -v rendered '%q ' "$@"
+  printf '%s' "${rendered% }"
+}
+
+runner_parse_words_array() {
+  local -n dest="$1"
+  local source="${2:-}"
+  mapfile -t dest < <(
+    python - "$source" <<'PY'
+import shlex
+import sys
+
+for token in shlex.split(sys.argv[1]):
+    print(token)
+PY
+  )
+  if [[ ${#dest[@]} -eq 0 ]]; then
+    echo "Expected at least one command token, got empty input" >&2
+    exit 1
+  fi
+}
+
 runner_exec() {
   local mode="$1"
   local run_log="$2"
-  shift 2
-  local cmd="$*"
-  runner_log "${mode}" "${run_log}" "+ ${cmd}"
+  local workdir="$3"
+  shift 3
+  local cmd=("$@")
+  local rendered
+  rendered="$(runner_shell_join "${cmd[@]}")"
+  runner_log "${mode}" "${run_log}" "+ cd $(printf '%q' "${workdir}") && ${rendered}"
   if [[ "${mode}" != "run" ]]; then
     return 0
   fi
   set +e
-  eval "${cmd}" 2>&1 | tee -a "${run_log}"
+  (
+    cd "${workdir}"
+    "${cmd[@]}"
+  ) 2>&1 | tee -a "${run_log}"
   local rc=${PIPESTATUS[0]}
   set -e
   if [[ ${rc} -ne 0 ]]; then
     runner_log "${mode}" "${run_log}" "FAILED rc=${rc}"
     exit "${rc}"
   fi
+}
+
+runner_wait_for_process_match_to_clear() {
+  local mode="$1"
+  local run_log="$2"
+  local pattern="$3"
+  local interval_sec="${4:-60}"
+  runner_log "${mode}" "${run_log}" "+ while pgrep -af $(printf '%q' "${pattern}") >/dev/null; do sleep $(printf '%q' "${interval_sec}"); done"
+  if [[ "${mode}" != "run" ]]; then
+    return 0
+  fi
+  while pgrep -af "${pattern}" >/dev/null; do
+    sleep "${interval_sec}"
+  done
 }
 
 runner_json_field() {
@@ -90,31 +134,47 @@ runner_run_state_allows_resume() {
   [[ "$(runner_json_field "${run_state_path}" allow_resume 2>/dev/null || true)" == "true" ]]
 }
 
-runner_python_cmd() {
+runner_python_cmd_array() {
+  local -n dest="$1"
   if [[ -n "${GISEC_CONDA_ENV:-}" ]]; then
-    printf 'conda run -n %s python' "${GISEC_CONDA_ENV}"
+    dest=(conda run -n "${GISEC_CONDA_ENV}" python)
     return 0
   fi
   if [[ -n "${GISEC_PYTHON:-}" ]]; then
-    printf '%s' "${GISEC_PYTHON}"
+    runner_parse_words_array dest "${GISEC_PYTHON}"
     return 0
   fi
   if [[ -n "${PYTHON:-}" ]]; then
-    printf '%s' "${PYTHON}"
+    runner_parse_words_array dest "${PYTHON}"
     return 0
   fi
-  printf 'python'
+  dest=(python)
 }
 
-runner_launch_prefix() {
-  local python_cmd="$1"
+runner_python_cmd() {
+  local cmd=()
+  runner_python_cmd_array cmd
+  runner_shell_join "${cmd[@]}"
+}
+
+runner_launch_prefix_array() {
+  local -n dest="$1"
+  local -n python_cmd="$2"
   local launcher="${GISEC_LAUNCHER:-none}"
   local nproc="${GISEC_TORCHRUN_NPROC_PER_NODE:-}"
   local master_port="${GISEC_TORCHRUN_MASTER_PORT:-29500}"
   if [[ "${launcher}" == "torchrun" || -n "${nproc}" ]]; then
     local use_nproc="${nproc:-1}"
-    printf 'torchrun --standalone --nnodes 1 --nproc-per-node %s --master-port %s' "${use_nproc}" "${master_port}"
+    dest=(torchrun --standalone --nnodes 1 --nproc-per-node "${use_nproc}" --master-port "${master_port}")
     return 0
   fi
-  printf '%s' "${python_cmd}"
+  dest=("${python_cmd[@]}")
+}
+
+runner_launch_prefix() {
+  local cmd=()
+  runner_parse_words_array cmd "$1"
+  local prefix=()
+  runner_launch_prefix_array prefix cmd
+  runner_shell_join "${prefix[@]}"
 }

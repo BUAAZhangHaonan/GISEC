@@ -13,7 +13,8 @@ OUTPUT_ROOT="${REPO_ROOT}/output/experiments/gisec_active"
 PROTOTYPE_ROOT="${ACTIVE_PROTOTYPE_ROOT:-}"
 INIT_CHECKPOINT="${ACTIVE_INIT_CHECKPOINT:-}"
 DEPTH_MODE="${ACTIVE_DEPTH_MODE:-}"
-PYTHON_CMD="$(runner_python_cmd)"
+PYTHON_CMD=()
+runner_python_cmd_array PYTHON_CMD
 
 ACTIVE_CONFIGS=(
   "base_rgb_1024"
@@ -34,7 +35,7 @@ while [[ $# -gt 0 ]]; do
     --depth-mode) DEPTH_MODE="$2"; shift 2 ;;
     --run) MODE="run"; shift ;;
     --dry-run) MODE="dry-run"; shift ;;
-    --python) PYTHON_CMD="$2"; shift 2 ;;
+    --python) runner_parse_words_array PYTHON_CMD "$2"; shift 2 ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
   esac
 done
@@ -80,7 +81,7 @@ for config_stem in "${CONFIGS[@]}"; do
     "--output-dir" "${output_dir}"
     "--device" "cuda"
   )
-  if [[ -n "${PROTOTYPE_ROOT}" && "${config_stem}" == *"_ref"* ]]; then
+  if [[ -n "${PROTOTYPE_ROOT}" && "${config_stem}" == "*_ref"* ]]; then
     args+=("--prototype-root" "${PROTOTYPE_ROOT}")
   fi
   if [[ -n "${INIT_CHECKPOINT}" ]]; then
@@ -95,6 +96,5 @@ for config_stem in "${CONFIGS[@]}"; do
   if [[ "${MODE}" == "dry-run" ]]; then
     args+=("--dry-run")
   fi
-  arg_string="$(printf ' %q' "${args[@]}")"
-  runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${PYTHON_CMD} -m gisec.cli.${COMMAND}${arg_string}"
+  runner_exec "${MODE}" "${RUN_LOG}" "${REPO_ROOT}" "${PYTHON_CMD[@]}" -m "gisec.cli.${COMMAND}" "${args[@]}"
 done

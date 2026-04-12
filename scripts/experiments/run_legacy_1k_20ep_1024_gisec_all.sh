@@ -1,16 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-source "${SCRIPT_DIR}/common_runner.sh"
-
 DATASET_ROOT=""
 PROTOTYPE_ROOT=""
 OUTPUT_ROOT="${REPO_ROOT}/output/experiments/gisec_0831_matrix"
 MODE="run"
 CONTRACT_MODE="compat"
-PYTHON_CMD="$(runner_python_cmd)"
+PYTHON_CMD=()
+runner_python_cmd_array PYTHON_CMD
 LAUNCHER="${GISEC_LAUNCHER:-none}"
 NPROC_PER_NODE="${GISEC_TORCHRUN_NPROC_PER_NODE:-}"
 MASTER_PORT="${GISEC_TORCHRUN_MASTER_PORT:-29500}"
@@ -26,7 +23,7 @@ while [[ $# -gt 0 ]]; do
     --prototype-root) PROTOTYPE_ROOT="$2"; shift 2 ;;
     --output-root) OUTPUT_ROOT="$2"; shift 2 ;;
     --contract-mode) CONTRACT_MODE="$2"; shift 2 ;;
-    --python) PYTHON_CMD="$2"; shift 2 ;;
+    --python) runner_parse_words_array PYTHON_CMD "$2"; shift 2 ;;
     --config) CONFIG_ARGS+=(--config "$2"); shift 2 ;;
     --launcher) LAUNCHER="$2"; shift 2 ;;
     --nproc-per-node) NPROC_PER_NODE="$2"; shift 2 ;;
@@ -41,15 +38,15 @@ export GISEC_LAUNCHER="${LAUNCHER}"
 if [[ -n "${NPROC_PER_NODE}" ]]; then
   export GISEC_TORCHRUN_NPROC_PER_NODE="${NPROC_PER_NODE}"
 fi
-export GISEC_TORCHRUN_MASTER_PORT="${MASTER_PORT}"
-LAUNCH_PREFIX="$(runner_launch_prefix "${PYTHON_CMD}")"
-DATASET_ARG=""
-PROTOTYPE_ARG=""
+RAUNCH_PREFIX=()
+runner_launch_prefix_array LAUNCH_PREFIX PYTHON_CMD
+DATASET_ARGS=()
+PROTOTYPE_ARGS=()
 if [[ -n "${DATASET_ROOT}" ]]; then
-  DATASET_ARG="--dataset-root '${DATASET_ROOT}'"
+  DATASET_ARGS=(--dataset-root "${DATASET_ROOT}")
 fi
 if [[ -n "${PROTOTYPE_ROOT}" ]]; then
-  PROTOTYPE_ARG="--prototype-root '${PROTOTYPE_ROOT}'"
+  PROTOTYPE_ARGS=(--prototype-root "${PROTOTYPE_ROOT}")
 fi
 
 mkdir -p "${OUTPUT_ROOT}"
@@ -62,29 +59,4 @@ runner_log "${MODE}" "${RUN_LOG}" "[gisec-all] output_root=${OUTPUT_ROOT}"
 runner_log "${MODE}" "${RUN_LOG}" "[gisec-all] launcher=${LAUNCHER}"
 runner_log "${MODE}" "${RUN_LOG}" "[gisec-all] config_stack=${CONFIG_ARGS[*]}"
 
-for variant in A0 A1 B0 G1 G2 G3 G4 G5; do
-  runner_log "${MODE}" "${RUN_LOG}" "[gisec-all] START ${variant}"
-  runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${LAUNCH_PREFIX} -m gisec.cli.train_legacy \
-    ${CONFIG_ARGS[*]} \
-    ${DATASET_ARG} \
-    ${PROTOTYPE_ARG} \
-    --output-dir '${OUTPUT_ROOT}/${variant}' \
-    --variant '${variant}' \
-    --launcher '${LAUNCHER}' \
-    --nproc-per-node ${NPROC_PER_NODE:-1} \
-    --master-port ${MASTER_PORT} \
-    --contract-mode '${CONTRACT_MODE}'"
-  runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${PYTHON_CMD} -m gisec.cli.eval_legacy \
-    ${CONFIG_ARGS[*]} \
-    ${DATASET_ARG} \
-    ${PROTOTYPE_ARG} \
-    --output-dir '${OUTPUT_ROOT}/${variant}/eval_vis' \
-    --checkpoint '${OUTPUT_ROOT}/${variant}/model_best.pth' \
-    --variant '${variant}' \
-    --contract-mode '${CONTRACT_MODE}' \
-    --save-overlays \
-    --overlay-limit 8 \
-    --save-graph-diagnostics \
-    --diagnostics-limit 32"
-  runner_log "${MODE}" "${RUN_LOG}" "[gisec-all] END ${variant}"
-done
+for variant in A0 A1 B0 G1 G2 G3@G32sBsS²Fð¢'VææW%öÆör"G´ÔôDWÒ""Gµ%TåôÄôwÒ"%¶v—6V2ÖÆÅÒ5D%BG·f&–çGÒ ¢'VææW%öW†V2"G´ÔôDWÒ""Gµ%TåôÄôwÒ""Gµ$Uõõ$ôõGÒ"À¢"G´ÄTä4…õ$Td•…´×Ò"ÖÒv—6V2æ6Æ’çG&–åöÆVv7’À¢"G´4ôäd”uô$u5´×Ò"À¢"G´DD4UEô$u5´×Ò"À¢"Gµ$õDõE•Uô$u5´×Ò"À¢ÒÖ÷WGWBÖF—""G´õUEUEõ$ôõBòG·f&–çGÒ"À¢Ò×f&–çB"G·f&–çGÒ"À¢ÒÖÆVæ6†W""G´ÄTä4„U'Ò"À¢ÒÖç&ö2×W"ÖæöFR"G´å$ô5õU%ôäôDS¢ÓÒ"À¢ÒÖÖ7FW"×÷'B"G´Ô5DU%õõ%GÒ"À¢ÒÖ6öçG&7BÖÖöFR"G´4ôåE$5EôÔôDWÒ §'VææW%öW†V2"G´ÔôDWÒ""Gµ%TåôÄôwÒ""Gµ$Uõõ$ôõGÒ"À¢"Gµ•D„ôåô4ÔE´×Ò"ÖÒv—6V2æ6Æ’æWfÅöÆVv7’À¢"G´4ôäd”uô$u5´×Ò"À¢"G´DD4UEô$u5´×Ò"À¢"Gµ$õDõE•Uô$u5´×Ò"À¢ÒÖ÷WGWBÖF—""G´õUEUEõ$ôõBòG·f&–çGÒöWfÅ÷f—7Ò"À¢ÒÖ6†V6·ö–çB"G´õUEUEõ$ôõBòG·f&–çGÒöÖöFVÅö&W7BçF‚"À¢Ò×f&–çB"G·f&–çGÒ"À¢ÒÖ6öçG&7BÖÖöFR"G´4ôåE$5EôÔôDWÒ"À¢Ò×6fRÖ÷fW&Æ—2À¢ÒÖ÷fW&Æ’ÖÆ–Ö—B‚À¢Ò×6fRÖw&‚ÖF–væ÷7F–72À¢ÒÖF–væ÷7F–72ÖÆ–Ö—B3 ¢'VææW%öÆör"G´ÔôDWÒ""Gµ%TåôÄôwÒ"%¶v—6V2ÖÆÅÒTäBG·f&–çGÒ ¦FöæP

@@ -1,16 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-source "${SCRIPT_DIR}/common_runner.sh"
-
 DATASET_ROOT=""
 PROTOTYPE_ROOT=""
 OUTPUT_ROOT="${REPO_ROOT}/output/experiments/gisec_v2_smoke"
 MODE="run"
 CONTRACT_MODE="compat"
-PYTHON_CMD="$(runner_python_cmd)"
+PYTHON_CMD=()
+runner_python_cmd_array PYTHON_CMD
 LAUNCHER="${GISEC_LAUNCHER:-none}"
 NPROC_PER_NODE="${GISEC_TORCHRUN_NPROC_PER_NODE:-}"
 MASTER_PORT="${GISEC_TORCHRUN_MASTER_PORT:-29500}"
@@ -26,7 +23,7 @@ while [[ $# -gt 0 ]]; do
     --prototype-root) PROTOTYPE_ROOT="$2"; shift 2 ;;
     --output-root) OUTPUT_ROOT="$2"; shift 2 ;;
     --contract-mode) CONTRACT_MODE="$2"; shift 2 ;;
-    --python) PYTHON_CMD="$2"; shift 2 ;;
+    --python) runner_parse_words_array PYTHON_CMD "$2"; shift 2 ;;
     --config) CONFIG_ARGS+=(--config "$2"); shift 2 ;;
     --launcher) LAUNCHER="$2"; shift 2 ;;
     --nproc-per-node) NPROC_PER_NODE="$2"; shift 2 ;;
@@ -45,14 +42,15 @@ if [[ -n "${NPROC_PER_NODE}" ]]; then
   export GISEC_TORCHRUN_NPROC_PER_NODE="${NPROC_PER_NODE}"
 fi
 export GISEC_TORCHRUN_MASTER_PORT="${MASTER_PORT}"
-LAUNCH_PREFIX="$(runner_launch_prefix "${PYTHON_CMD}")"
-DATASET_ARG=""
-PROTOTYPE_ARG=""
+LAUNCH_PREFIX=()
+runner_launch_prefix_array LAUNCH_PREFIX PYTHON_CMD
+DATASET_ARGS=()
+PROTOTYPE_ARGS=()
 if [[ -n "${DATASET_ROOT}" ]]; then
-  DATASET_ARG="--dataset-root '${DATASET_ROOT}'"
+  DATASET_ARGS=(--dataset-root "${DATASET_ROOT}")
 fi
 if [[ -n "${PROTOTYPE_ROOT}" ]]; then
-  PROTOTYPE_ARG="--prototype-root '${PROTOTYPE_ROOT}'"
+  PROTOTYPE_ARGS=(--prototype-root "${PROTOTYPE_ROOT}")
 fi
 
 mkdir -p "${OUTPUT_ROOT}"
@@ -68,20 +66,21 @@ runner_log "${MODE}" "${RUN_LOG}" "[gisec-method-smoke] config_stack=${CONFIG_AR
 for variant in A0 A1; do
   OUT="${OUTPUT_ROOT}/${variant}"
   runner_log "${MODE}" "${RUN_LOG}" "[gisec-method-smoke] variant=${variant}"
-  runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${LAUNCH_PREFIX} -m gisec.cli.train_legacy \
-    ${CONFIG_ARGS[*]} \
-    ${DATASET_ARG} \
-    ${PROTOTYPE_ARG} \
-    --output-dir '${OUT}' \
-    --variant '${variant}' \
-    --launcher '${LAUNCHER}' \
-    --nproc-per-node ${NPROC_PER_NODE:-1} \
-    --master-port ${MASTER_PORT} \
-    --contract-mode '${CONTRACT_MODE}' \
+  runner_exec "${MODE}" "${RUN_LOG}" "${REPO_ROOT}" \
+    "${LAUNCH_PREFIX_@]}" -m gisec.cli.train_legacy \
+    "${CONFIG_ARGS[@]}" \
+    "${DATASET_ARGS[@]}" \
+    "${PROTOTYPE_ARGS[@]}" \
+    --output-dir "${OUT}" \
+    --variant "${variant}" \
+    --launcher "${LAUNCHER}" \
+    --nproc-per-node "${NPROC_PER_NODE:-1}" \
+    --master-port "${MASTER_PORT}" \
+    --contract-mode "${CONTRACT_MODE}" \
     --max-train-steps 8 \
     --max-val-images 16 \
     --save-overlays \
     --overlay-limit 8 \
     --save-graph-diagnostics \
-    --diagnostics-limit 16"
+    --diagnostics-limit 16
 done

@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-source "${SCRIPT_DIR}/common_runner.sh"
-
 DATASET_ROOT="/home/k100/zhn/electronic-components-grasp-and-segment/magformer_datasets/0831_1K"
 PROTOTYPE_ROOT=""
 OUTPUT_ROOT="${REPO_ROOT}/output/experiments/gisec_eval_0831"
@@ -12,7 +8,8 @@ MODE="run"
 VARIANT="G5"
 CONTRACT_MODE="compat"
 CHECKPOINT=""
-PYTHON_CMD="$(runner_python_cmd)"
+PYTHON_CMD=()
+runner_python_cmd_array PYTHON_CMD
 SAVE_OVERLAYS=0
 OVERLAY_LIMIT=8
 SAVE_GRAPH_DIAGNOSTICS=0
@@ -26,7 +23,7 @@ while [[ $# -gt 0 ]]; do
     --checkpoint) CHECKPOINT="$2"; shift 2 ;;
     --variant) VARIANT="$2"; shift 2 ;;
     --contract-mode) CONTRACT_MODE="$2"; shift 2 ;;
-    --python) PYTHON_CMD="$2"; shift 2 ;;
+    --python) runner_parse_words_array PYTHON_CMD "$2"; shift 2 ;;
     --save-overlays) SAVE_OVERLAYS=1; shift ;;
     --overlay-limit) OVERLAY_LIMIT="$2"; shift 2 ;;
     --save-graph-diagnostics) SAVE_GRAPH_DIAGNOSTICS=1; shift ;;
@@ -66,13 +63,14 @@ if [[ "${SAVE_GRAPH_DIAGNOSTICS}" == "1" ]]; then
   EXTRA_ARGS+=(--save-graph-diagnostics --diagnostics-limit "${DIAGNOSTICS_LIMIT}")
 fi
 
-runner_exec "${MODE}" "${RUN_LOG}" "cd '${REPO_ROOT}' && ${PYTHON_CMD} -m gisec.cli.eval_legacy \
-  --dataset-root '${DATASET_ROOT}' \
-  --prototype-root '${PROTOTYPE_ROOT}' \
-  --output-dir '${OUT}' \
-  --checkpoint '${CHECKPOINT}' \
-  --variant '${VARIANT}' \
-  --contract-mode '${CONTRACT_MODE}' \
+runner_exec "${MODE}" "${RUN_LOG}" "${REPO_ROOT}" \
+  "${PYTHON_CMD[@]}" -m gisec.cli.eval_legacy \
+  --dataset-root "${DATASET_ROOT}" \
+  --prototype-root "${PROTOTYPE_ROOT}" \
+  --output-dir "${OUT}" \
+  --checkpoint "${CHECKPOINT}" \
+  --variant "${VARIANT}" \
+  --contract-mode "${CONTRACT_MODE}" \
   --image-size 1024 \
   --num-workers 4 \
-  ${EXTRA_ARGS[*]}"
+  "${EXTRA_ARGS[@]}"

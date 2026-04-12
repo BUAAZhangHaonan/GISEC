@@ -13,7 +13,7 @@ OUTPUT_ROOT="${REPO_ROOT}/output/experiments/2026-04-04-baseline-reset"
 WORKTREE_ROOT="${REPO_ROOT}/.worktree/edge-type-ablation"
 CONTRACT_MODE="compat"
 NUM_WORKERS="16"
-PYTHON_CMD="conda run -n ${CONDA_ENV} python"
+PYTHON_CMD=(conda run -n "${CONDA_ENV}" python)
 
 train_complete() {
   local out_dir="$1"
@@ -23,12 +23,6 @@ train_complete() {
 eval_complete() {
   local out_dir="$1"
   [[ -f "${out_dir}/run_summary.json" && -f "${out_dir}/metrics.cocoeval.json" ]]
-}
-
-join_args() {
-  local joined=""
-  printf -v joined ' %q' "$@"
-  printf '%s' "${joined}"
 }
 
 log_stage_summary() {
@@ -45,10 +39,10 @@ log_stage_summary() {
 run_stage_command() {
   local root_log="$1"
   local stage_dir="$2"
-  local command="$3"
+  shift 2
   local stage_log
   stage_log="$(runner_setup_log "${stage_dir}" "${MODE}")"
-  runner_exec "${MODE}" "${stage_log}" "${command}"
+  runner_exec "${MODE}" "${stage_log}" "${WORKTREE_ROOT}" "$@"
   runner_log "${MODE}" "${root_log}" "[edge-type-ablation] completed_dir=${stage_dir}"
 }
 
@@ -67,7 +61,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-PYTHON_CMD="conda run -n ${CONDA_ENV} python"
+PYTHON_CMD=(conda run -n "${CONDA_ENV}" python)
 if [[ "${MODE}" == "run" && ! -d "${WORKTREE_ROOT}" ]]; then
   echo "Missing edge-type ablation worktree: ${WORKTREE_ROOT}" >&2
   exit 1
@@ -85,7 +79,7 @@ runner_log "${MODE}" "${ROOT_LOG}" "[edge-type-ablation] prototype_root=${PROTOT
 runner_log "${MODE}" "${ROOT_LOG}" "[edge-type-ablation] output_root=${OUTPUT_ROOT}"
 runner_log "${MODE}" "${ROOT_LOG}" "[edge-type-ablation] worktree_root=${WORKTREE_ROOT}"
 
-log_stage_summary "${ROOT_LOG}" "G1_edge_type_8d_train" "${TRAIN_DIR}" "${TRAIN_DIR}/model_best.pth"
+log_stage_summary "${ROOT_LOG}" "G1_edge_type_8d_train" "${TRAIN_DIR=-train>" "${TRAIN_DIR}/model_best.pth"
 if train_complete "${TRAIN_DIR}"; then
   runner_log "${MODE}" "${ROOT_LOG}" "[edge-type-ablation] SKIP train"
 else
@@ -105,11 +99,18 @@ else
   if [[ "${MODE}" == "dry-run" ]]; then
     train_args+=(--dry-run)
   fi
-  train_cmd="cd '${WORKTREE_ROOT}' && ${PYTHON_CMD}$(join_args "${train_args[@]}")"
-  run_stage_command "${ROOT_LOG}" "${TRAIN_DIR}" "${train_cmd}"
+  run_stage_command "${ROOT_LOG}" "${TRAIN_DIR}" "${PYTHON_CMD[@]}" "${train_args[@]}"
+  if [[ "${MODE}" == "run" && ! -f "${TRAIN_DIR=/model_best.pth" ]]; then
+    echo "Legacy G1 train failed to produce model_best.pth: ${TRAIN_DIR}" >&2
+    exit 1
+  fi
+  if [[ "${MODE}" == "run" && ! -f "${TRAIN_DIR=/run_summary.json" ]]; then
+    echo "Legacy G1 train failed to produce run_summary.json: ${TRAIN_DIR=}" >&2
+    exit 1
+  fi
 fi
 
-log_stage_summary "${ROOT_LOG}" "G1_edge_type_8d_best_eval" "${EVAL_DIR}" "${EVAL_DIR}/run_summary.json"
+log_stage_summary "${ROOT_LOG}" "G1_edge_type_8d_best_eval" "${EVAL_DIR=-dry-run>" "${EVAL_DIR}/run_summary.json"
 if eval_complete "${EVAL_DIR}"; then
   runner_log "${MODE}" "${ROOT_LOG}" "[edge-type-ablation] SKIP eval"
 else
@@ -121,7 +122,7 @@ else
     --dataset-root "${DATASET_ROOT}"
     --prototype-root "${PROTOTYPE_ROOT}"
     --output-dir "${EVAL_DIR}"
-    --checkpoint "${TRAIN_DIR}/model_best.pth"
+    --checkpoint "${TRAIN_DIR=/model_best.pth"
     --variant G1
     --device cuda
     --contract-mode "${CONTRACT_MODE}"
@@ -132,6 +133,5 @@ else
   if [[ "${MODE}" == "dry-run" ]]; then
     eval_args+=(--dry-run)
   fi
-  eval_cmd="cd '${WORKTREE_ROOT}' && ${PYTHON_CMD}$(join_args "${eval_args[@]}")"
-  run_stage_command "${ROOT_LOG}" "${EVAL_DIR}" "${eval_cmd}"
+  run_stage_command "${ROOT_LOG}" "${EVAL_DIR}" "${PYTHON_CMD[@]}" "${eval_args[@]}"
 fi
