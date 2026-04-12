@@ -11,6 +11,87 @@ from torch.utils.data import Dataset
 from gisec.datasets.prototype_bank import PrototypeBank, PrototypeBankSource
 
 
+def _resolved_path_within_root(path: Path, root: Path) -> Path:
+    resolved_root = root.resolve()
+    resolved_path = path.resolve()
+    try:
+        resolved_path.relative_to(resolved_root)
+    except ValueError as exc:
+        raise ValueError(f"graph cache sample {resolved_path} escapes cache root {resolved_root}") from exc
+    return resolved_path
+
+
+def _is_int_tensor(value: object) -> bool:
+    return isinstance(value, torch.Tensor) and value.dtype in {
+        torch.int8,
+        torch.int16,
+        torch.int32,
+        torch.int64,
+        torch.uint8,
+    }
+
+
+def _is_float_tensor(value: object) -> bool:
+    return isinstance(value, torch.Tensor) and bool(value.dtype.is_floating_point)
+
+
+def _validate_fragment_graph_sample(payload: dict[str, Any], sample_path: Path) -> None:
+    required_keys = ["image_id", "file_name", "part_key", "fragments", "node_features", "edge_index", "edge_features"]
+    missing = [key for key in required_keys if key not in payload]
+    if missing:
+        raise ValueError(f"graph cache sample {sample_path} is missing required keys: {missing}")
+    if not isinstance(payload["image_id"], int):
+        raise ValueError(f"graph cache sample {sample_path} has non-integer image_id")
+    if not isinstance(payload["file_name"], str):
+        raise ValueError(f"graph cache sample {sample_path} has non-string file_name")
+    if payload["part_key"] is not None and not isinstance(payload["part_key"], str):
+        raise ValueError(f"graph cache sample {sample_path} has non-string part_key")
+    fragments = payload["fragments"]
+    if not _is_int_tensor(fragments) or fragments.ndim != 2:
+        raise ValueError(f"graph cache sample {sample_path} has invalid fragments tensor")
+    node_features = payload["node_features"]
+    if not _is_float_tensor(node_features) or node_features.ndim != 2:
+        raise ValueError(f"graph cache sample {sample_path} has invalid node_features tensor")
+    edge_index = payload["edge_index"]
+    if not _is_int_tensor(edge_index) or edge_index.ndim != 2 or int(edge_index.shape[0]) != 2:
+        raise ValueError(f"graph cache sample {sample_path} has invalid edge_index tensor")
+    edge_features = payload["edge_features"]
+    if not _is_float_tensor(edge_features) or edge_features.ndim != 2:
+        raise ValueError(f"graph cache sample {sample_path} has invalid edge_features tensor")
+    edge_count = int(edge_index.shape[1])
+    if int(edge_features.shape[0]) != edge_count:
+        raise ValueError(
+            f"graph cache sample {sample_path} has edge_features rows {int(edge_features.shape[0])} "
+            f"but edge_index columns {edge_count}"
+        )
+    edge_targets = payload.get("edge_targets")
+    if edge_targets is not None:
+        if not _is_float_tensor(edge_targets) or edge_targets.ndim != 1 or int(edge_targets.shape[0]) != edge_count:
+            raise ValueError(f"graph cache sample {sample_path} has invalid edge_targets tensor")
+    edge_ignore_mask = payload.get("edge_ignore_mask")
+    if edge_ignore_mask is not None:
+        if not isinstance(edge_ignore_mask, torch.Tensor) or edge_ignore_mask.dtype != torch.bool:
+            raise ValueError(f"graph cache sample {sample_path} has invalid edge_ignore_mask tensor")
+        if edge_ignore_mask.ndim != 1 or int(edge_ignore_mask.shape[0]) != edge_count:
+            raise ValueError(f"graph cache sample {sample_path} has invalid edge_ignore_mask shape")
+    edge_type = payload.get("edge_type")
+    if edge_type is not None:
+        if not _is_int_tensor(edge_type) or edge_type.ndim != 1 or int(edge_type.shape[0]) != edge_count:
+            raise ValueError(f"graph cache sample {sample_path} has invalid edge_type tensor")
+    summary = payload.get("summary")
+    if summary is not None and not isinstance(summary, dict):
+        raise ValueError(f"graph cache sample {sample_path} has invalid summary payload")
+
+
+def load_fragment_graph_sample(cache_dir: Path, sample_path: Path) -> dict[str, Any]:
+    resolved_sample = _resolved_path_within_root(sample_path, cache_dir)
+    payload = torch.load(resolved_sample, map_location="cpu", weights_only=True)
+    if not isinstance(payload, dict):
+        raise ValueError(f"graph cache sample {resolved_sample} must deserialize to a mapping")
+    _validate_fragment_graph_sample(payload, resolved_sample)
+    return payload
+
+
 def _reference_feature_vector(bank: PrototypeBank) -> torch.Tensor:
     rgb = bank.images.float()
     depth = bank.depths.float()
@@ -100,7 +181,7 @@ class FragmentGraphMergeDataset(Dataset):
 
     def __getitem__(self, index: int) -> dict[str, Any]:
         sample_path = self.sample_paths[index]
-        payload = torch.load(sample_path, map_location="cpu")
+        payload = load_fragment_graph_sample(self.cache_dir, sample_path)
         reference_features, reference_mode = self._reference_feature(
             file_name=str(payload.get("file_name", sample_path.name)),
             part_key=None if payload.get("part_key") is None else str(payload.get("part_key")),

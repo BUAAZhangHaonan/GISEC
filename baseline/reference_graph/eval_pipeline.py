@@ -12,11 +12,61 @@ from torch.utils.data import DataLoader
 
 from baseline.common.coco_export import masks_to_coco_results
 from baseline.common.training_artifacts import render_image_contact_sheet
-from baseline.reference_graph.dataset import FragmentGraphMergeDataset, collate_fragment_graph_batch
+from baseline.reference_graph.dataset import (
+    FragmentGraphMergeDataset,
+    collate_fragment_graph_batch,
+    load_fragment_graph_sample,
+)
 from baseline.reference_graph.model import ReferenceGraphMergeModel
 from gisec.engine.runtime import build_benchmark_payload, evaluate_json, write_json
 from gisec.models.graph_utils import merge_instances_from_edge_scores
 from gisec.utils.visualization import render_fragment_merge_preview
+
+
+def _checkpoint_state_dict(payload: dict[str, Any]) -> dict[str, Any]:
+    if "state_dict" in payload and isinstance(payload["state_dict"], dict):
+        return dict(payload["state_dict"])
+    return dict(payload)
+
+
+def _state_dict_mismatches(source_state: dict[str, Any], target_state: dict[str, Any]) -> tuple[list[str], list[str], list[str], list[str]]:
+    missing_keys = sorted(key for key in target_state if key not in source_state)
+    unexpected_keys = sorted(key for key in source_state if key not in target_state)
+    shape_mismatches: list[str] = []
+    dtype_mismatches: list[str] = []
+    for key in sorted(set(source_state).intersection(target_state)):
+        source_value = source_state[key]
+        target_value = target_state[key]
+        if hasattr(source_value, "shape") and hasattr(target_value, "shape") and tuple(source_value.shape) != tuple(target_value.shape):
+            shape_mismatches.append(
+                f"{key}: checkpoint {tuple(source_value.shape)} != model {tuple(target_value.shape)}"
+            )
+        if hasattr(source_value, "dtype") and hasattr(target_value, "dtype") and source_value.dtype != target_value.dtype:
+            dtype_mismatches.append(
+                f"{key}: checkpoint {source_value.dtype} != model {target_value.dtype}"
+            )
+    return missing_keys, unexpected_keys, shape_mismatches, dtype_mismatches
+
+
+def _load_reference_graph_checkpoint(model: torch.nn.Module, checkpoint_path: str | Path) -> None:
+    resolved = Path(checkpoint_path).resolve()
+    if not resolved.exists():
+        raise FileNotFoundError(resolved)
+    payload = torch.load(resolved, map_location="cpu", weights_only=True)
+    if not isinstance(payload, dict):
+        raise ValueError(f"reference graph checkpoint {resolved} must deserialize to a mapping")
+    source_state = _checkpoint_state_dict(payload)
+    target_state = model.state_dict()
+    missing_keys, unexpected_keys, shape_mismatches, dtype_mismatches = _state_dict_mismatches(source_state, target_state)
+    if missing_keys or unexpected_keys or shape_mismatches or dtype_mismatches:
+        raise RuntimeError(
+            f"reference graph checkpoint {resolved} does not match the requested model; "
+            f"missing_keys={missing_keys}; "
+            f"unexpected_keys={unexpected_keys}; "
+            f"shape_mismatches={shape_mismatches}; "
+            f"dtype_mismatches={dtype_mismatches}"
+        )
+    model.load_state_dict(source_state, strict=True)
 
 
 def _masks_from_label_map(label_map: np.ndarray) -> list[np.ndarray]:
@@ -160,7 +210,7 @@ def render_reference_graph_preview_sheet(
             edge_scores = torch.sigmoid(logits.detach().cpu())
             edge_batch = batch["edge_batch"].detach().cpu()
             for sample_index, sample_path in enumerate(sample_paths):
-                payload = torch.load(sample_path, map_location="cpu")
+                payload = load_fragment_graph_sample(dataset.cache_dir, sample_path)
                 sample_scores = edge_scores[edge_batch == int(sample_index)]
                 merged = merge_instances_from_edge_scores(
                     fragments=payload["fragments"].numpy().astype(np.int32, copy=False),
@@ -242,7 +292,7 @@ def evaluate_reference_graph_merge(
         )
         if checkpoint_path is None:
             raise ValueError("checkpoint_path is required when model is not provided")
-        model.load_state_dict(torch.load(Path(checkpoint_path).resolve(), map_location="cpu"))
+        _load_reference_graph_checkpoint(model, checkpoint_path)
     model = model.to(device)
     model.eval()
     annotation_path = Path(dataset_root) / "annotations" / f"instances_{split}.json"
@@ -266,7 +316,7 @@ def evaluate_reference_graph_merge(
             edge_scores = torch.sigmoid(logits.detach().cpu())
             edge_batch = batch["edge_batch"].detach().cpu()
             for sample_index, sample_path in enumerate(sample_paths):
-                payload = torch.load(sample_path, map_location="cpu")
+                payload = load_fragment_graph_sample(dataset.cache_dir, sample_path)
                 eval_image_ids.add(int(payload["image_id"]))
                 sample_scores = edge_scores[edge_batch == int(sample_index)]
                 merged = merge_instances_from_edge_scores(

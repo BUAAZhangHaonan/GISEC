@@ -10,6 +10,7 @@ import numpy as np
 import torch
 
 from gisec.train.train_active import _query_instances_from_outputs
+from gisec.train.train_active import parse_train_args
 
 
 def _write_dataset(root: Path) -> None:
@@ -426,6 +427,7 @@ def test_active_cli_minibatch_supports_final_only_eval_and_epoch_resume(tmp_path
     )
 
     resume_checkpoint = output_root / "resume_last.pth"
+    resume_metadata = resume_checkpoint.with_suffix(".meta.json")
     assert resume_checkpoint.exists()
     metric_rows = [
         json.loads(line)
@@ -433,12 +435,14 @@ def test_active_cli_minibatch_supports_final_only_eval_and_epoch_resume(tmp_path
     ]
     assert sum(1 for row in metric_rows if row["mode"] == "epoch_eval") == 1
     assert first_result.stdout.count("mode=epoch_eval") == 1
-    initial_resume_payload = torch.load(str(resume_checkpoint), map_location="cpu", weights_only=False)
+    initial_resume_payload = torch.load(str(resume_checkpoint), map_location="cpu", weights_only=True)
+    initial_resume_metadata = json.loads(resume_metadata.read_text(encoding="utf-8"))
     assert initial_resume_payload["completed_epoch"] == 1
     assert initial_resume_payload["global_step"] == 1
     assert "optimizer_state_dict" in initial_resume_payload
     assert "scaler_state_dict" in initial_resume_payload
-    assert "rng_state" in initial_resume_payload
+    assert "rng_state" not in initial_resume_payload
+    assert "rng_state" in initial_resume_metadata
 
     subprocess.run(
         [
@@ -472,3 +476,19 @@ def test_active_cli_minibatch_supports_final_only_eval_and_epoch_resume(tmp_path
     resumed_train_row = next(row for row in resumed_rows if row["mode"] == "train_step")
     assert resumed_train_row["epoch"] == 2
     assert resumed_train_row["global_step"] == 2
+
+
+def test_active_train_cli_exposes_allow_unsafe_resume(tmp_path: Path) -> None:
+    args = parse_train_args(
+        [
+            "--dataset-root",
+            str(tmp_path / "dataset"),
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--variant",
+            "base_rgb_1024",
+            "--allow-unsafe-resume",
+        ]
+    )
+
+    assert args.allow_unsafe_resume is True

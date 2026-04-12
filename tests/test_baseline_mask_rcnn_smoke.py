@@ -5,7 +5,9 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import pytest
 import torch
+from torchvision.models import ResNet50_Weights
 
 from baseline.mask_rcnn.train import _build_mask_rcnn_model, train_mask_rcnn_baseline
 
@@ -127,3 +129,23 @@ def test_mask_rcnn_builder_switches_to_four_channel_stem_for_rgbd() -> None:
     )
 
     assert int(model.backbone.body.conv1.in_channels) == 4
+
+
+def test_mask_rcnn_builder_does_not_bypass_backbone_hash_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[object] = []
+
+    def fake_maskrcnn_resnet50_fpn(*, weights=None, weights_backbone=None):
+        calls.append(weights_backbone)
+        if weights_backbone is ResNet50_Weights.DEFAULT:
+            raise RuntimeError("invalid hash value")
+        raise AssertionError("hash failure fallback should not be attempted")
+
+    monkeypatch.setattr("baseline.mask_rcnn.train.maskrcnn_resnet50_fpn", fake_maskrcnn_resnet50_fpn)
+
+    with pytest.raises(RuntimeError, match="invalid hash value"):
+        _build_mask_rcnn_model(
+            backbone_name="resnet50_fpn",
+            pretrained_backbone=True,
+        )
+
+    assert calls == [ResNet50_Weights.DEFAULT]

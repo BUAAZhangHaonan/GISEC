@@ -208,6 +208,7 @@ def _common_parser(*, mode: str, argv: list[str] | None) -> argparse.ArgumentPar
         parser.add_argument("--eval-every-epochs", type=int, default=1)
         parser.add_argument("--log-every-steps", type=int, default=int(MODEL_DEFAULTS["log_every_steps"]))
         parser.add_argument("--resume-save-every-epochs", type=int, default=int(MODEL_DEFAULTS["resume_save_every_epochs"]))
+        parser.add_argument("--allow-unsafe-resume", action="store_true")
     else:
         parser.add_argument("--checkpoint", type=str, default="")
         parser.add_argument("--split", choices=["train", "val"], default="val")
@@ -340,13 +341,28 @@ def _serialize_train_args(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _capture_rng_state() -> dict[str, Any]:
+    python_state = random.getstate()
+    numpy_state = np.random.get_state()
     payload: dict[str, Any] = {
-        "python": random.getstate(),
-        "numpy": np.random.get_state(),
-        "torch_cpu": torch.get_rng_state(),
+        "python": [
+            int(python_state[0]),
+            [int(value) for value in python_state[1]],
+            python_state[2],
+        ],
+        "numpy": [
+            str(numpy_state[0]),
+            [int(value) for value in numpy_state[1].tolist()],
+            int(numpy_state[2]),
+            int(numpy_state[3]),
+            float(numpy_state[4]),
+        ],
+        "torch_cpu": [int(value) for value in torch.get_rng_state().tolist()],
     }
     if torch.cuda.is_available():
-        payload["torch_cuda"] = torch.cuda.get_rng_state_all()
+        payload["torch_cuda"] = [
+            [int(value) for value in state.cpu().tolist()]
+            for state in torch.cuda.get_rng_state_all()
+        ]
     return payload
 
 
@@ -355,16 +371,44 @@ def _restore_rng_state(payload: dict[str, Any] | None) -> None:
         return
     python_state = payload.get("python")
     if python_state is not None:
-        random.setstate(python_state)
+        if isinstance(python_state, tuple):
+            random.setstate(python_state)
+        elif isinstance(python_state, list) and len(python_state) == 3:
+            random.setstate(
+                (
+                    int(python_state[0]),
+                    tuple(int(value) for value in python_state[1]),
+                    python_state[2],
+                )
+            )
     numpy_state = payload.get("numpy")
     if numpy_state is not None:
-        np.random.set_state(numpy_state)
+        if isinstance(numpy_state, tuple):
+            np.random.set_state(numpy_state)
+        elif isinstance(numpy_state, list) and len(numpy_state) == 5:
+            np.random.set_state(
+                (
+                    str(numpy_state[0]),
+                    np.array(numpy_state[1], dtype=np.uint32),
+                    int(numpy_state[2]),
+                    int(numpy_state[3]),
+                    float(numpy_state[4]),
+                )
+            )
     torch_cpu_state = payload.get("torch_cpu")
     if torch_cpu_state is not None:
-        torch.set_rng_state(torch_cpu_state)
+        if isinstance(torch_cpu_state, torch.Tensor):
+            torch.set_rng_state(torch_cpu_state)
+        else:
+            torch.set_rng_state(torch.tensor(torch_cpu_state, dtype=torch.uint8))
     torch_cuda_state = payload.get("torch_cuda")
     if torch_cuda_state is not None and torch.cuda.is_available():
-        torch.cuda.set_rng_state_all(torch_cuda_state)
+        if torch_cuda_state and isinstance(torch_cuda_state[0], torch.Tensor):
+            torch.cuda.set_rng_state_all(torch_cuda_state)
+        else:
+            torch.cuda.set_rng_state_all(
+                [torch.tensor(state, dtype=torch.uint8) for state in torch_cuda_state]
+            )
 
 
 def _resume_payload(
@@ -387,6 +431,11 @@ def _resume_payload(
         "best_metric": float(best_metric),
         "running_step_time_total": float(running_step_time_total),
         "train_args": _serialize_train_args(args),
+    }
+
+
+def _resume_metadata_payload() -> dict[str, Any]:
+    return {
         "rng_state": _capture_rng_state(),
     }
 
@@ -397,12 +446,21 @@ def _load_resume_payload(
     optimizer: torch.optim.Optimizer,
     scaler: GradScaler,
     args: argparse.Namespace,
+    allow_unsafe_resume: bool = False,
 ) -> tuple[int, int, float, float]:
     resume_checkpoint = Path(str(args.resume_checkpoint)).resolve()
     if not resume_checkpoint.exists():
         raise FileNotFoundError(resume_checkpoint)
     _validate_resume_checkpoint_allowed(resume_checkpoint)
-    payload = torch.load(str(resume_checkpoint), map_location="cpu", weights_only=False)
+    try:
+        payload = torch.load(str(resume_checkpoint), map_location="cpu", weights_only=True)
+    except Exception as safe_exc:
+        if not bool(allow_unsafe_resume):
+            raise RuntimeError(
+                f"resume checkpoint {resume_checkpoint} is not weights-only safe; "
+                "rerun with --allow-unsafe-resume for legacy payloads"
+            ) from safe_exc
+        payload = torch.load(str(resume_checkpoint), map_location="cpu", weights_only=False)
     _validate_checkpoint_variant(
         expected_variant=str(args.variant),
         checkpoint_payload=payload,
@@ -418,7 +476,11 @@ def _load_resume_payload(
     scaler_state = payload.get("scaler_state_dict")
     if isinstance(scaler_state, dict):
         scaler.load_state_dict(scaler_state)
-    _restore_rng_state(payload.get("rng_state"))
+    metadata_path = _resume_metadata_path(resume_checkpoint)
+    metadata = _read_json(metadata_path) if metadata_path.exists() else None
+    _restore_rng_state(
+        metadata.get("rng_state") if isinstance(metadata, dict) and metadata.get("rng_state") is not None else payload.get("rng_state")
+    )
     completed_epoch = int(payload.get("completed_epoch", 0))
     global_step = int(payload.get("global_step", 0))
     best_metric = float(payload.get("best_metric", float("-inf")))
@@ -768,6 +830,16 @@ def _save_torch_payload(path: Path, payload: dict[str, Any]) -> None:
     tmp_path = path.with_suffix(path.suffix + ".tmp")
     torch.save(payload, tmp_path)
     os.replace(tmp_path, path)
+
+
+def _save_json_payload(path: Path, payload: dict[str, Any]) -> None:
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text(json.dumps(payload, ensure_ascii=False) + "\n", encoding="utf-8")
+    os.replace(tmp_path, path)
+
+
+def _resume_metadata_path(resume_checkpoint: Path) -> Path:
+    return resume_checkpoint.with_suffix(".meta.json")
 
 
 def _validate_resume_payload_finite(payload: dict[str, Any]) -> None:
@@ -1999,6 +2071,7 @@ def train_active(args: argparse.Namespace) -> None:
                 optimizer=optimizer,
                 scaler=scaler,
                 args=args,
+                allow_unsafe_resume=bool(getattr(args, "allow_unsafe_resume", False)),
             )
             last_finite_step = int(step_count)
             last_finite_checkpoint = str(Path(str(args.resume_checkpoint)).resolve())
@@ -2143,6 +2216,7 @@ def train_active(args: argparse.Namespace) -> None:
                 )
                 _validate_resume_payload_finite(resume_payload)
                 _save_torch_payload(resume_last_ckpt, resume_payload)
+                _save_json_payload(_resume_metadata_path(resume_last_ckpt), _resume_metadata_payload())
                 last_finite_checkpoint = str(resume_last_ckpt.resolve())
                 _write_run_state(
                     output_dir,

@@ -2,15 +2,17 @@ from __future__ import annotations
 
 import json
 import os
+import random
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import numpy as np
 import torch
 import torch.nn as nn
 
 import gisec.train.train_active as train_active_module
-from gisec.train.train_active import parse_train_args, train_active
+from gisec.train.train_active import _load_resume_payload, parse_train_args, train_active
 
 
 class _SingleBatchLoader:
@@ -40,6 +42,40 @@ def _sample() -> dict[str, torch.Tensor]:
         "labels": torch.tensor([1], dtype=torch.long),
         "masks": torch.zeros((1, 8, 8), dtype=torch.float32),
         "file_name": "sample.png",
+    }
+
+
+def _write_run_state(output_dir: Path) -> None:
+    (output_dir / "run_state.json").write_text(
+        json.dumps({"status": "running", "allow_resume": True}) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _safe_resume_payload(model: _TinyActiveModel, optimizer: torch.optim.Optimizer, scaler: torch.amp.GradScaler) -> dict[str, object]:
+    return {
+        "state_dict": model.state_dict(),
+        "variant": "base_rgb_1024",
+        "depth_mode": "rgb",
+        "model": {"variant": "base_rgb_1024"},
+        "optimizer_state_dict": optimizer.state_dict(),
+        "scaler_state_dict": scaler.state_dict(),
+        "completed_epoch": 2,
+        "global_step": 3,
+        "best_metric": 1.5,
+        "running_step_time_total": 4.0,
+        "train_args": {"dataset_root": "dataset", "output_dir": "out"},
+    }
+
+
+def _legacy_resume_payload(model: _TinyActiveModel, optimizer: torch.optim.Optimizer, scaler: torch.amp.GradScaler) -> dict[str, object]:
+    return {
+        **_safe_resume_payload(model, optimizer, scaler),
+        "rng_state": {
+            "python": random.getstate(),
+            "numpy": np.random.get_state(),
+            "torch_cpu": torch.get_rng_state(),
+        },
     }
 
 
@@ -216,3 +252,67 @@ def test_train_active_rejects_resume_checkpoint_without_running_run_state(
 
     with pytest.raises(RuntimeError, match="run_state"):
         train_active(args)
+
+
+def test_load_resume_payload_requires_explicit_unsafe_flag_for_legacy_payloads(tmp_path: Path) -> None:
+    model = _TinyActiveModel()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1.0e-3)
+    scaler = torch.amp.GradScaler("cpu", enabled=False)
+    resume_checkpoint = tmp_path / "resume_last.pth"
+    torch.save(_legacy_resume_payload(model, optimizer, scaler), resume_checkpoint)
+    _write_run_state(tmp_path)
+    args = SimpleNamespace(
+        variant="base_rgb_1024",
+        resume_checkpoint=str(resume_checkpoint),
+    )
+
+    python_state = random.getstate()
+    numpy_state = np.random.get_state()
+    torch_state = torch.get_rng_state()
+    try:
+        with pytest.raises(RuntimeError, match="allow-unsafe-resume"):
+            _load_resume_payload(
+                model=model,
+                optimizer=optimizer,
+                scaler=scaler,
+                args=args,
+                allow_unsafe_resume=False,
+            )
+    finally:
+        random.setstate(python_state)
+        np.random.set_state(numpy_state)
+        torch.set_rng_state(torch_state)
+
+
+def test_load_resume_payload_accepts_legacy_payload_with_explicit_escape_hatch(tmp_path: Path) -> None:
+    model = _TinyActiveModel()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1.0e-3)
+    scaler = torch.amp.GradScaler("cpu", enabled=False)
+    resume_checkpoint = tmp_path / "resume_last.pth"
+    torch.save(_legacy_resume_payload(model, optimizer, scaler), resume_checkpoint)
+    _write_run_state(tmp_path)
+    args = SimpleNamespace(
+        variant="base_rgb_1024",
+        resume_checkpoint=str(resume_checkpoint),
+    )
+
+    python_state = random.getstate()
+    numpy_state = np.random.get_state()
+    torch_state = torch.get_rng_state()
+    try:
+        completed_epoch, global_step, best_metric, running_step_time_total = _load_resume_payload(
+            model=model,
+            optimizer=optimizer,
+            scaler=scaler,
+            args=args,
+            allow_unsafe_resume=True,
+        )
+    finally:
+        random.setstate(python_state)
+        np.random.set_state(numpy_state)
+        torch.set_rng_state(torch_state)
+
+    assert completed_epoch == 2
+    assert global_step == 3
+    assert best_metric == 1.5
+    assert running_step_time_total == 4.0

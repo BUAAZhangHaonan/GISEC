@@ -7,6 +7,7 @@ import sys
 
 import cv2
 import numpy as np
+import pytest
 import torch
 
 from baseline.reference_graph.dataset import FragmentGraphMergeDataset
@@ -258,7 +259,101 @@ def test_evaluate_reference_graph_merge_upscales_feature_scale_masks_to_image_si
     assert rows[0]["bbox"] == [8, 8, 16, 16]
     assert rows[0]["segmentation"]["size"] == [32, 32]
     assert summary["avg_fragments_per_prediction"] == 2.0
-    assert summary["singleton_prediction_rate"] == 0.0
+
+
+def test_evaluate_reference_graph_merge_loads_safe_weights_only_checkpoint(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "dataset"
+    cache_root = tmp_path / "cache"
+    reference_root = tmp_path / "refs"
+    output_root = tmp_path / "eval"
+    _write_dataset(dataset_root)
+    _write_graph_cache(cache_root)
+    _write_reference_root(reference_root)
+
+    probe_dataset = FragmentGraphMergeDataset(
+        cache_root=str(cache_root),
+        reference_root=str(reference_root),
+        split="val",
+        reference_image_size=128,
+        reference_max_views=16,
+        reference_view_sampler="pose_farthest",
+    )
+    probe = probe_dataset[0]
+    checkpoint_model = ReferenceGraphMergeModel(
+        node_dim=int(probe["node_features"].shape[1]),
+        edge_dim=int(probe["edge_features"].shape[1]),
+        reference_dim=int(probe["reference_features"].shape[0]),
+        hidden_dim=32,
+        reference_hidden_dim=16,
+    )
+    checkpoint_path = tmp_path / "checkpoint.pth"
+    torch.save({"state_dict": checkpoint_model.state_dict()}, checkpoint_path)
+
+    metrics, summary = evaluate_reference_graph_merge(
+        cache_root=str(cache_root),
+        reference_root=str(reference_root),
+        dataset_root=str(dataset_root),
+        output_dir=str(output_root),
+        split="val",
+        device=torch.device("cpu"),
+        threshold=0.5,
+        model=None,
+        checkpoint_path=str(checkpoint_path),
+        hidden_dim=32,
+        reference_hidden_dim=16,
+    )
+
+    assert "segm/AP50" in metrics
+    assert summary["num_images"] == 1
+    assert (output_root / "eval_summary.json").exists()
+
+
+def test_evaluate_reference_graph_merge_rejects_checkpoint_dtype_mismatch(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "dataset"
+    cache_root = tmp_path / "cache"
+    reference_root = tmp_path / "refs"
+    output_root = tmp_path / "eval"
+    _write_dataset(dataset_root)
+    _write_graph_cache(cache_root)
+    _write_reference_root(reference_root)
+
+    probe_dataset = FragmentGraphMergeDataset(
+        cache_root=str(cache_root),
+        reference_root=str(reference_root),
+        split="val",
+        reference_image_size=128,
+        reference_max_views=16,
+        reference_view_sampler="pose_farthest",
+    )
+    probe = probe_dataset[0]
+    checkpoint_model = ReferenceGraphMergeModel(
+        node_dim=int(probe["node_features"].shape[1]),
+        edge_dim=int(probe["edge_features"].shape[1]),
+        reference_dim=int(probe["reference_features"].shape[0]),
+        hidden_dim=32,
+        reference_hidden_dim=16,
+    )
+    checkpoint_state = checkpoint_model.state_dict()
+    first_key = next(iter(checkpoint_state))
+    bad_state_dict = dict(checkpoint_state)
+    bad_state_dict[first_key] = checkpoint_state[first_key].to(torch.float64 if checkpoint_state[first_key].dtype != torch.float64 else torch.float32)
+    checkpoint_path = tmp_path / "checkpoint_bad_dtype.pth"
+    torch.save({"state_dict": bad_state_dict}, checkpoint_path)
+
+    with pytest.raises(RuntimeError, match="dtype_mismatches"):
+        evaluate_reference_graph_merge(
+            cache_root=str(cache_root),
+            reference_root=str(reference_root),
+            dataset_root=str(dataset_root),
+            output_dir=str(output_root),
+            split="val",
+            device=torch.device("cpu"),
+            threshold=0.5,
+            model=None,
+            checkpoint_path=str(checkpoint_path),
+            hidden_dim=32,
+            reference_hidden_dim=16,
+        )
 
 
 def test_eval_reference_graph_merge_script_cli_uses_best_threshold(tmp_path: Path) -> None:

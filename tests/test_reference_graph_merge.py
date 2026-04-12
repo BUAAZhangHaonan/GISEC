@@ -7,6 +7,7 @@ import sys
 
 import cv2
 import numpy as np
+import pytest
 import torch
 
 from baseline.reference_graph.eval import DEFAULT_REFERENCE_GRAPH_THRESHOLDS
@@ -199,6 +200,67 @@ def test_fragment_graph_merge_dataset_appends_edge_type_one_hot(tmp_path: Path) 
 
     assert sample["edge_features"].shape == (1, 8)
     assert torch.allclose(sample["edge_features"][0, -2:], torch.tensor([0.0, 1.0], dtype=torch.float32))
+
+
+def test_fragment_graph_merge_dataset_rejects_symlink_escape_from_cache_root(tmp_path: Path) -> None:
+    cache_root = tmp_path / "graph_cache"
+    reference_root = tmp_path / "references"
+    split_dir = cache_root / "train"
+    split_dir.mkdir(parents=True, exist_ok=True)
+    outside_sample = tmp_path / "outside.pt"
+    torch.save(
+        {
+            "image_id": 1,
+            "file_name": "partA_scene_0001.png",
+            "part_key": "partA",
+            "fragments": torch.tensor([[0, 1], [1, 0]], dtype=torch.int16),
+            "node_features": torch.tensor([[1.0, 0.0], [0.0, 1.0]], dtype=torch.float32),
+            "edge_index": torch.tensor([[0], [1]], dtype=torch.long),
+            "edge_features": torch.tensor([[0.1, 0.8]], dtype=torch.float32),
+            "edge_targets": torch.tensor([1.0], dtype=torch.float32),
+            "edge_ignore_mask": torch.tensor([False], dtype=torch.bool),
+            "summary": {},
+        },
+        outside_sample,
+    )
+    (split_dir / "000001.pt").symlink_to(outside_sample)
+    (split_dir / "manifest.json").write_text(json.dumps({"split": "train", "num_samples": 1}), encoding="utf-8")
+    _write_reference_root(reference_root, part_key="partA")
+
+    dataset = FragmentGraphMergeDataset(
+        cache_root=str(cache_root),
+        reference_root=str(reference_root),
+        split="train",
+        reference_image_size=128,
+        reference_max_views=16,
+        reference_view_sampler="pose_farthest",
+    )
+
+    with pytest.raises(ValueError, match="escapes cache root"):
+        _ = dataset[0]
+
+
+def test_fragment_graph_merge_dataset_rejects_invalid_tensor_dtypes(tmp_path: Path) -> None:
+    cache_root = tmp_path / "graph_cache"
+    reference_root = tmp_path / "references"
+    _write_graph_cache(cache_root, split="train", part_key="partA", count=1)
+    sample_path = cache_root / "train" / "000001.pt"
+    payload = torch.load(sample_path, map_location="cpu", weights_only=True)
+    payload["edge_index"] = payload["edge_index"].float()
+    torch.save(payload, sample_path)
+    _write_reference_root(reference_root, part_key="partA")
+
+    dataset = FragmentGraphMergeDataset(
+        cache_root=str(cache_root),
+        reference_root=str(reference_root),
+        split="train",
+        reference_image_size=128,
+        reference_max_views=16,
+        reference_view_sampler="pose_farthest",
+    )
+
+    with pytest.raises(ValueError, match="invalid edge_index"):
+        _ = dataset[0]
 
 
 def test_graph_edge_scorer_is_symmetric_for_undirected_edge_order() -> None:

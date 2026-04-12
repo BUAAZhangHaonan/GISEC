@@ -6,7 +6,6 @@ from pathlib import Path
 
 import cv2
 import torch
-from torch.hub import load_state_dict_from_url
 from torch import nn
 from torch.amp import GradScaler, autocast
 from torch.utils.data import DataLoader
@@ -79,19 +78,7 @@ def _build_mask_rcnn_model(*, backbone_name: str, pretrained_backbone: bool, inp
     if str(backbone_name) != "resnet50_fpn":
         raise ValueError(f"Unsupported Mask R-CNN backbone: {backbone_name}")
     if pretrained_backbone:
-        try:
-            model = maskrcnn_resnet50_fpn(weights=None, weights_backbone=ResNet50_Weights.DEFAULT)
-        except RuntimeError as exc:
-            if "invalid hash value" not in str(exc):
-                raise
-            model = maskrcnn_resnet50_fpn(weights=None, weights_backbone=None)
-            state_dict = load_state_dict_from_url(
-                ResNet50_Weights.DEFAULT.url,
-                progress=True,
-                check_hash=False,
-            )
-            filtered = {key: value for key, value in state_dict.items() if not key.startswith("fc.")}
-            model.backbone.body.load_state_dict(filtered, strict=False)
+        model = maskrcnn_resnet50_fpn(weights=None, weights_backbone=ResNet50_Weights.DEFAULT)
     else:
         model = maskrcnn_resnet50_fpn(weights=None, weights_backbone=None)
     model.backbone.body.conv1 = _adapt_input_conv(model.backbone.body.conv1, int(input_channels))
