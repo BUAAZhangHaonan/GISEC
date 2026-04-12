@@ -31,6 +31,12 @@ def _root_yolo_weight_files(root: Path) -> set[Path]:
     return {path.resolve() for path in root.glob("yolo*.pt")}
 
 
+def _cleanup_transient_root_weights(*, root: Path, preexisting_weights: set[Path]) -> None:
+    transient_weights = sorted(_root_yolo_weight_files(root) - preexisting_weights)
+    for path in transient_weights:
+        path.unlink(missing_ok=True)
+
+
 def train_yolo_seg_baseline(
     *,
     dataset_root: str,
@@ -46,7 +52,8 @@ def train_yolo_seg_baseline(
 ) -> None:
     artifact_root = Path(output_dir)
     artifact_root.mkdir(parents=True, exist_ok=True)
-    preexisting_root_weights = _root_yolo_weight_files(Path.cwd())
+    working_root = Path.cwd()
+    preexisting_root_weights = _root_yolo_weight_files(working_root)
     dataset_export = export_yolo_seg_dataset(
         dataset_root=dataset_root,
         output_dir=str(artifact_root / "yolo_dataset"),
@@ -92,5 +99,4 @@ def train_yolo_seg_baseline(
             max_images=max_val_images,
         )
     finally:
-        for path in sorted(_root_yolo_weight_files(Path.cwd()) - preexisting_root_weights):
-            path.unlink(missing_ok=True)
+        _cleanup_transient_root_weights(root=working_root, preexisting_weights=preexisting_root_weights)

@@ -28,25 +28,32 @@ def test_prune_output_artifacts_dry_run_lists_safe_candidates(
     analysis_tmp = output_root / "analysis" / "eval_profile_overlays_tmp123"
     stale_experiment = output_root / "experiments" / "old_suite"
     stale_baseline = output_root / "experiments" / "baselines" / "old_baseline"
+    kept_baseline = output_root / "experiments" / "baselines" / "keep_baseline"
+    oversized_file = kept_baseline / "oversized.bin"
     analysis_tmp.mkdir(parents=True)
     stale_experiment.mkdir(parents=True)
     stale_baseline.mkdir(parents=True)
+    kept_baseline.mkdir(parents=True)
+    oversized_file.write_bytes(b"x" * 32)
 
     monkeypatch.setattr(module, "OUTPUT_ROOT", output_root)
     monkeypatch.setattr(module, "EXPERIMENTS_ROOT", output_root / "experiments")
     monkeypatch.setattr(module, "BASELINES_ROOT", output_root / "experiments" / "baselines")
-    monkeypatch.setattr(sys, "argv", ["prune_output_artifacts.py"])
+    monkeypatch.setattr(module, "KEEP_BASELINE_DIRS", module.KEEP_BASELINE_DIRS | {"keep_baseline"})
+    monkeypatch.setattr(sys, "argv", ["prune_output_artifacts.py", "--min-file-size-mb", "0"])
 
     module.main()
 
     stdout = capsys.readouterr().out
-    assert "Found 3 paths to remove:" in stdout
+    assert "Found 4 paths to remove:" in stdout
     assert str(analysis_tmp) in stdout
     assert str(stale_experiment) in stdout
     assert str(stale_baseline) in stdout
+    assert str(oversized_file) in stdout
     assert analysis_tmp.exists()
     assert stale_experiment.exists()
     assert stale_baseline.exists()
+    assert oversized_file.exists()
 
 
 def test_prune_output_artifacts_allows_safe_removals_within_output_root(tmp_path: Path) -> None:
@@ -57,8 +64,10 @@ def test_prune_output_artifacts_allows_safe_removals_within_output_root(tmp_path
     stale_baseline = output_root / "experiments" / "baselines" / "old_baseline"
     kept_experiment = output_root / "experiments" / "keep_me"
     kept_baseline = output_root / "experiments" / "baselines" / "keep_baseline"
+    oversized_file = kept_baseline / "oversized.bin"
     for path in [analysis_tmp, stale_experiment, stale_baseline, kept_experiment, kept_baseline]:
         path.mkdir(parents=True)
+    oversized_file.write_bytes(b"x" * 32)
 
     removals = module._collect_removals(
         output_root=output_root,
@@ -66,12 +75,14 @@ def test_prune_output_artifacts_allows_safe_removals_within_output_root(tmp_path
         baselines_root=output_root / "experiments" / "baselines",
         keep_experiment_dirs={"keep_me"},
         keep_baseline_dirs={"keep_baseline"},
+        min_file_size_bytes=10,
     )
     approved = module._approve_removals(removals, output_root=output_root)
 
     assert analysis_tmp in approved
     assert stale_experiment in approved
     assert stale_baseline in approved
+    assert oversized_file in approved
     assert kept_experiment not in approved
     assert kept_baseline not in approved
 
@@ -80,6 +91,7 @@ def test_prune_output_artifacts_allows_safe_removals_within_output_root(tmp_path
     assert not analysis_tmp.exists()
     assert not stale_experiment.exists()
     assert not stale_baseline.exists()
+    assert not oversized_file.exists()
     assert kept_experiment.exists()
     assert kept_baseline.exists()
 

@@ -142,6 +142,8 @@ def test_yolo_seg_smoke_cleans_transient_downloaded_weight_files(tmp_path: Path,
     repo_root.mkdir()
     monkeypatch.chdir(repo_root)
 
+    unrelated_weight = repo_root / "yolo_keep.pt"
+    unrelated_weight.write_text("keep\n", encoding="utf-8")
     dataset_root = repo_root / "dataset"
     output_root = repo_root / "out"
     _write_dataset(dataset_root)
@@ -162,3 +164,4 @@ def test_yolo_seg_smoke_cleans_transient_downloaded_weight_files(tmp_path: Path,
 
     assert not (repo_root / "yolon-seg.pt").exists()
     assert not (repo_root / "yolo26n.pt").exists()
+    assert unrelated_weight.exists()
