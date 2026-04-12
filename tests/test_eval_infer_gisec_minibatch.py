@@ -52,14 +52,14 @@ def _write_prototype_bank(root: Path) -> None:
 
 def _run_train(repo_root: Path, dataset_root: Path, prototype_root: Path, output_root: Path) -> None:
     subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "gisec.cli.train",
-            "--dataset-root",
-            str(dataset_root),
-            "--prototype-root",
-            str(prototype_root),
+            [
+                sys.executable,
+                "-m",
+                "gisec.cli.train_legacy",
+                "--dataset-root",
+                str(dataset_root),
+                "--prototype-root",
+                str(prototype_root),
             "--output-dir",
             str(output_root),
             "--variant",
@@ -104,20 +104,22 @@ def test_eval_and_infer_gisec_minibatch(tmp_path: Path) -> None:
     checkpoint = train_output / "model_best.pth"
 
     subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "gisec.cli.eval",
-            "--dataset-root",
-            str(dataset_root),
-            "--prototype-root",
-            str(prototype_root),
+            [
+                sys.executable,
+                "-m",
+                "gisec.cli.eval_legacy",
+                "--dataset-root",
+                str(dataset_root),
+                "--prototype-root",
+                str(prototype_root),
             "--output-dir",
             str(eval_output),
+            "--checkpoint-dir",
+            str(train_output),
             "--variant",
             "G5",
             "--checkpoint",
-            str(checkpoint),
+            "model_best.pth",
             "--device",
             "cpu",
             "--image-size",
@@ -140,20 +142,22 @@ def test_eval_and_infer_gisec_minibatch(tmp_path: Path) -> None:
     )
 
     subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "gisec.cli.infer",
-            "--dataset-root",
-            str(dataset_root),
-            "--prototype-root",
-            str(prototype_root),
+            [
+                sys.executable,
+                "-m",
+                "gisec.cli.infer_legacy",
+                "--dataset-root",
+                str(dataset_root),
+                "--prototype-root",
+                str(prototype_root),
             "--output-dir",
             str(infer_output),
+            "--checkpoint-dir",
+            str(train_output),
             "--variant",
             "G5",
             "--checkpoint",
-            str(checkpoint),
+            "model_best.pth",
             "--device",
             "cpu",
             "--image-size",
@@ -221,11 +225,13 @@ def test_eval_and_infer_gisec_minibatch(tmp_path: Path) -> None:
     assert eval_summary["split"] == "val"
     assert eval_summary["image_size"] == 64
     assert eval_summary["checkpoint"] == str(checkpoint.resolve())
+    assert (eval_output / "model_config.json").exists()
     assert infer_summary["dataset_root"] == str(dataset_root.resolve())
     assert infer_summary["prototype_root"] == str(prototype_root.resolve())
     assert infer_summary["split"] == "val"
     assert infer_summary["image_size"] == 64
     assert infer_summary["checkpoint"] == str(checkpoint.resolve())
+    assert (infer_output / "model_config.json").exists()
     assert eval_failure_summary["total_images"] == 1
     assert infer_failure_summary["total_images"] == 1
     assert set(eval_failure_summary["counts"]).issuperset({"normal", "tiny_island", "full_frame", "empty"})
@@ -258,3 +264,50 @@ def test_eval_and_infer_gisec_minibatch(tmp_path: Path) -> None:
     assert "num_fragments" in eval_graph_rows[0]
     assert "num_edges" in eval_graph_rows[0]
     assert "num_merged" in eval_graph_rows[0]
+
+
+def test_eval_and_infer_reject_shared_checkpoint_and_output_roots(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    dataset_root = tmp_path / "dataset"
+    prototype_root = tmp_path / "prototype_bank"
+    train_output = tmp_path / "train_out"
+    _write_dataset(dataset_root)
+    _write_prototype_bank(prototype_root)
+    _run_train(repo_root, dataset_root, prototype_root, train_output)
+
+    for command in ["eval", "infer"]:
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                f"gisec.cli.{command}_legacy",
+                "--dataset-root",
+                str(dataset_root),
+                "--prototype-root",
+                str(prototype_root),
+                "--output-dir",
+                str(train_output),
+                "--checkpoint-dir",
+                str(train_output),
+                "--variant",
+                "G5",
+                "--checkpoint",
+                "model_best.pth",
+                "--device",
+                "cpu",
+                "--image-size",
+                "64",
+                "--num-workers",
+                "0",
+                "--max-images",
+                "1",
+                "--contract-mode",
+                "compat",
+            ],
+            cwd=str(repo_root),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode != 0
+        assert "checkpoint-dir" in (result.stderr + result.stdout)

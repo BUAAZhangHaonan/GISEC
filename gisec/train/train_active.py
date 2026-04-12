@@ -223,6 +223,13 @@ def _validate_required_args(parser: argparse.ArgumentParser, args: argparse.Name
         parser.error("the following arguments are required: " + ", ".join(f"--{name.replace('_', '-')}" for name in missing))
 
 
+def _resolve_checkpoint_path(checkpoint_dir: Path, checkpoint: str) -> Path:
+    checkpoint_path = Path(checkpoint)
+    if checkpoint_path.is_absolute():
+        return checkpoint_path.resolve()
+    return (checkpoint_dir / checkpoint_path).resolve()
+
+
 def _validate_variant_requirements(parser: argparse.ArgumentParser, args: argparse.Namespace, *, is_eval: bool) -> None:
     variant_spec = get_active_variant_spec(args.variant)
     depth_mode = str(getattr(args, "depth_mode", "") or variant_spec.depth_mode)
@@ -252,6 +259,7 @@ def parse_train_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def parse_eval_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = _common_parser(mode="eval", argv=argv)
+    parser.add_argument("--checkpoint-dir", type=str, default="")
     args = parser.parse_args(argv)
     _annotate_variant_sources(args, argv)
     _validate_variant_source_consistency(parser, args, argv)
@@ -262,6 +270,7 @@ def parse_eval_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def parse_infer_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = _common_parser(mode="infer", argv=argv)
+    parser.add_argument("--checkpoint-dir", type=str, default="")
     args = parser.parse_args(argv)
     _annotate_variant_sources(args, argv)
     _validate_variant_source_consistency(parser, args, argv)
@@ -2410,14 +2419,19 @@ def eval_active(args: argparse.Namespace) -> None:
     variant_spec = get_active_variant_spec(args.variant)
     device = build_device(str(args.device))
     output_dir = Path(args.output_dir).resolve()
+    checkpoint_dir_arg = getattr(args, "checkpoint_dir", "")
+    checkpoint_dir = output_dir if checkpoint_dir_arg in ("", None) else Path(str(checkpoint_dir_arg)).resolve()
+    checkpoint_path = _resolve_checkpoint_path(checkpoint_dir, str(args.checkpoint))
+    if checkpoint_path.parent.resolve() == output_dir.resolve():
+        raise ValueError("legacy eval/infer requires --checkpoint-dir to differ from --output-dir")
     output_dir.mkdir(parents=True, exist_ok=True)
     model = _build_active_model(args).to(device)
-    checkpoint_payload = torch.load(str(args.checkpoint), map_location=device)
+    checkpoint_payload = torch.load(str(checkpoint_path), map_location=device)
     _validate_runtime_checkpoint_variant(
         requested_variant=variant_spec.name,
         run_variant=getattr(args, "_run_metadata_variant", None),
         checkpoint_payload=checkpoint_payload,
-        checkpoint_path=args.checkpoint,
+        checkpoint_path=str(checkpoint_path),
         context="eval",
     )
     state_dict = _extract_state_dict(checkpoint_payload, prefix_backbone=True)
@@ -2425,7 +2439,7 @@ def eval_active(args: argparse.Namespace) -> None:
         model,
         state_dict,
         allow_partial=bool(getattr(args, "allow_partial_checkpoint_load", False)),
-        context=f"eval checkpoint {args.checkpoint}",
+        context=f"eval checkpoint {checkpoint_path}",
     )
     prototype_source = None
     if variant_spec.requires_prototype_root:
@@ -2471,7 +2485,7 @@ def eval_active(args: argparse.Namespace) -> None:
         artifact_root=output_dir,
         metrics=metrics,
         inference_speed=speed,
-        checkpoint=Path(str(args.checkpoint)).resolve(),
+        checkpoint=checkpoint_path,
         dataset_root=str(Path(args.dataset_root).resolve()),
         benchmark=_active_benchmark_payload(variant_spec.name, str(args.depth_mode)),
         decode_config={
@@ -2490,14 +2504,19 @@ def infer_active(args: argparse.Namespace) -> None:
     variant_spec = get_active_variant_spec(args.variant)
     device = build_device(str(args.device))
     output_dir = Path(args.output_dir).resolve()
+    checkpoint_dir_arg = getattr(args, "checkpoint_dir", "")
+    checkpoint_dir = output_dir if checkpoint_dir_arg in ("", None) else Path(str(checkpoint_dir_arg)).resolve()
+    checkpoint_path = _resolve_checkpoint_path(checkpoint_dir, str(args.checkpoint))
+    if checkpoint_path.parent.resolve() == output_dir.resolve():
+        raise ValueError("legacy eval/infer requires --checkpoint-dir to differ from --output-dir")
     output_dir.mkdir(parents=True, exist_ok=True)
     model = _build_active_model(args).to(device)
-    checkpoint_payload = torch.load(str(args.checkpoint), map_location=device)
+    checkpoint_payload = torch.load(str(checkpoint_path), map_location=device)
     _validate_runtime_checkpoint_variant(
         requested_variant=variant_spec.name,
         run_variant=getattr(args, "_run_metadata_variant", None),
         checkpoint_payload=checkpoint_payload,
-        checkpoint_path=args.checkpoint,
+        checkpoint_path=str(checkpoint_path),
         context="infer",
     )
     state_dict = _extract_state_dict(checkpoint_payload, prefix_backbone=True)
@@ -2551,7 +2570,7 @@ def infer_active(args: argparse.Namespace) -> None:
         artifact_root=output_dir,
         metrics=metrics,
         inference_speed=speed,
-        checkpoint=Path(str(args.checkpoint)).resolve(),
+        checkpoint=checkpoint_path,
         dataset_root=str(Path(args.dataset_root).resolve()),
         benchmark=_active_benchmark_payload(variant_spec.name, str(args.depth_mode)),
         decode_config={

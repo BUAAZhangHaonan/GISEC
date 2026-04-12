@@ -213,6 +213,18 @@ def _validate_required_args(parser: argparse.ArgumentParser, args: argparse.Name
         parser.error("the following arguments are required: " + ", ".join(f"--{name.replace('_', '-')}" for name in missing))
 
 
+def _slice_outputs_for_sample(outputs: dict[str, Any], batch_idx: int) -> dict[str, Any]:
+    sample_outputs: dict[str, Any] = {}
+    for key, value in outputs.items():
+        if value is None:
+            continue
+        if torch.is_tensor(value):
+            sample_outputs[key] = value[batch_idx:batch_idx + 1]
+        else:
+            sample_outputs[key] = value
+    return sample_outputs
+
+
 def _model_config_from_args(args: argparse.Namespace) -> dict[str, int | str]:
     return {
         "base_channels": int(args.base_channels),
@@ -493,6 +505,7 @@ def parse_train_args(argv: list[str] | None = None) -> argparse.Namespace:
 def parse_eval_args(argv: list[str] | None = None) -> argparse.Namespace:
     defaults = _load_parser_defaults(argv, mode="eval")
     parser = argparse.ArgumentParser(parents=[_common_parser()])
+    parser.add_argument("--checkpoint-dir", type=str, default="")
     parser.add_argument("--checkpoint", type=str, default="")
     parser.add_argument(
         "--split", choices=["train", "val", "test"], default="val")
@@ -511,6 +524,7 @@ def parse_eval_args(argv: list[str] | None = None) -> argparse.Namespace:
 def parse_infer_args(argv: list[str] | None = None) -> argparse.Namespace:
     defaults = _load_parser_defaults(argv, mode="infer")
     parser = argparse.ArgumentParser(parents=[_common_parser()])
+    parser.add_argument("--checkpoint-dir", type=str, default="")
     parser.add_argument("--checkpoint", type=str, default="")
     parser.add_argument(
         "--split", choices=["train", "val", "test"], default="val")
@@ -879,8 +893,9 @@ def train_main(args: argparse.Namespace) -> None:
                         for batch_idx in range(images.shape[0]):
                             graph_build_start = time.perf_counter() if profile_active else 0.0
                             graph_profiler = GraphBuildProfiler(device=device, enabled=profile_active)
+                            sample_outputs = _slice_outputs_for_sample(outputs, batch_idx)
                             graph_batch = refiner.build_graph_batch(
-                                outputs={key: value[batch_idx: batch_idx + 1] for key, value in outputs.items()},
+                                outputs=sample_outputs,
                                 depth_map=depths[batch_idx: batch_idx + 1],
                                 instance_map=instance_maps[batch_idx],
                                 prototype_cache=prototype_caches[batch_idx],
@@ -1242,11 +1257,22 @@ def train_main(args: argparse.Namespace) -> None:
 
 def _run_eval_like(args: argparse.Namespace, *, compute_metrics: bool) -> None:
     output_dir = Path(args.output_dir).resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
     device = build_device(args.device)
     use_cuda = device.type == "cuda"
     variant_spec = get_variant_spec(args.variant)
     resolved_num_workers = resolve_num_workers(args.num_workers)
+    checkpoint_dir_arg = getattr(args, "checkpoint_dir", "")
+    checkpoint_dir = (
+        Path(checkpoint_dir_arg).resolve()
+        if checkpoint_dir_arg not in (None, "")
+        else output_dir
+    )
+    checkpoint_path = resolve_checkpoint(checkpoint_dir, args.checkpoint)
+    if checkpoint_path.parent.resolve() == output_dir.resolve():
+        raise ValueError(
+            "legacy eval/infer requires --checkpoint-dir to differ from --output-dir"
+        )
+    output_dir.mkdir(parents=True, exist_ok=True)
     run_context = RunContext(
         dataset_root=str(Path(args.dataset_root).resolve()),
         prototype_root="" if getattr(args, "prototype_root", "") in (None, "") else str(Path(args.prototype_root).resolve()),
@@ -1272,7 +1298,6 @@ def _run_eval_like(args: argparse.Namespace, *, compute_metrics: bool) -> None:
         num_workers=resolved_num_workers,
         use_cuda=use_cuda,
     )
-    checkpoint_path = resolve_checkpoint(output_dir, args.checkpoint)
     model_config = resolve_model_config(args, checkpoint_path=checkpoint_path, output_dir=output_dir)
     write_json(output_dir / "model_config.json", model_config)
     model = build_model(device, checkpoint_path, **model_config)

@@ -71,14 +71,14 @@ def test_train_gisec_minibatch(tmp_path: Path) -> None:
     _write_prototype_bank(prototype_root)
 
     subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "gisec.cli.train",
-            "--dataset-root",
-            str(dataset_root),
-            "--prototype-root",
-            str(prototype_root),
+            [
+                sys.executable,
+                "-m",
+                "gisec.cli.train_legacy",
+                "--dataset-root",
+                str(dataset_root),
+                "--prototype-root",
+                str(prototype_root),
             "--output-dir",
             str(output_root),
             "--variant",
@@ -400,26 +400,26 @@ def test_eval_can_reuse_model_config_saved_by_train_run(tmp_path: Path) -> None:
     )
 
     subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "gisec.cli.eval",
-            "--dataset-root",
-            str(dataset_root),
-            "--prototype-root",
-            str(prototype_root),
+            [
+                sys.executable,
+                "-m",
+                "gisec.cli.eval_legacy",
+                "--dataset-root",
+                str(dataset_root),
+                "--prototype-root",
+                str(prototype_root),
             "--output-dir",
+            str(eval_root),
+            "--checkpoint-dir",
             str(output_root),
             "--checkpoint",
-            str(output_root / "model_final.pth"),
+            "model_final.pth",
             "--device",
             "cpu",
             "--image-size",
             "64",
             "--max-images",
             "1",
-            "--results-json",
-            str(eval_root / "results.json"),
         ],
         cwd=str(repo_root),
         check=True,
@@ -428,9 +428,13 @@ def test_eval_can_reuse_model_config_saved_by_train_run(tmp_path: Path) -> None:
     )
 
     model_config = json.loads((output_root / "model_config.json").read_text(encoding="utf-8"))
+    eval_model_config = json.loads((eval_root / "model_config.json").read_text(encoding="utf-8"))
     assert model_config["base_channels"] == 8
     assert model_config["graph_hidden_dim"] == 32
     assert model_config["norm_layer"] == "group"
     assert model_config["prototype_slot_count"] == 4
     assert model_config["prototype_topk"] == 1
-    assert (output_root / "metrics.cocoeval.json").exists()
+    assert eval_model_config["base_channels"] == 8
+    assert eval_model_config["graph_hidden_dim"] == 32
+    assert (eval_root / "metrics.cocoeval.json").exists()
+    assert (eval_root / "run_summary.json").exists()

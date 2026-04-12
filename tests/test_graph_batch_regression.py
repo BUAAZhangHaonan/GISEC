@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import numpy as np
 import torch
+import pytest
+from torch.utils.data import DataLoader, Dataset
 
+from gisec.engine.runtime import evaluate_and_export
+from gisec.models.gisec_model import GISECModel
 from gisec.models.graph_utils import _contact_fragment_pairs
 from gisec.models.graph_utils import build_graph_batch_from_fragments
 
@@ -133,3 +137,31 @@ def test_build_graph_batch_from_fragments_regression_fixture() -> None:
 
     assert torch.allclose(graph_batch.node_features, expected_node_features, atol=1e-6, rtol=1e-6)
     assert torch.allclose(graph_batch.edge_features, expected_edge_features, atol=1e-6, rtol=1e-6)
+
+
+class _BatchedExportDataset(Dataset):
+    def __len__(self) -> int:
+        return 2
+
+    def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
+        del index
+        return {"images": torch.zeros((3, 8, 8), dtype=torch.float32)}
+
+
+def test_evaluate_and_export_rejects_batched_loader(tmp_path) -> None:
+    loader = DataLoader(_BatchedExportDataset(), batch_size=2)
+
+    with pytest.raises(ValueError, match="single-sample loader"):
+        evaluate_and_export(
+            model=GISECModel(),
+            loader=loader,
+            device=torch.device("cpu"),
+            prototype_source=None,
+            variant="G5",
+            ann_file=None,
+            results_json=tmp_path / "results.json",
+            min_area=4,
+            fragment_fg_threshold=0.5,
+            fragment_boundary_threshold=0.5,
+            edge_threshold=0.5,
+        )

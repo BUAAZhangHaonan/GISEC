@@ -984,6 +984,11 @@ def evaluate_and_export(
             if max_images is not None and batch_index >= int(max_images):
                 break
             images = batch["images"].to(device)
+            if int(images.shape[0]) != 1:
+                raise ValueError(
+                    "evaluate_and_export requires a single-sample loader; "
+                    f"got batch size {int(images.shape[0])}"
+                )
             depths = batch["depths"].to(device)
             sync_cuda(device)
             start = time.perf_counter()
@@ -1258,10 +1263,13 @@ def prepare_prototype_cache(
     return source.resolve_for_query("__single_bank__.png")
 
 
-def resolve_checkpoint(output_dir: Path, checkpoint: str) -> Path:
+def resolve_checkpoint(checkpoint_dir: Path, checkpoint: str) -> Path:
     if checkpoint:
-        return Path(checkpoint).resolve()
-    for candidate in [output_dir / "model_best.pth", output_dir / "model_final.pth"]:
+        checkpoint_path = Path(checkpoint)
+        if checkpoint_path.is_absolute():
+            return checkpoint_path.resolve()
+        return (checkpoint_dir / checkpoint_path).resolve()
+    for candidate in [checkpoint_dir / "model_best.pth", checkpoint_dir / "model_final.pth"]:
         if candidate.exists():
             return candidate
-    raise FileNotFoundError(f"No checkpoint found under {output_dir}")
+    raise FileNotFoundError(f"No checkpoint found under {checkpoint_dir}")
