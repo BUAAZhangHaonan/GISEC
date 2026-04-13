@@ -73,7 +73,7 @@ def test_active_variant_specs_lock_phase_order_and_prototype_requirements() -> N
 
 
 def test_active_variant_registry_rejects_legacy_and_query_ids() -> None:
-    for name in ["G5", "Q2", "UQ-s"]:
+    for name in ["legacy_prototype_unet_with_rgbd_similarity_shape_stats", "legacy_query_mask_reference_graph_rescue_debug", "query_small_resnet18"]:
         with pytest.raises(ValueError):
             get_active_variant_spec(name)
 

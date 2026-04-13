@@ -32,17 +32,17 @@ def _make_prototype_cache() -> PrototypeCache:
 
 
 def test_variant_spec_defines_b0_and_prototype_feature_semantics() -> None:
-    a0 = get_variant_spec("A0")
-    a1 = get_variant_spec("A1")
-    q0 = get_variant_spec("Q0")
-    q1 = get_variant_spec("Q1")
-    q2 = get_variant_spec("Q2")
-    b0 = get_variant_spec("B0")
-    g1 = get_variant_spec("G1")
-    g2 = get_variant_spec("G2")
-    g3 = get_variant_spec("G3")
-    g4 = get_variant_spec("G4")
-    g5 = get_variant_spec("G5")
+    a0 = get_variant_spec("legacy_rgbd_prototype_affinity_baseline")
+    a1 = get_variant_spec("legacy_rgbd_prototype_ownership_graph_cues")
+    q0 = get_variant_spec("legacy_query_mask_only_debug")
+    q1 = get_variant_spec("legacy_query_mask_reference_routing_debug")
+    q2 = get_variant_spec("legacy_query_mask_reference_graph_rescue_debug")
+    b0 = get_variant_spec("legacy_heuristic_graph_merge_baseline")
+    g1 = get_variant_spec("legacy_prototype_unet_baseline")
+    g2 = get_variant_spec("legacy_prototype_unet_refined")
+    g3 = get_variant_spec("legacy_prototype_unet_with_graph")
+    g4 = get_variant_spec("legacy_prototype_unet_with_rgbd_similarity")
+    g5 = get_variant_spec("legacy_prototype_unet_with_rgbd_similarity_shape_stats")
 
     assert a0.use_learned_edge_scorer
     assert a1.use_learned_edge_scorer
@@ -93,11 +93,11 @@ def test_parse_train_args_accepts_v2_variants() -> None:
             "--output-dir",
             "/tmp/out",
             "--variant",
-            "A1",
+            "legacy_rgbd_prototype_ownership_graph_cues",
         ]
     )
 
-    assert args.variant == "A1"
+    assert args.variant == "legacy_rgbd_prototype_ownership_graph_cues"
 
 
 def test_relation_target_from_batch_uses_affinity_for_a0_and_ownership_for_a1() -> None:
@@ -107,11 +107,11 @@ def test_relation_target_from_batch_uses_affinity_for_a0_and_ownership_for_a1() 
     }
 
     assert torch.equal(
-        relation_target_from_batch(batch, get_variant_spec("A0")),
+        relation_target_from_batch(batch, get_variant_spec("legacy_rgbd_prototype_affinity_baseline")),
         batch["affinity_target"],
     )
     assert torch.equal(
-        relation_target_from_batch(batch, get_variant_spec("A1")),
+        relation_target_from_batch(batch, get_variant_spec("legacy_rgbd_prototype_ownership_graph_cues")),
         batch["ownership_target"],
     )
 
@@ -133,7 +133,7 @@ def test_build_graph_batch_only_enables_shape_feature_for_variants_that_request_
         depth_map=depth_map,
         instance_map=None,
         prototype_cache=prototype_cache,
-        variant=get_variant_spec("B0"),
+        variant=get_variant_spec("legacy_heuristic_graph_merge_baseline"),
         min_area=2,
     )
     g2_batch = build_graph_batch(
@@ -145,7 +145,7 @@ def test_build_graph_batch_only_enables_shape_feature_for_variants_that_request_
         depth_map=depth_map,
         instance_map=None,
         prototype_cache=prototype_cache,
-        variant=get_variant_spec("G2"),
+        variant=get_variant_spec("legacy_prototype_unet_refined"),
         min_area=2,
     )
 
@@ -183,7 +183,7 @@ def test_graph_refiner_merge_is_noop_for_q0() -> None:
         graph_batch=graph_batch,
         edge_logits=torch.tensor([12.0], dtype=torch.float32),
         threshold=0.5,
-        variant="Q0",
+        variant="legacy_query_mask_only_debug",
     )
 
     assert torch.equal(merged, torch.from_numpy(fragments))
@@ -213,7 +213,7 @@ def test_build_graph_batch_connects_fragments_across_boundary_gap_and_tracks_dia
         depth_map=depth_map,
         instance_map=instance_map,
         prototype_cache=prototype_cache,
-        variant=get_variant_spec("G4"),
+        variant=get_variant_spec("legacy_prototype_unet_with_rgbd_similarity"),
         min_area=2,
     )
 
@@ -252,7 +252,7 @@ def test_build_graph_batch_adds_bridge_edge_for_short_low_depth_gap(
         depth_map=depth_map,
         instance_map=instance_map,
         prototype_cache=prototype_cache,
-        variant=get_variant_spec("G4"),
+        variant=get_variant_spec("legacy_prototype_unet_with_rgbd_similarity"),
         min_area=2,
     )
 
@@ -286,7 +286,7 @@ def test_build_graph_batch_marks_mixed_fragment_edge_as_ignored(
         depth_map=depth_map,
         instance_map=instance_map,
         prototype_cache=prototype_cache,
-        variant=get_variant_spec("G4"),
+        variant=get_variant_spec("legacy_prototype_unet_with_rgbd_similarity"),
         min_area=2,
     )
 
@@ -317,7 +317,7 @@ def test_build_graph_batch_does_not_connect_gap_without_boundary_or_ownership_su
         depth_map=depth_map,
         instance_map=None,
         prototype_cache=prototype_cache,
-        variant=get_variant_spec("G4"),
+        variant=get_variant_spec("legacy_prototype_unet_with_rgbd_similarity"),
         min_area=2,
     )
 
@@ -346,7 +346,7 @@ def test_build_graph_batch_switches_relation_cues_between_a0_and_a1(
         depth_map=depth_map,
         instance_map=None,
         prototype_cache=prototype_cache,
-        variant=get_variant_spec("A0"),
+        variant=get_variant_spec("legacy_rgbd_prototype_affinity_baseline"),
         min_area=2,
     )
     graph_batch_a1 = build_graph_batch(
@@ -358,7 +358,7 @@ def test_build_graph_batch_switches_relation_cues_between_a0_and_a1(
         depth_map=depth_map,
         instance_map=None,
         prototype_cache=prototype_cache,
-        variant=get_variant_spec("A1"),
+        variant=get_variant_spec("legacy_rgbd_prototype_ownership_graph_cues"),
         min_area=2,
     )
 
@@ -390,7 +390,7 @@ def test_build_graph_batch_accepts_affinity_only_for_a0(
         depth_map=depth_map,
         instance_map=None,
         prototype_cache=prototype_cache,
-        variant=get_variant_spec("A0"),
+        variant=get_variant_spec("legacy_rgbd_prototype_affinity_baseline"),
         min_area=2,
     )
 
@@ -420,7 +420,7 @@ def test_build_graph_batch_switches_between_affinity_and_ownership_cues_for_a0_a
         depth_map=depth_map,
         instance_map=None,
         prototype_cache=prototype_cache,
-        variant=get_variant_spec("A0"),
+        variant=get_variant_spec("legacy_rgbd_prototype_affinity_baseline"),
         min_area=2,
     )
     a1_batch = build_graph_batch(
@@ -432,7 +432,7 @@ def test_build_graph_batch_switches_between_affinity_and_ownership_cues_for_a0_a
         depth_map=depth_map,
         instance_map=None,
         prototype_cache=prototype_cache,
-        variant=get_variant_spec("A1"),
+        variant=get_variant_spec("legacy_rgbd_prototype_ownership_graph_cues"),
         min_area=2,
     )
 

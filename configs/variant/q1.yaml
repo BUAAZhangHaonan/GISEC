@@ -1,3 +1,0 @@
-common:
-  variant: Q1
-  reference_conditioning_mode: bottleneck_only

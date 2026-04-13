@@ -3,15 +3,17 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from gisec.cli.train_query import _print_payload, _validate_alpha_execution_surface, build_parser
+from gisec.cli.train_query import _print_payload, _requires_prototype_source, _validate_alpha_execution_surface, build_parser
 from gisec.train.train_query import run_uq_eval
 
 
 def main(argv: list[str] | None = None) -> None:
     parser = build_parser(argv, mode="eval")
     args = parser.parse_args(argv)
-    model_id = f"{args.model_family}-{args.model_scale}"
+    model_id = str(args.variant)
     _validate_alpha_execution_surface(parser, model_id=model_id)
+    if _requires_prototype_source(model_id) and not args.prototype_root:
+        parser.error("--prototype-root is required for reference query variants")
     if args.dry_run:
         _print_payload(args, mode="eval")
         return
@@ -29,6 +31,7 @@ def main(argv: list[str] | None = None) -> None:
             output_dir=Path(args.output_dir),
             model_id=model_id,
             checkpoint=Path(args.checkpoint),
+            prototype_root=Path(args.prototype_root) if args.prototype_root else None,
             device=str(args.device),
             image_size=int(args.image_size),
             batch_size=int(args.batch_size),

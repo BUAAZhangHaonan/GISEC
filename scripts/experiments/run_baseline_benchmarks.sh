@@ -73,9 +73,9 @@ case "${GROUP}" in
   rgb_smoke) CONFIGS=("${RGB_SMOKE_CONFIGS[@]}") ;;
   rgbd_smoke) CONFIGS=("${RGBD_SMOKE_CONFIGS[@]}") ;;
   rgb_standalone) CONFIGS=("${RGB_STANDALONE_CONFIGS[@]}") ;;
-  phase_a_rgb_short) CONFIGS=("${PHASE_A_RGB_SHORT_CONFIGS[@]}") ;;
-  phase_a_rgb_full) CONFIGS=("${PHASE_A_RGB_FULL_CONFIGS[@]}") ;;
-  phase_b_maskrcnn_short) CONFIGS=("${PHASE_B_MASKRCNN_SHORT_CONFIGS[@]}") ;;
+  backbone_benchmark_rgb_short) CONFIGS=("${PHASE_A_RGB_SHORT_CONFIGS[@]}") ;;
+  backbone_benchmark_rgb_full) CONFIGS=("${PHASE_A_RGB_FULL_CONFIGS[@]}") ;;
+  active_pilot_maskrcnn_short) CONFIGS=("${PHASE_B_MASKRCNN_SHORT_CONFIGS[@]}") ;;
   rgbd_standalone) CONFIGS=("${RGBD_STANDALONE_CONFIGS[@]}") ;;
   splitfirst_probe) CONFIGS=("${SPLITFIRST_PROBE_CONFIGS[@]}") ;;
   splitfirst_mainline) CONFIGS=("${SPLITFIRST_MAINLINE_CONFIGS[@]}") ;;

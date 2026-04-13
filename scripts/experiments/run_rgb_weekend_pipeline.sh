@@ -11,7 +11,7 @@ OUTPUT_ROOT="${REPO_ROOT}/output/experiments/rgb_phase23_fragment_reset_20260330
 PYTHON_CMD=()
 runner_python_cmd_array PYTHON_CMD
 
-MASK2FORMER_FULL_DIR="${REPO_ROOT}/output/experiments/baselines/phase_a_rgb_full_20260327/mask2former_swin_t_1024_phasea_full"
+MASK2FORMER_FULL_DIR="${REPO_ROOT}/output/experiments/baselines/backbone_benchmark_rgb_full_20260327/mask2former_swin_t_1024_phasea_full"
 MASK2FORMER_CHECKPOINT="${MASK2FORMER_FULL_DIR}/model_best.pth"
 
 while [[ $# -gt 0 ]]; do
@@ -32,7 +32,7 @@ runner_log "${MODE}" "${RUN_LOG}" "[rgb-weekend] dataset_root=${DATASET_ROOT}"
 runner_log "${MODE}" "${RUN_LOG}" "[rgb-weekend] output_root=${OUTPUT_ROOT}"
 
 runner_log "${MODE}" "${RUN_LOG}" "[rgb-weekend] step=wait-for-current-phase-b"
-runner_wait_for_process_match_to_clear "${MODE}" "${RUN_LOG}" "phase_b_maskrcnn_short" "60"
+runner_wait_for_process_match_to_clear "${MODE}" "${RUN_LOG}" "active_pilot_maskrcnn_short" "60"
 
 FRAGMENT_CACHE_ROOT="${OUTPUT_ROOT}/fragment_generator_cache"
 FRAGMENT_STAGE2_OUT="${OUTPUT_ROOT}/fragment_generator_rgb_stage2"

@@ -21,7 +21,7 @@ def test_no_reference_variant_defaults_reference_conditioning_off_without_protot
             "--output-dir",
             "/tmp/out",
             "--variant",
-            "G1",
+            "legacy_prototype_unet_baseline",
         ]
     )
 
@@ -37,7 +37,7 @@ def test_no_reference_eval_defaults_reference_conditioning_off_without_prototype
             "--output-dir",
             "/tmp/out",
             "--variant",
-            "G1",
+            "legacy_prototype_unet_baseline",
             "--checkpoint",
             "/tmp/out/model_best.pth",
         ]
@@ -56,7 +56,7 @@ def test_no_reference_variant_rejects_explicit_reference_conditioning_override()
                 "--output-dir",
                 "/tmp/out",
                 "--variant",
-                "G1",
+                "legacy_prototype_unet_baseline",
                 "--reference-conditioning-mode",
                 "full",
             ]
@@ -64,8 +64,8 @@ def test_no_reference_variant_rejects_explicit_reference_conditioning_override()
 
 
 def test_prototype_source_enabled_only_for_reference_variants() -> None:
-    assert _prototype_source_enabled("G1", "off") is False
-    assert _prototype_source_enabled("G3", "full") is True
+    assert _prototype_source_enabled("legacy_prototype_unet_baseline", "off") is False
+    assert _prototype_source_enabled("legacy_prototype_unet_with_graph", "full") is True
 
 
 def test_maybe_prepare_prototype_source_skips_no_reference_variants(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -87,7 +87,7 @@ def test_maybe_prepare_prototype_source_skips_no_reference_variants(monkeypatch:
                 "--output-dir",
                 "/tmp/out",
                 "--variant",
-                "G1",
+                "legacy_prototype_unet_baseline",
             ]
         ),
         dataset_root=Path("/tmp/dataset"),

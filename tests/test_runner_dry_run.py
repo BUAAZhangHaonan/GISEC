@@ -23,7 +23,7 @@ def test_gisec_runner_dry_run_is_reproducible(tmp_path: Path) -> None:
             "--output-root",
             str(tmp_path / "out"),
             "--variant",
-            "G5",
+            "legacy_prototype_unet_with_rgbd_similarity_shape_stats",
             "--dry-run",
         ],
         cwd=str(tmp_path),
@@ -33,7 +33,7 @@ def test_gisec_runner_dry_run_is_reproducible(tmp_path: Path) -> None:
     )
 
     assert "mode=dry-run" in res.stdout
-    assert "variant=G5" in res.stdout
+    assert "variant=legacy_prototype_unet_with_rgbd_similarity_shape_stats" in res.stdout
     assert "prototype_root=" in res.stdout
     assert "python -m gisec.cli.train_legacy" in res.stdout
     assert "conda run -n magformer" not in res.stdout
@@ -57,7 +57,7 @@ def test_gisec_runner_dry_run_accepts_a0_variant(tmp_path: Path) -> None:
             "--output-root",
             str(tmp_path / "out"),
             "--variant",
-            "A0",
+            "legacy_rgbd_prototype_affinity_baseline",
             "--dry-run",
         ],
         cwd=str(tmp_path),
@@ -66,7 +66,7 @@ def test_gisec_runner_dry_run_accepts_a0_variant(tmp_path: Path) -> None:
         text=True,
     )
 
-    assert "variant=A0" in res.stdout
+    assert "variant=legacy_rgbd_prototype_affinity_baseline" in res.stdout
 
 
 def test_gisec_runner_dry_run_forwards_config_argument(tmp_path: Path) -> None:
@@ -119,7 +119,7 @@ def test_gisec_runner_dry_run_supports_torchrun_launcher(tmp_path: Path) -> None
             "--output-root",
             str(tmp_path / "out"),
             "--variant",
-            "G5",
+            "legacy_prototype_unet_with_rgbd_similarity_shape_stats",
             "--launcher",
             "torchrun",
             "--nproc-per-node",
@@ -159,7 +159,7 @@ def test_gisec_runner_dry_run_supports_torchrun_launch(tmp_path: Path) -> None:
             "--output-root",
             str(tmp_path / "out"),
             "--variant",
-            "G5",
+            "legacy_prototype_unet_with_rgbd_similarity_shape_stats",
             "--dry-run",
         ],
         cwd=str(tmp_path),
@@ -198,8 +198,8 @@ def test_gisec_v2_smoke_runner_lists_a0_and_a1(tmp_path: Path) -> None:
         text=True,
     )
 
-    assert "variant=A0" in res.stdout
-    assert "variant=A1" in res.stdout
+    assert "variant=legacy_rgbd_prototype_affinity_baseline" in res.stdout
+    assert "variant=legacy_rgbd_prototype_ownership_graph_cues" in res.stdout
 
 
 def test_gisec_v2_smoke_runner_uses_default_config_stack(tmp_path: Path) -> None:
@@ -243,7 +243,7 @@ def test_gisec_recovery_smoke_runner_lists_q0_q1_q2(tmp_path: Path) -> None:
         text=True,
     )
 
-    assert "variant=Q0" in res.stdout
-    assert "variant=Q1" in res.stdout
-    assert "variant=Q2" in res.stdout
+    assert "variant=legacy_query_mask_only_debug" in res.stdout
+    assert "variant=legacy_query_mask_reference_routing_debug" in res.stdout
+    assert "variant=legacy_query_mask_reference_graph_rescue_debug" in res.stdout
     assert "configs/train/recovery_smoke_1024.yaml" in res.stdout

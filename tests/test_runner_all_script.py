@@ -9,7 +9,7 @@ def test_gisec_all_runner_lists_full_matrix() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     script = repo_root / "scripts" / "experiments" / "run_legacy_1k_20ep_1024_gisec_all.sh"
     text = script.read_text(encoding="utf-8")
-    for variant in ["B0", "G1", "G2", "G3", "G4", "G5"]:
+    for variant in ["legacy_heuristic_graph_merge_baseline", "legacy_prototype_unet_baseline", "legacy_prototype_unet_refined", "legacy_prototype_unet_with_graph", "legacy_prototype_unet_with_rgbd_similarity", "legacy_prototype_unet_with_rgbd_similarity_shape_stats"]:
         assert variant in text
 
 
@@ -67,7 +67,7 @@ def test_gisec_single_runner_accepts_a_variants_in_dry_run(tmp_path: Path) -> No
     repo_root = Path(__file__).resolve().parents[1]
     script = repo_root / "scripts" / "experiments" / "run_legacy_1k_20ep_1024_gisec.sh"
 
-    for variant in ["A0", "A1"]:
+    for variant in ["legacy_rgbd_prototype_affinity_baseline", "legacy_rgbd_prototype_ownership_graph_cues"]:
         result = subprocess.run(
             [
                 "bash",

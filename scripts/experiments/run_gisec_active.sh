@@ -24,6 +24,16 @@ ACTIVE_CONFIGS=(
   "base_rgbd_1024_refine_ref_graph"
 )
 
+stage_label_for_config() {
+  case "$1" in
+    base_rgb_1024|base_rgbd_1024) printf '%s\n' 'base_mask2former_training' ;;
+    base_rgb_1024_refine|base_rgbd_1024_refine) printf '%s\n' 'local_refinement_training' ;;
+    base_rgb_1024_refine_ref|base_rgbd_1024_refine_ref) printf '%s\n' 'reference_conditioning_training' ;;
+    base_rgb_1024_refine_ref_graph|base_rgbd_1024_refine_ref_graph) printf '%s\n' 'graph_rescue_training' ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --group) GROUP="$2"; shift 2 ;;
@@ -63,17 +73,19 @@ runner_log "${MODE}" "${RUN_LOG}" "[gisec-active] depth_mode=${DEPTH_MODE}"
 
 for config_stem in "${CONFIGS[@]}"; do
   config_path="${REPO_ROOT}/configs/active/${config_stem}.yaml"
+  stage_name="$(stage_label_for_config "${config_stem}")"
   if [[ ! -f "${config_path}" ]]; then
     echo "Config not found: ${config_path}" >&2
     exit 1
   fi
-  train_output_dir="${OUTPUT_ROOT}/train/${config_stem}"
-  eval_output_dir="${OUTPUT_ROOT}/eval/${config_stem}"
+  train_output_dir="${OUTPUT_ROOT}/train/${stage_name}"
+  eval_output_dir="${OUTPUT_ROOT}/eval/${stage_name}"
   output_dir="${train_output_dir}"
   if [[ "${COMMAND}" == "eval" ]]; then
     output_dir="${eval_output_dir}"
   fi
   mkdir -p "${output_dir}"
+  runner_log "${MODE}" "${RUN_LOG}" "[gisec-active] stage=${stage_name}"
   runner_log "${MODE}" "${RUN_LOG}" "[gisec-active] config=${config_stem}"
   args=(
     "--dataset-root" "${DATASET_ROOT}"

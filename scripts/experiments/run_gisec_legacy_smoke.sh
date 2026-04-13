@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+source "${SCRIPT_DIR}/common_runner.sh"
+
 DATASET_ROOT=""
 PROTOTYPE_ROOT=""
 OUTPUT_ROOT="${REPO_ROOT}/output/experiments/gisec_v2_smoke"
@@ -8,13 +12,14 @@ MODE="run"
 CONTRACT_MODE="compat"
 PYTHON_CMD=()
 runner_python_cmd_array PYTHON_CMD
-LAUNCHER="${GISEC_LAUNCHER:-none}"
-NPROC_PER_NODE="${GISEC_TORCHRUN_NPROC_PER_NODE:-}"
-MASTER_PORT="${GISEC_TORCHRUN_MASTER_PORT:-29500}"
 CONFIG_ARGS=(
   --config "${REPO_ROOT}/configs/data/ecc_20260318_1k_1566.yaml"
   --config "${REPO_ROOT}/configs/reference/reference_20260318_1k_13440.yaml"
   --config "${REPO_ROOT}/configs/train/smoke_1024.yaml"
+)
+VARIANTS=(
+  legacy_rgbd_prototype_affinity_baseline
+  legacy_rgbd_prototype_ownership_graph_cues
 )
 
 while [[ $# -gt 0 ]]; do
@@ -25,57 +30,29 @@ while [[ $# -gt 0 ]]; do
     --contract-mode) CONTRACT_MODE="$2"; shift 2 ;;
     --python) runner_parse_words_array PYTHON_CMD "$2"; shift 2 ;;
     --config) CONFIG_ARGS+=(--config "$2"); shift 2 ;;
-    --launcher) LAUNCHER="$2"; shift 2 ;;
-    --nproc-per-node) NPROC_PER_NODE="$2"; shift 2 ;;
-    --master-port) MASTER_PORT="$2"; shift 2 ;;
     --run) MODE="run"; shift ;;
     --dry-run) MODE="dry-run"; shift ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
   esac
 done
 
-if [[ -n "${NPROC_PER_NODE}" && "${LAUNCHER}" == "none" ]]; then
-  LAUNCHER="torchrun"
-fi
-export GISEC_LAUNCHER="${LAUNCHER}"
-if [[ -n "${NPROC_PER_NODE}" ]]; then
-  export GISEC_TORCHRUN_NPROC_PER_NODE="${NPROC_PER_NODE}"
-fi
-export GISEC_TORCHRUN_MASTER_PORT="${MASTER_PORT}"
-LAUNCH_PREFIX=()
-runner_launch_prefix_array LAUNCH_PREFIX PYTHON_CMD
-DATASET_ARGS=()
-PROTOTYPE_ARGS=()
-if [[ -n "${DATASET_ROOT}" ]]; then
-  DATASET_ARGS=(--dataset-root "${DATASET_ROOT}")
-fi
-if [[ -n "${PROTOTYPE_ROOT}" ]]; then
-  PROTOTYPE_ARGS=(--prototype-root "${PROTOTYPE_ROOT}")
-fi
-
 mkdir -p "${OUTPUT_ROOT}"
 RUN_LOG="$(runner_setup_log "${OUTPUT_ROOT}" "${MODE}")"
-runner_log "${MODE}" "${RUN_LOG}" "[gisec-method-smoke] mode=${MODE}"
-runner_log "${MODE}" "${RUN_LOG}" "[gisec-method-smoke] dataset_root=${DATASET_ROOT}"
-runner_log "${MODE}" "${RUN_LOG}" "[gisec-method-smoke] prototype_root=${PROTOTYPE_ROOT}"
-runner_log "${MODE}" "${RUN_LOG}" "[gisec-method-smoke] contract_mode=${CONTRACT_MODE}"
-runner_log "${MODE}" "${RUN_LOG}" "[gisec-method-smoke] output_root=${OUTPUT_ROOT}"
-runner_log "${MODE}" "${RUN_LOG}" "[gisec-method-smoke] launcher=${LAUNCHER}"
-runner_log "${MODE}" "${RUN_LOG}" "[gisec-method-smoke] config_stack=${CONFIG_ARGS[*]}"
+runner_log "${MODE}" "${RUN_LOG}" "[gisec-legacy-smoke] mode=${MODE}"
+runner_log "${MODE}" "${RUN_LOG}" "[gisec-legacy-smoke] dataset_root=${DATASET_ROOT}"
+runner_log "${MODE}" "${RUN_LOG}" "[gisec-legacy-smoke] prototype_root=${PROTOTYPE_ROOT}"
+runner_log "${MODE}" "${RUN_LOG}" "[gisec-legacy-smoke] config_stack=${CONFIG_ARGS[*]}"
 
-for variant in A0 A1; do
-  OUT="${OUTPUT_ROOT}/${variant}"
-  runner_log "${MODE}" "${RUN_LOG}" "[gisec-method-smoke] variant=${variant}"
+for variant in "${VARIANTS[@]}"; do
+  out_dir="${OUTPUT_ROOT}/${variant}"
+  runner_log "${MODE}" "${RUN_LOG}" "[gisec-legacy-smoke] variant=${variant}"
   runner_exec "${MODE}" "${RUN_LOG}" "${REPO_ROOT}" \
-    "${LAUNCH_PREFIX_@]}" -m gisec.cli.train_legacy \
+    "${PYTHON_CMD[@]}" -m gisec.cli.train_legacy \
     "${CONFIG_ARGS[@]}" \
-    "${DATASET_ARGS[@]}" \
-    "${PROTOTYPE_ARGS[@]}" \
-    --output-dir "${OUT}" \
+    --dataset-root "${DATASET_ROOT}" \
+    --prototype-root "${PROTOTYPE_ROOT}" \
+    --output-dir "${out_dir}" \
     --variant "${variant}" \
-    --launcher "${LAUNCHER}" \
-    --nproc-per-node "${NPROC_PER_NODE:-1}" \
-    --master-port "${MASTER_PORT}" \
     --contract-mode "${CONTRACT_MODE}" \
     --max-train-steps 8 \
     --max-val-images 16 \
@@ -83,4 +60,4 @@ for variant in A0 A1; do
     --overlay-limit 8 \
     --save-graph-diagnostics \
     --diagnostics-limit 16
-done
+  done

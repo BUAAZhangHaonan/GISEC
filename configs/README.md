@@ -10,7 +10,7 @@ These YAML files are thin defaults for the existing CLI.
 - `configs/train/smoke_1024.yaml` intentionally overrides that to `6` views so smoke runs stay cheap
 - prototype routing can now be configured with `prototype_slot_count` and `prototype_topk`
 - recovery-stage routing can be configured with `reference_conditioning_mode`, `reference_routing_mode`, and `reference_skip_margin`
-- `configs/train/recovery_smoke_1024.yaml` is the default short-run recovery stack for `Q0/Q1/Q2`
+- `configs/train/recovery_smoke_1024.yaml` is the default short-run recovery stack for `legacy_query_mask_only_debug/legacy_query_mask_reference_routing_debug/legacy_query_mask_reference_graph_rescue_debug`
 
 Example:
 
@@ -18,9 +18,9 @@ Example:
 python -m gisec.cli.train \
   --config configs/data/ecc_20260318_1k_1566.yaml \
   --config configs/reference/reference_20260318_1k_13440.yaml \
-  --config configs/variant/a1.yaml \
+  --config configs/variant/legacy_rgbd_prototype_ownership_graph_cues.yaml \
   --config configs/train/smoke_1024.yaml \
-  --output-dir output/experiments/gisec_v2_smoke/A1
+  --output-dir output/experiments/gisec_v2_smoke/legacy_rgbd_prototype_ownership_graph_cues
 ```
 
 Recovery smoke example:
@@ -29,7 +29,7 @@ Recovery smoke example:
 python -m gisec.cli.train \
   --config configs/data/ecc_20260318_1k_1566.yaml \
   --config configs/reference/reference_20260318_1k_13440.yaml \
-  --config configs/variant/q1.yaml \
+  --config configs/variant/legacy_query_mask_reference_routing_debug.yaml \
   --config configs/train/recovery_smoke_1024.yaml \
-  --output-dir output/experiments/gisec_recovery_smoke/Q1
+  --output-dir output/experiments/gisec_recovery_smoke/legacy_query_mask_reference_routing_debug
 ```

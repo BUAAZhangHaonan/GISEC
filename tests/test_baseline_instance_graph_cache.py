@@ -28,7 +28,7 @@ def test_build_graph_cache_sample_from_masks_produces_graph_ready_payload() -> N
         depth_map=depth_map,
         instance_map=instance_map,
         part_key="partA",
-        variant="B0",
+        variant="legacy_heuristic_graph_merge_baseline",
         boundary_threshold=0.5,
         purity_threshold=0.8,
         bridge_max_gap=8.0,

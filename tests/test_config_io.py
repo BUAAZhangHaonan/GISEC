@@ -31,7 +31,7 @@ def test_parse_train_args_reads_yaml_defaults(tmp_path: Path) -> None:
                 "dataset_root": "/tmp/dataset",
                 "prototype_root": "/tmp/prototypes",
                 "output_dir": "/tmp/out",
-                "variant": "A1",
+                "variant": "legacy_rgbd_prototype_ownership_graph_cues",
                 "image_size": 512,
                 "batch": 2,
             },
@@ -48,7 +48,7 @@ def test_parse_train_args_reads_yaml_defaults(tmp_path: Path) -> None:
     assert args.dataset_root == "/tmp/dataset"
     assert args.prototype_root == "/tmp/prototypes"
     assert args.output_dir == "/tmp/out"
-    assert args.variant == "A1"
+    assert args.variant == "legacy_rgbd_prototype_ownership_graph_cues"
     assert args.image_size == 512
     assert args.batch == 2
     assert args.epochs == 3
@@ -64,7 +64,7 @@ def test_cli_overrides_yaml_defaults(tmp_path: Path) -> None:
                 "dataset_root": "/tmp/dataset",
                 "prototype_root": "/tmp/prototypes",
                 "output_dir": "/tmp/out",
-                "variant": "A0",
+                "variant": "legacy_rgbd_prototype_affinity_baseline",
                 "batch": 4,
             }
         },
@@ -75,13 +75,13 @@ def test_cli_overrides_yaml_defaults(tmp_path: Path) -> None:
             "--config",
             str(config_path),
             "--variant",
-            "A1",
+            "legacy_rgbd_prototype_ownership_graph_cues",
             "--batch",
             "1",
         ]
     )
 
-    assert args.variant == "A1"
+    assert args.variant == "legacy_rgbd_prototype_ownership_graph_cues"
     assert args.batch == 1
 
 
@@ -93,7 +93,7 @@ def test_parse_eval_and_infer_args_read_mode_specific_yaml_sections(tmp_path: Pa
                 "dataset_root": "/tmp/dataset",
                 "prototype_root": "/tmp/prototypes",
                 "output_dir": "/tmp/out",
-                "variant": "A1",
+                "variant": "legacy_rgbd_prototype_ownership_graph_cues",
             },
             "eval": {
                 "checkpoint": "/tmp/out/model_best.pth",
@@ -127,7 +127,7 @@ def test_multiple_configs_merge_with_later_override(tmp_path: Path) -> None:
                 "dataset_root": "/tmp/dataset",
                 "prototype_root": "/tmp/prototypes",
                 "output_dir": "/tmp/out",
-                "variant": "A0",
+                "variant": "legacy_rgbd_prototype_affinity_baseline",
                 "batch": 4,
             },
             "train": {"epochs": 20},
@@ -136,7 +136,7 @@ def test_multiple_configs_merge_with_later_override(tmp_path: Path) -> None:
     smoke_path = _write_yaml(
         tmp_path / "smoke.yaml",
         {
-            "common": {"batch": 1, "variant": "A1"},
+            "common": {"batch": 1, "variant": "legacy_rgbd_prototype_ownership_graph_cues"},
             "train": {"epochs": 1, "max_train_steps": 8},
         },
     )
@@ -151,7 +151,7 @@ def test_multiple_configs_merge_with_later_override(tmp_path: Path) -> None:
     )
 
     assert args.batch == 1
-    assert args.variant == "A1"
+    assert args.variant == "legacy_rgbd_prototype_ownership_graph_cues"
     assert args.epochs == 1
     assert args.max_train_steps == 8
 
@@ -466,18 +466,18 @@ def test_parse_train_args_accepts_new_recovery_cli_flags() -> None:
     assert args.reference_skip_margin == 0.2
 
 
-def test_query_model_registry_reserves_uq_scales_and_keeps_legacy_names_out() -> None:
-    uq_s = get_query_model_spec("UQ-s")
-    uq_m = get_query_model_spec("UQ-m")
+def test_query_model_registry_reserves_active_alpha_scales_and_keeps_legacy_names_out() -> None:
+    query_small_resnet18 = get_query_model_spec("query_small_resnet18")
+    query_medium_resnet34 = get_query_model_spec("query_medium_resnet34")
 
-    assert uq_s.model_family == "UQ"
-    assert uq_m.model_family == "UQ"
-    assert uq_s.encoder_family == "resnet"
-    assert uq_m.encoder_family == "resnet"
-    assert uq_s.depth_fusion_mode == "early6"
-    assert uq_m.depth_fusion_mode == "early6"
-    assert uq_s.model_scale == "s"
-    assert uq_m.model_scale == "m"
+    assert query_small_resnet18.model_family == "query_alpha"
+    assert query_medium_resnet34.model_family == "query_alpha"
+    assert query_small_resnet18.encoder_family == "resnet"
+    assert query_medium_resnet34.encoder_family == "resnet"
+    assert query_small_resnet18.depth_fusion_mode == "early6"
+    assert query_medium_resnet34.depth_fusion_mode == "early6"
+    assert query_small_resnet18.model_scale == "small"
+    assert query_medium_resnet34.model_scale == "medium"
 
     with pytest.raises(ValueError):
-        get_query_model_spec("A1")
+        get_query_model_spec("legacy_rgbd_prototype_ownership_graph_cues")

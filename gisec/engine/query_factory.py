@@ -6,6 +6,6 @@ from gisec.models.query_model import UQModel
 
 def build_query_model(model_id: str):
     spec = get_query_model_spec(model_id)
-    if spec.model_family != "UQ":
+    if spec.model_family != "query_alpha":
         raise ValueError(f"Unsupported query model family: {spec.model_family}")
     return UQModel(spec)

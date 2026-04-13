@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+source "${SCRIPT_DIR}/common_runner.sh"
+
 DATASET_ROOT="/home/k100/zhn/electronic-components-grasp-and-segment/magformer_datasets/0831_1K"
 PROTOTYPE_ROOT=""
 OUTPUT_ROOT="${REPO_ROOT}/output/experiments/gisec_eval_0831"
 MODE="run"
-VARIANT="G5"
+VARIANT="legacy_prototype_unet_with_rgbd_similarity_shape_stats"
 CONTRACT_MODE="compat"
 CHECKPOINT=""
 PYTHON_CMD=()

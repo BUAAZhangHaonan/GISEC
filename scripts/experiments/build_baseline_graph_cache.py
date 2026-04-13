@@ -228,7 +228,7 @@ def main() -> None:
                 depth_map=sample.get("depth"),
                 instance_map=sample.get("instance_map"),
                 part_key=part_key,
-                variant="B0",
+                variant="legacy_heuristic_graph_merge_baseline",
                 boundary_threshold=float(model_cfg.get("boundary_threshold", 0.5)),
                 purity_threshold=float(model_cfg.get("graph_purity_threshold", 0.8)),
                 bridge_max_gap=float(model_cfg.get("graph_bridge_max_gap", 4.0)),

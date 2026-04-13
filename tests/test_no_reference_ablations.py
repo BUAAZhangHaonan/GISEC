@@ -44,7 +44,7 @@ def test_no_reference_train_variant_defaults_conditioning_off_without_prototype_
             "--output-dir",
             str(tmp_path / "out"),
             "--variant",
-            "G1",
+            "legacy_prototype_unet_baseline",
         ]
     )
 
@@ -59,7 +59,7 @@ def test_no_reference_eval_variant_defaults_conditioning_off_without_prototype_r
             "--output-dir",
             str(tmp_path / "out"),
             "--variant",
-            "G1",
+            "legacy_prototype_unet_baseline",
             "--checkpoint",
             str(tmp_path / "model_best.pth"),
         ]
@@ -77,7 +77,7 @@ def test_no_reference_variants_reject_explicit_reference_conditioning(tmp_path) 
                 "--output-dir",
                 str(tmp_path / "out"),
                 "--variant",
-                "G1",
+                "legacy_prototype_unet_baseline",
                 "--reference-conditioning-mode",
                 "full",
             ]

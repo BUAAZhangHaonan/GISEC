@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+source "${SCRIPT_DIR}/common_runner.sh"
+
 DATASET_ROOT=""
 PROTOTYPE_ROOT=""
 OUTPUT_ROOT="${REPO_ROOT}/output/experiments/gisec_recovery_smoke"
@@ -63,16 +67,15 @@ runner_log "${MODE}" "${RUN_LOG}" "[gisec-recovery-smoke] output_root=${OUTPUT_R
 runner_log "${MODE}" "${RUN_LOG}" "[gisec-recovery-smoke] launcher=${LAUNCHER}"
 runner_log "${MODE}" "${RUN_LOG}" "[gisec-recovery-smoke] config_stack=${CONFIG_ARGS[*]}"
 
-for variant in Q0 Q1 Q2; do
-  VARIANT_CONFIG="${REPO_ROOT}/configs/variant/${variant,,}.yaml"
-  OUT="${OUTPUT_ROOT}/${variant}"
+for variant in legacy_query_mask_only_debug legacy_query_mask_reference_routing_debug legacy_query_mask_reference_graph_rescue_debug; do
+  out_dir="${OUTPUT_ROOT}/${variant}"
   runner_log "${MODE}" "${RUN_LOG}" "[gisec-recovery-smoke] variant=${variant}"
   runner_exec "${MODE}" "${RUN_LOG}" "${REPO_ROOT}" \
-    "${LAUNCH_PREFI[@]}" -m gisec.cli.train_legacy \
+    "${LAUNCH_PREFIX[@]}" -m gisec.cli.train_legacy \
     "${CONFIG_ARGS[@]}" \
     "${DATASET_ARGS[@]}" \
     "${PROTOTYPE_ARGS[@]}" \
-    --output-dir "${OUT}" \
+    --output-dir "${out_dir}" \
     --variant "${variant}" \
     --launcher "${LAUNCHER}" \
     --nproc-per-node "${NPROC_PER_NODE:-1}" \
@@ -84,4 +87,4 @@ for variant in Q0 Q1 Q2; do
     --overlay-limit 8 \
     --save-graph-diagnostics \
     --diagnostics-limit 16
-done
+ done

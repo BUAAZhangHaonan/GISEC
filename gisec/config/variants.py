@@ -25,8 +25,8 @@ class VariantSpec:
 
 
 VARIANT_SPECS = {
-    "A0": VariantSpec(
-        name="A0",
+    "legacy_rgbd_prototype_affinity_baseline": VariantSpec(
+        name="legacy_rgbd_prototype_affinity_baseline",
         description="Carry-over RGB-D prototype baseline with local affinity supervision and contact-only merge",
         use_learned_edge_scorer=True,
         use_shape_stats=False,
@@ -40,9 +40,9 @@ VARIANT_SPECS = {
         use_reference_conditioning=True,
         use_graph_merge=True,
     ),
-    "A1": VariantSpec(
-        name="A1",
-        description="A0 plus ownership-offset supervision and ownership graph cues",
+    "legacy_rgbd_prototype_ownership_graph_cues": VariantSpec(
+        name="legacy_rgbd_prototype_ownership_graph_cues",
+        description="legacy_rgbd_prototype_affinity_baseline plus ownership-offset supervision and ownership graph cues",
         use_learned_edge_scorer=True,
         use_shape_stats=False,
         use_rgb_prototype_similarity=True,
@@ -55,8 +55,8 @@ VARIANT_SPECS = {
         use_reference_conditioning=True,
         use_graph_merge=True,
     ),
-    "Q0": VariantSpec(
-        name="Q0",
+    "legacy_query_mask_only_debug": VariantSpec(
+        name="legacy_query_mask_only_debug",
         description="Query mask only debug variant without reference conditioning or graph merge",
         use_learned_edge_scorer=False,
         use_shape_stats=False,
@@ -70,8 +70,8 @@ VARIANT_SPECS = {
         use_reference_conditioning=False,
         use_graph_merge=False,
     ),
-    "Q1": VariantSpec(
-        name="Q1",
+    "legacy_query_mask_reference_routing_debug": VariantSpec(
+        name="legacy_query_mask_reference_routing_debug",
         description="Query mask plus reference routing debug variant without graph merge",
         use_learned_edge_scorer=False,
         use_shape_stats=False,
@@ -85,8 +85,8 @@ VARIANT_SPECS = {
         use_reference_conditioning=True,
         use_graph_merge=False,
     ),
-    "Q2": VariantSpec(
-        name="Q2",
+    "legacy_query_mask_reference_graph_rescue_debug": VariantSpec(
+        name="legacy_query_mask_reference_graph_rescue_debug",
         description="Query mask plus reference routing and full graph rescue debug variant",
         use_learned_edge_scorer=True,
         use_shape_stats=True,
@@ -100,8 +100,8 @@ VARIANT_SPECS = {
         use_reference_conditioning=True,
         use_graph_merge=True,
     ),
-    "B0": VariantSpec(
-        name="B0",
+    "legacy_heuristic_graph_merge_baseline": VariantSpec(
+        name="legacy_heuristic_graph_merge_baseline",
         description="Heuristic graph merge baseline without prototype priors",
         use_learned_edge_scorer=False,
         use_shape_stats=False,
@@ -115,8 +115,8 @@ VARIANT_SPECS = {
         use_reference_conditioning=False,
         use_graph_merge=True,
     ),
-    "G1": VariantSpec(
-        name="G1",
+    "legacy_prototype_unet_baseline": VariantSpec(
+        name="legacy_prototype_unet_baseline",
         description="Graph edge scorer with boundary and affinity cues",
         use_learned_edge_scorer=True,
         use_shape_stats=False,
@@ -130,9 +130,9 @@ VARIANT_SPECS = {
         use_reference_conditioning=False,
         use_graph_merge=True,
     ),
-    "G2": VariantSpec(
-        name="G2",
-        description="G1 plus prototype-bank shape statistics",
+    "legacy_prototype_unet_refined": VariantSpec(
+        name="legacy_prototype_unet_refined",
+        description="legacy_prototype_unet_baseline plus prototype-bank shape statistics",
         use_learned_edge_scorer=True,
         use_shape_stats=True,
         use_rgb_prototype_similarity=False,
@@ -145,9 +145,9 @@ VARIANT_SPECS = {
         use_reference_conditioning=False,
         use_graph_merge=True,
     ),
-    "G3": VariantSpec(
-        name="G3",
-        description="G1 plus RGB prototype similarity",
+    "legacy_prototype_unet_with_graph": VariantSpec(
+        name="legacy_prototype_unet_with_graph",
+        description="legacy_prototype_unet_baseline plus RGB prototype similarity",
         use_learned_edge_scorer=True,
         use_shape_stats=False,
         use_rgb_prototype_similarity=True,
@@ -160,9 +160,9 @@ VARIANT_SPECS = {
         use_reference_conditioning=True,
         use_graph_merge=True,
     ),
-    "G4": VariantSpec(
-        name="G4",
-        description="G1 plus RGB-D prototype similarity",
+    "legacy_prototype_unet_with_rgbd_similarity": VariantSpec(
+        name="legacy_prototype_unet_with_rgbd_similarity",
+        description="legacy_prototype_unet_baseline plus RGB-D prototype similarity",
         use_learned_edge_scorer=True,
         use_shape_stats=False,
         use_rgb_prototype_similarity=True,
@@ -175,9 +175,9 @@ VARIANT_SPECS = {
         use_reference_conditioning=True,
         use_graph_merge=True,
     ),
-    "G5": VariantSpec(
-        name="G5",
-        description="G1 plus RGB-D prototype similarity and shape statistics",
+    "legacy_prototype_unet_with_rgbd_similarity_shape_stats": VariantSpec(
+        name="legacy_prototype_unet_with_rgbd_similarity_shape_stats",
+        description="legacy_prototype_unet_baseline plus RGB-D prototype similarity and shape statistics",
         use_learned_edge_scorer=True,
         use_shape_stats=True,
         use_rgb_prototype_similarity=True,

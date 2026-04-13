@@ -99,14 +99,14 @@ def test_baseline_runner_dry_run_lists_splitfirst_mainline_anchor() -> None:
     assert "unet_rgb_depth_wall_full" not in text
 
 
-def test_baseline_runner_dry_run_lists_phase_a_rgb_short_matrix() -> None:
+def test_baseline_runner_dry_run_lists_backbone_benchmark_rgb_short_matrix() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     result = subprocess.run(
         [
             "bash",
             "scripts/experiments/run_baseline_benchmarks.sh",
             "--group",
-            "phase_a_rgb_short",
+            "backbone_benchmark_rgb_short",
             "--dry-run",
         ],
         cwd=str(repo_root),
@@ -126,14 +126,14 @@ def test_baseline_runner_dry_run_lists_phase_a_rgb_short_matrix() -> None:
     assert "mask2former_swin_t_1024_phasea_short" in text
 
 
-def test_baseline_runner_dry_run_lists_phase_a_rgb_full_matrix() -> None:
+def test_baseline_runner_dry_run_lists_backbone_benchmark_rgb_full_matrix() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     result = subprocess.run(
         [
             "bash",
             "scripts/experiments/run_baseline_benchmarks.sh",
             "--group",
-            "phase_a_rgb_full",
+            "backbone_benchmark_rgb_full",
             "--dry-run",
         ],
         cwd=str(repo_root),
@@ -149,14 +149,14 @@ def test_baseline_runner_dry_run_lists_phase_a_rgb_full_matrix() -> None:
     assert "mask2former_swin_t_1024_phasea_full" in text
 
 
-def test_baseline_runner_dry_run_lists_phase_b_mask_rcnn_short_matrix() -> None:
+def test_baseline_runner_dry_run_lists_active_pilot_mask_rcnn_short_matrix() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     result = subprocess.run(
         [
             "bash",
             "scripts/experiments/run_baseline_benchmarks.sh",
             "--group",
-            "phase_b_maskrcnn_short",
+            "active_pilot_maskrcnn_short",
             "--dry-run",
         ],
         cwd=str(repo_root),

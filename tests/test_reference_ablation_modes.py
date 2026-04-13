@@ -16,7 +16,7 @@ def test_no_reference_legacy_train_variant_defaults_reference_conditioning_off(t
             "--output-dir",
             str(tmp_path / "out"),
             "--variant",
-            "G1",
+            "legacy_prototype_unet_baseline",
         ]
     )
 
@@ -32,7 +32,7 @@ def test_no_reference_legacy_eval_variant_does_not_require_prototype_root(tmp_pa
             "--output-dir",
             str(tmp_path / "out"),
             "--variant",
-            "G1",
+            "legacy_prototype_unet_baseline",
             "--checkpoint",
             str(tmp_path / "model_best.pth"),
         ]
@@ -51,7 +51,7 @@ def test_no_reference_legacy_variant_rejects_reference_override(tmp_path: Path) 
                 "--output-dir",
                 str(tmp_path / "out"),
                 "--variant",
-                "G1",
+                "legacy_prototype_unet_baseline",
                 "--reference-conditioning-mode",
                 "full",
             ]

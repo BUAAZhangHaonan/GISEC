@@ -24,7 +24,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-root", required=True)
     parser.add_argument("--split", default="train")
     parser.add_argument("--reference-root")
-    parser.add_argument("--variant", default="B0")
+    parser.add_argument("--variant", default="legacy_heuristic_graph_merge_baseline")
     parser.add_argument("--max-images", type=int, default=0)
     return parser.parse_args()
 

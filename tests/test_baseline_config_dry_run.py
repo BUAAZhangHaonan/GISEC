@@ -173,7 +173,7 @@ model:
     assert payload["eval_every_epochs"] == 4
 
 
-def test_baseline_config_dry_run_supports_mask_rcnn_phase_a_short(tmp_path: Path) -> None:
+def test_baseline_config_dry_run_supports_mask_rcnn_backbone_benchmark_short(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     result = subprocess.run(
         [
@@ -204,7 +204,7 @@ def test_baseline_config_dry_run_supports_mask_rcnn_phase_a_short(tmp_path: Path
     assert payload["inference_defaults_locked"] is True
 
 
-def test_baseline_config_dry_run_supports_mask2former_phase_a_short(tmp_path: Path) -> None:
+def test_baseline_config_dry_run_supports_mask2former_backbone_benchmark_short(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     result = subprocess.run(
         [
@@ -235,7 +235,7 @@ def test_baseline_config_dry_run_supports_mask2former_phase_a_short(tmp_path: Pa
     assert payload["inference_defaults_locked"] is True
 
 
-def test_baseline_config_dry_run_supports_phase_a_full_configs(tmp_path: Path) -> None:
+def test_baseline_config_dry_run_supports_backbone_benchmark_full_configs(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     checks = [
         (

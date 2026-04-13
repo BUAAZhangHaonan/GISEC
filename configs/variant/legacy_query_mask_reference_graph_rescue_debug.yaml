@@ -1,0 +1,3 @@
+common:
+  variant: legacy_query_mask_reference_graph_rescue_debug
+  reference_conditioning_mode: bottleneck_only
