@@ -81,7 +81,7 @@ for config_stem in "${CONFIGS[@]}"; do
     "--output-dir" "${output_dir}"
     "--device" "cuda"
   )
-  if [[ -n "${PROTOTYPE_ROOT}" && "${config_stem}" == "*_ref"* ]]; then
+  if [[ -n "${PROTOTYPE_ROOT}" && "${config_stem}" == *_ref* ]]; then
     args+=("--prototype-root" "${PROTOTYPE_ROOT}")
   fi
   if [[ -n "${INIT_CHECKPOINT}" ]]; then

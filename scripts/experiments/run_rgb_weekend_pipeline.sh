@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DATASET_ROOT=""
-PROTOTYPE_ROOT=""
-OUTPUT_ROOT="${REPO_ROOT}/output/experiments/rgb_phase23_fragment_reset_20260330"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+source "${SCRIPT_DIR}/common_runner.sh"
+
+MODE="dry-run"
 DATASET_ROOT="${BASELINE_DATASET_ROOT:-/home/k100/zhn/electronic-components-grasp-and-segment/gisec/datasets/20260318_1K_1566}"
+OUTPUT_ROOT="${REPO_ROOT}/output/experiments/rgb_phase23_fragment_reset_20260330"
 PYTHON_CMD=()
 runner_python_cmd_array PYTHON_CMD
 
@@ -14,7 +17,6 @@ MASK2FORMER_CHECKPOINT="${MASK2FORMER_FULL_DIR}/model_best.pth"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dataset-root) DATASET_ROOT="$2"; shift 2 ;;
-    --prototype-root) PROTOTYPE_ROOT="$2"; shift 2 ;;
     --output-root) OUTPUT_ROOT="$2"; shift 2 ;;
     --python) runner_parse_words_array PYTHON_CMD "$2"; shift 2 ;;
     --run) MODE="run"; shift ;;
@@ -44,7 +46,7 @@ LOCAL_MERGER_CONFIG="${REPO_ROOT}/configs/baseline/local_merger_rgb_stage3.yaml"
 
 runner_log "${MODE}" "${RUN_LOG}" "[rgb-weekend] step=build-fragment-generator-cache-train"
 runner_exec "${MODE}" "${RUN_LOG}" "${REPO_ROOT}" \
-  "${PYTHON_CMD[@]} scripts/experiments/build_fragment_generator_cache.py \
+  "${PYTHON_CMD[@]}" scripts/experiments/build_fragment_generator_cache.py \
   --config "${FRAGMENT_CONFIG}" \
   --checkpoint "${MASK2FORMER_CHECKPOINT}" \
   --dataset-root "${DATASET_ROOT}" \
@@ -62,7 +64,7 @@ runner_exec "${MODE}" "${RUN_LOG}" "${REPO_ROOT}" \
 
 runner_log "${MODE}" "${RUN_LOG}" "[rgb-weekend] step=train-fragment-generator"
 runner_exec "${MODE}" "${RUN_LOG}" "${REPO_ROOT}" \
-  "${PYTHON_CMD[@]} scripts/experiments/train_fragment_generator.py \
+  "${PYTHON_CMD[@]}" scripts/experiments/train_fragment_generator.py \
   --config "${FRAGMENT_CONFIG}" \
   --cache-root "${FRAGMENT_CACHE_ROOT}" \
   --output-dir "${FRAGMENT_STAGE2_OUT}" \
@@ -77,30 +79,31 @@ runner_exec "${MODE}" "${RUN_LOG}" "${REPO_ROOT}" \
   --model-dir "${FRAGMENT_STAGE2_OUT}" \
   --output-dir "${FRAGMENT_STAGE2_EXPORT_ROOT}/train" \
   --split train
-gmt_code=$'import json\nimport sys\nfrom pathlib import Path\nsummary = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))\nraise SystemExit(0 if bool(summary.get("gate_passed", False)) else 1)\n'
+
+gate_code=$'import json\nimport sys\nfrom pathlib import Path\nsummary = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))\nraise SystemExit(0 if bool(summary.get("gate_passed", False)) else 1)\n'
 gate_summary_path="${FRAGMENT_STAGE2_EXPORT_ROOT}/val/eval_summary.json"
 runner_log "${MODE}" "${RUN_LOG}" "[rgb-weekend] step=gate-local-merger-on-fragment-quality"
 if [[ "${MODE}" == "dry-run" ]]; then
-  runner_exec "${MODE}" "${RUN_LOG}" "${REPO_ROOT}" "${PYTHON_CMD[@]}" -c "${gmt_code}" "${gate_summary_path}"
+  runner_exec "${MODE}" "${RUN_LOG}" "${REPO_ROOT}" "${PYTHON_CMD[@]}" -c "${gate_code}" "${gate_summary_path}"
   runner_log "${MODE}" "${RUN_LOG}" "[rgb-weekend] step=train-local-merger"
   runner_exec "${MODE}" "${RUN_LOG}" "${REPO_ROOT}" \
-    "${PYTHON_CMD[@]} scripts/experiments/train_local_merger.py \
-    --config "${LOCAL_MERGER_CONFIG"}" \
+    "${PYTHON_CMD[@]}" scripts/experiments/train_local_merger.py \
+    --config "${LOCAL_MERGER_CONFIG}" \
     --prediction-root "${FRAGMENT_STAGE2_EXPORT_ROOT}" \
-    --output-dir "${LOCAL_MERGER_OUT=}" \
+    --output-dir "${LOCAL_MERGER_OUT}" \
     --split train \
     --val-split val
   runner_log "${MODE}" "${RUN_LOG}" "[rgb-weekend] step=eval-local-merger"
   runner_exec "${MODE}" "${RUN_LOG}" "${REPO_ROOT}" \
-    "${PYTHON_CMD[@]} scripts/experiments/eval_local_merger.py \
+    "${PYTHON_CMD[@]}" scripts/experiments/eval_local_merger.py \
     --config "${LOCAL_MERGER_CONFIG}" \
     --prediction-root "${FRAGMENT_STAGE2_EXPORT_ROOT}" \
     --dataset-root "${DATASET_ROOT}" \
-    --model-dir "${LOCAL_MERGER_OUT=}" \
+    --model-dir "${LOCAL_MERGER_OUT}" \
     --output-dir "${LOCAL_MERGER_EVAL_OUT}" \
     --split val
 else
-  if (cd "${REPO_ROOT}" && "${PYTHON_CMD[@]}" -c "${gmt_code}" "${gate_summary_path}"); then
+  if (cd "${REPO_ROOT}" && "${PYTHON_CMD[@]}" -c "${gate_code}" "${gate_summary_path}"); then
     runner_log "${MODE}" "${RUN_LOG}" "[rgb-weekend] step=train-local-merger"
     runner_exec "${MODE}" "${RUN_LOG}" "${REPO_ROOT}" \
       "${PYTHON_CMD[@]}" scripts/experiments/train_local_merger.py \
@@ -112,7 +115,7 @@ else
     runner_log "${MODE}" "${RUN_LOG}" "[rgb-weekend] step=eval-local-merger"
     runner_exec "${MODE}" "${RUN_LOG}" "${REPO_ROOT}" \
       "${PYTHON_CMD[@]}" scripts/experiments/eval_local_merger.py \
-      --config "${LOCAL_MERGER_CONFIG"}" \
+      --config "${LOCAL_MERGER_CONFIG}" \
       --prediction-root "${FRAGMENT_STAGE2_EXPORT_ROOT}" \
       --dataset-root "${DATASET_ROOT}" \
       --model-dir "${LOCAL_MERGER_OUT}" \

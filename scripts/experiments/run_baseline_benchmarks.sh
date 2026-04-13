@@ -93,7 +93,7 @@ runner_log "${MODE}" "${RUN_LOG}" "[baseline-bench] output_root=${OUTPUT_ROOT}"
 
 for config_name in "${CONFIGS[@]}"; do
   config_path="${REPO_ROOT}/configs/baseline/${config_name}"
-  stem="${config_name}.yaml"
+  stem="${config_name%.yaml}"
   out_dir="${OUTPUT_ROOT}/${stem}"
   runner_log "${MODE}" "${RUN_LOG}" "[baseline-bench] config=${stem} output=${out_dir}"
   runner_exec "${MODE}" "${RUN_LOG}" "${REPO_ROOT}" \
@@ -101,3 +101,4 @@ for config_name in "${CONFIGS[@]}"; do
     --config "${config_path}" \
     --dataset-root "${DATASET_ROOT}" \
     --output-dir "${out_dir}"
+done
