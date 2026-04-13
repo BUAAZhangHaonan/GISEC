@@ -1,6 +1,6 @@
 # Project Summary Report
 
-This report is based only on repository evidence: source code under `gisec/` and `baseline/`, configs under `configs/`, process documents under `docs/`, tests under `tests/`, dataset metadata under `datasets/`, and curated result notes under `docs/results/` and `docs/experiments/`. Binary images, depth arrays, and checkpoints are described only through their surrounding manifests, configs, and summary files.
+This report is based only on repository evidence: source code under `gisec/` and `baseline/`, configs under `configs/`, process documents under `docs/`, tests under `tests/`, dataset metadata under `datasets/`, and curated result notes under `docs/results/` and `docs/archive/experiments/`. Binary images, depth arrays, and checkpoints are described only through their surrounding manifests, configs, and summary files.
 
 ## 1. Project Overview and Background
 
@@ -16,7 +16,7 @@ The repository README and results index both say that the active line is the cur
 
 The intended users visible in the checked-in materials are internal researchers or engineers. Every primary interface is a CLI, a YAML config, or a shell runner. The main beneficiaries are therefore users who need to train, compare, and analyze segmentation models for electronic-component scenes. Sources: `gisec/cli/*.py`; `scripts/experiments/*.sh`; `configs/**/*.yaml`.
 
-The project motivation changed over time and is documented in the process files. `docs/plans/research-context.md` says the team had a stable lightweight baseline inherited from earlier "magformer" style work, but more complex attention variants were not beating it. Early plans therefore pushed toward prototype-guided graph reasoning with stronger reference use. Later results and summaries show a second shift: the repository benchmarked stronger standard detectors, found Mask2Former RGB at 1024 to outperform the earlier RGB Mask R-CNN benchmark and the weak fragment stages, and promoted the staged Mask2Former line to the current official path. Sources: `docs/plans/research-context.md`; `docs/plans/stage1-research-plan.md`; `docs/results/2026-03-29-rgb-phase1-backbone-summary.md`; `docs/results/2026-03-29-rgb-phase1-backbone-summary.json`; `docs/reviews/2026-04-09-gisec-project-summary.md`; `README.md`.
+The project motivation changed over time and is documented in the process files. `docs/archive/plans/research-context.md` says the team had a stable lightweight baseline inherited from earlier "magformer" style work, but more complex attention variants were not beating it. Early plans therefore pushed toward prototype-guided graph reasoning with stronger reference use. Later results and summaries show a second shift: the repository benchmarked stronger standard detectors, found Mask2Former RGB at 1024 to outperform the earlier RGB Mask R-CNN benchmark and the weak fragment stages, and promoted the staged Mask2Former line to the current official path. Sources: `docs/archive/plans/research-context.md`; `docs/archive/plans/stage1-research-plan.md`; `docs/results/2026-03-29-rgb-phase1-backbone-summary.md`; `docs/results/2026-03-29-rgb-phase1-backbone-summary.json`; `docs/archive/reviews/2026-04-09-gisec-project-summary.md`; `README.md`.
 
 The project builds upon or responds to several concrete reference systems already implemented in the repository: Mask2Former, Mask R-CNN, U-Net-family dense predictors, a prototype bank and reference-conditioned graph pipeline, and the later `query-alpha` object-first branch. These are not abstract mentions; they correspond to runnable code under `baseline/`, `gisec/models/`, `gisec/train/`, and `configs/`. Sources: `baseline/mask2former/adapter.py`; `baseline/mask_rcnn/train.py`; `baseline/unet/model.py`; `gisec/models/prototype_unet.py`; `gisec/models/gisec_model.py`; `gisec/models/query_uq_backbone.py`.
 
@@ -28,7 +28,7 @@ A second scenario is controlled benchmark comparison. The repository contains sh
 
 The environmental constraints are research-oriented rather than application-facing. Most official configs use `1024` pixel inputs, multi-epoch runs, disk-heavy datasets, and optional prototype banks with many reference views. The repository includes both `ddp_1gpu.yaml` and `ddp_6x3090.yaml`, which shows that the code is meant to scale from single-GPU to multi-GPU training. The curated result notes also document long wall times and throughput recovery work, which reinforces that this is an offline training pipeline. Sources: `configs/active/*.yaml`; `configs/train/full_legacy_20ep.yaml`; `configs/runtime/ddp_1gpu.yaml`; `configs/runtime/ddp_6x3090.yaml`; `docs/results/2026-04-06-throughput-recovery-and-g3-restart.md`; `docs/results/2026-04-08-active-rgb-resume-and-throughput-recovery.md`.
 
-The code is explicitly designed to handle difficult separation cases such as touching instances, under-segmentation, over-segmentation, and uncertain splits inside one coarse object. The legacy line uses boundary logits, ownership offsets, contact edges, bridge edges, and constrained graph merges. The query-alpha line first finds coarse objects and then splits them with core peaks, boundary evidence, and ownership offsets. The instance-local documents also measure split and merge error counts directly. Sources: `gisec/models/graph_utils.py`; `gisec/graph_refiner.py`; `gisec/engine/query_coarse_objects.py`; `gisec/engine/query_object_split.py`; `docs/results/2026-03-30-rgb-phase23-instance-local-reset-summary.json`; `docs/experiments/gisec-query-metrics.md`.
+The code is explicitly designed to handle difficult separation cases such as touching instances, under-segmentation, over-segmentation, and uncertain splits inside one coarse object. The legacy line uses boundary logits, ownership offsets, contact edges, bridge edges, and constrained graph merges. The query-alpha line first finds coarse objects and then splits them with core peaks, boundary evidence, and ownership offsets. The instance-local documents also measure split and merge error counts directly. Sources: `gisec/models/graph_utils.py`; `gisec/graph_refiner.py`; `gisec/engine/query_coarse_objects.py`; `gisec/engine/query_object_split.py`; `docs/results/2026-03-30-rgb-phase23-instance-local-reset-summary.json`; `docs/archive/experiments/gisec-query-metrics.md`.
 
 ## 3. Tasks and Objectives
 
@@ -39,11 +39,11 @@ The repository supports both core research tasks and auxiliary infrastructure ta
 | Dataset loading and target construction | `gisec/datasets/ecc_query_dataset.py`; `baseline/common/dataset.py`; `gisec/datasets/prototype_bank.py` | RGB images, optional depth maps, COCO annotations, prototype/reference banks | batched tensors and supervision targets such as `fg`, `boundary`, `core`, `affinity`, `ownership`, instance masks, and prototype caches | loaders run without contract errors and expose the targets required by the selected branch |
 | Active staged training and evaluation | `gisec/cli/train.py`; `gisec/train/train_active.py`; `scripts/experiments/run_gisec_active.sh` | dataset root, active variant config, optional init checkpoint, optional prototype root | checkpoints, `metrics_log.jsonl`, `run_state.json`, `run_summary.json`, COCO metrics, eval artifacts | higher `segm/AP`, `bbox/AP`, and `boundary/IoU`; stage completion with success status |
 | Legacy prototype-conditioned graph training and evaluation | `gisec/cli/train_legacy.py`; `gisec/train/train_gisec.py`; `gisec/models/gisec_model.py` | dataset root, prototype root, legacy variant spec, graph thresholds | checkpoints, graph diagnostics, run summaries, COCO metrics, merge previews | improved segmentation and controlled split/merge errors under the shared metric/export surface |
-| Query-alpha object-first training and evaluation | `gisec/cli/train_query.py`; `gisec/cli/eval_query.py`; `gisec/train/train_query.py` | dataset root, `UQ-s` or `UQ-m`, query configs | query checkpoints, eval-only summaries, failure summaries, COCO metrics, pathology diagnostics | gate-based improvement over legacy on the shared evaluation surface |
+| Query-alpha object-first training and evaluation | `gisec/cli/train_query.py`; `gisec/cli/eval_query.py`; `gisec/train/train_query.py` | dataset root, `query_small_resnet18` or `query_medium_resnet34`, query configs | query checkpoints, eval-only summaries, failure summaries, COCO metrics, pathology diagnostics | gate-based improvement over legacy on the shared evaluation surface |
 | Baseline benchmarking and ablation | `scripts/experiments/run_baseline_benchmarks.sh`; `baseline/*` | dataset root plus baseline model configs | per-baseline checkpoints and summaries | identify strong reference baselines before promoting custom modules |
 | Result export and analysis | `gisec/engine/runtime.py`; `gisec/engine/query_runtime.py`; `docs/results/*.md`; `docs/results/*.json` | predictions, annotations, training/eval logs | `metrics.cocoeval.json`, `failure_summary.json`, rendered previews, markdown closeouts, summary JSONs | standardized comparison across runs and documented go/no-go decisions |
 
-The core tasks are the first four rows: dataset/target construction, model training, model evaluation, and instance prediction. The baseline benchmark surface is also core in practice because the process documents repeatedly use it to decide whether custom modules should continue. The export, runner, and analysis surfaces are auxiliary, but they are important because the repository is organized around formal experiment ladders rather than ad hoc scripts. Sources: `docs/plans/2026-03-19-gisec-master-plan.md`; `docs/plans/2026-03-23-gisec-query-master-plan.md`; `docs/results/README.md`; `tests/test_active_run_state.py`; `tests/test_query_eval_cli.py`.
+The core tasks are the first four rows: dataset/target construction, model training, model evaluation, and instance prediction. The baseline benchmark surface is also core in practice because the process documents repeatedly use it to decide whether custom modules should continue. The export, runner, and analysis surfaces are auxiliary, but they are important because the repository is organized around formal experiment ladders rather than ad hoc scripts. Sources: `docs/archive/plans/2026-03-19-gisec-master-plan.md`; `docs/archive/plans/2026-03-23-gisec-query-master-plan.md`; `docs/results/README.md`; `tests/test_active_run_state.py`; `tests/test_query_eval_cli.py`.
 
 The project also has clear stage structure. Across the active, legacy, and query branches, the repeated stages are:
 
@@ -53,7 +53,7 @@ The project also has clear stage structure. Across the active, legacy, and query
 - export COCO-style metrics and debugging artifacts
 - decide whether the next experiment stage is allowed
 
-This stage-wise pattern appears in the CLIs, the shell runners, the result summaries, and the formal experiment ladder documents. Sources: `scripts/experiments/run_gisec_active.sh`; `scripts/experiments/run_gisec_query_uq.sh`; `docs/experiments/gisec-query-ladder.md`; `docs/results/2026-03-30-rgb-phase23-fragment-reset-summary.json`; `docs/results/2026-04-08-active-rgb-resume-and-throughput-recovery.md`.
+This stage-wise pattern appears in the CLIs, the shell runners, the result summaries, and the formal experiment ladder documents. Sources: `scripts/experiments/run_gisec_active.sh`; `scripts/experiments/run_gisec_query_uq.sh`; `docs/archive/experiments/gisec-query-ladder.md`; `docs/results/2026-03-30-rgb-phase23-fragment-reset-summary.json`; `docs/results/2026-04-08-active-rgb-resume-and-throughput-recovery.md`.
 
 ## 4. Methods and Technical Approach
 
@@ -94,9 +94,9 @@ Edge scoring uses a small message-passing MLP rather than a full graph neural ne
 
 ### 4.4 Query-Alpha Object-First Branch
 
-The query-alpha branch is intentionally isolated from the legacy variant system. `gisec/config/query_models.py` only enables `UQ-s` and `UQ-m` in the current alpha stage, and reserves `UR-*`, `UG-*`, and `UA-*` for later phases that are not executable yet. `gisec/engine/query_factory.py` builds `UQModel`, which wraps `UQBackbone`. Sources: `gisec/config/query_models.py`; `gisec/engine/query_factory.py`; `gisec/models/query_model.py`.
+The query-alpha branch is intentionally isolated from the legacy variant system. `gisec/config/query_models.py` only enables `query_small_resnet18` and `query_medium_resnet34` in the current alpha stage, and reserves `query_ref_*`, `query_graph_*`, and `query_refgraph_*` for later phases that are not executable yet. `gisec/engine/query_factory.py` builds `UQModel`, which wraps `UQBackbone`. Sources: `gisec/config/query_models.py`; `gisec/engine/query_factory.py`; `gisec/models/query_model.py`.
 
-`UQBackbone` is a fixed early-fusion encoder-decoder. It uses either `resnet18` (`UQ-s`) or `resnet34` (`UQ-m`), replaces the first convolution with a 6-channel input layer, and concatenates RGB with depth geometry features. The decoder predicts four dense heads: foreground, boundary, core heatmap, and ownership offsets. This matches the process documents, which say alpha should stay narrow and only compare small versus medium scale under one encoder family and one fusion strategy. Sources: `gisec/models/query_uq_backbone.py`; `docs/plans/2026-03-23-gisec-query-master-plan.md`; `docs/plans/2026-03-23-02-gisec-query-uq-backbone.md`.
+`UQBackbone` is a fixed early-fusion encoder-decoder. It uses either `resnet18` (`query_small_resnet18`) or `resnet34` (`query_medium_resnet34`), replaces the first convolution with a 6-channel input layer, and concatenates RGB with depth geometry features. The decoder predicts four dense heads: foreground, boundary, core heatmap, and ownership offsets. This matches the process documents, which say alpha should stay narrow and only compare small versus medium scale under one encoder family and one fusion strategy. Sources: `gisec/models/query_uq_backbone.py`; `docs/archive/plans/2026-03-23-gisec-query-master-plan.md`; `docs/archive/plans/2026-03-23-02-gisec-query-uq-backbone.md`.
 
 Instance formation in query-alpha is object-first. `build_coarse_objects()` first finds coarse connected foreground objects and can split large ones with boundary-based seeding. `split_coarse_object()` then detects core peaks, limits peak count dynamically by object area and span, and assigns pixels using a combined score based on geometric distance, ownership landing distance, and boundary-line cost. `predict_instance_map()` applies this per coarse object and produces query-specific pathology summaries such as object counts, split counts, and average cores per object. Sources: `gisec/engine/query_coarse_objects.py`; `gisec/engine/query_object_split.py`; `gisec/engine/query_runtime.py`.
 
@@ -104,7 +104,7 @@ Instance formation in query-alpha is object-first. `build_coarse_objects()` firs
 
 The dataset side is split by branch but shares the same semantic goal. `ECCGraphDataset` produces query RGB, instance masks, and dense supervision targets for the legacy line. `BaselineInstanceDataset` produces RGB tensors and instance targets for the active and baseline lines. `PrototypeBankSource` resolves the correct prototype bank for a query image, caches built prototype features, and can inject query-derived shape priors. Sources: `gisec/datasets/ecc_query_dataset.py`; `baseline/common/dataset.py`; `gisec/engine/runtime.py`; `gisec/datasets/prototype_bank.py`.
 
-The evaluation/export layer is deliberately standardized. `RunSummary` in `gisec/engine/runtime.py` captures variant, checkpoint, metrics, runtime settings, and environment metadata. `evaluate_and_export()` writes COCO metrics, failure summaries, and rendered previews. Query-alpha has its own `UQRunSummary`, but it follows the same pattern. This shared export contract is why results from very different model families are still directly comparable in the stored summaries. Sources: `gisec/engine/runtime.py`; `gisec/engine/query_runtime.py`; `docs/experiments/gisec-query-metrics.md`.
+The evaluation/export layer is deliberately standardized. `RunSummary` in `gisec/engine/runtime.py` captures variant, checkpoint, metrics, runtime settings, and environment metadata. `evaluate_and_export()` writes COCO metrics, failure summaries, and rendered previews. Query-alpha has its own `UQRunSummary`, but it follows the same pattern. This shared export contract is why results from very different model families are still directly comparable in the stored summaries. Sources: `gisec/engine/runtime.py`; `gisec/engine/query_runtime.py`; `docs/archive/experiments/gisec-query-metrics.md`.
 
 ### 4.6 External Libraries and Technical Stack
 
@@ -140,9 +140,9 @@ The most defensible innovations are therefore practical and architectural:
 - it implements a nontrivial prototype-conditioned graph pipeline instead of only benchmarking standard models
 - it captures explicit stage gates so experimental promotion decisions are documented rather than implicit
 
-Sources: `gisec/engine/runtime.py`; `gisec/engine/query_runtime.py`; `docs/experiments/gisec-query-gates.md`; `docs/results/*.md`; `docs/results/*.json`.
+Sources: `gisec/engine/runtime.py`; `gisec/engine/query_runtime.py`; `docs/archive/experiments/gisec-query-gates.md`; `docs/results/*.md`; `docs/results/*.json`.
 
-At the same time, the code and results do not justify stronger claims such as "the project introduced a clearly superior new algorithm." The curated evidence says the strongest official result is a staged Mask2Former RGB model, while the legacy graph line remained below that level and the query-alpha line stayed gated or archived. Sources: `docs/results/2026-03-29-rgb-phase1-backbone-summary.json`; `docs/results/2026-03-30-rgb-phase23-fragment-reset-summary.json`; `docs/results/2026-03-31-rgb-phase23-instance-local-stage2-summary.md`; `docs/experiments/gisec-query-ladder.md`; `docs/experiments/gisec-query-gates.md`.
+At the same time, the code and results do not justify stronger claims such as "the project introduced a clearly superior new algorithm." The curated evidence says the strongest official result is a staged Mask2Former RGB model, while the legacy graph line remained below that level and the query-alpha line stayed gated or archived. Sources: `docs/results/2026-03-29-rgb-phase1-backbone-summary.json`; `docs/results/2026-03-30-rgb-phase23-fragment-reset-summary.json`; `docs/results/2026-03-31-rgb-phase23-instance-local-stage2-summary.md`; `docs/archive/experiments/gisec-query-ladder.md`; `docs/archive/experiments/gisec-query-gates.md`.
 
 ## 6. Experimental Design
 
@@ -160,9 +160,9 @@ The dataset quality checks are partially documented. `alignment_report.json` and
 
 ### 6.2 Metrics and Promotion Rules
 
-The common evaluation surface is COCO-style AP plus repository-specific diagnostics. Across the active and legacy paths, the most important reported metrics are `segm/AP`, `bbox/AP`, and `boundary/IoU`. The query-alpha docs add instance-count calibration, failure redistribution, and object pathology summaries such as `pred_count_mean`, `gt_count_mean`, `best_mask_iou_mean`, and `split_count_mean`. Sources: `gisec/engine/runtime.py`; `gisec/engine/query_runtime.py`; `docs/experiments/gisec-query-metrics.md`.
+The common evaluation surface is COCO-style AP plus repository-specific diagnostics. Across the active and legacy paths, the most important reported metrics are `segm/AP`, `bbox/AP`, and `boundary/IoU`. The query-alpha docs add instance-count calibration, failure redistribution, and object pathology summaries such as `pred_count_mean`, `gt_count_mean`, `best_mask_iou_mean`, and `split_count_mean`. Sources: `gisec/engine/runtime.py`; `gisec/engine/query_runtime.py`; `docs/archive/experiments/gisec-query-metrics.md`.
 
-Promotion is intentionally gate-based rather than open-ended. The fragment-reset and instance-local summaries record explicit `gate_passed` decisions. The query-alpha docs define `Gate A` and `Gate B` as relative performance gates, not vanity thresholds. This is a notable methodological choice because it keeps the repo focused on controlled comparisons instead of one-off best numbers. Sources: `docs/results/2026-03-30-rgb-phase23-fragment-reset-summary.json`; `docs/results/2026-03-31-rgb-phase23-instance-local-stage2-summary.json`; `docs/experiments/gisec-query-gates.md`; `docs/experiments/gisec-query-ladder.md`.
+Promotion is intentionally gate-based rather than open-ended. The fragment-reset and instance-local summaries record explicit `gate_passed` decisions. The query-alpha docs define `Gate A` and `Gate B` as relative performance gates, not vanity thresholds. This is a notable methodological choice because it keeps the repo focused on controlled comparisons instead of one-off best numbers. Sources: `docs/results/2026-03-30-rgb-phase23-fragment-reset-summary.json`; `docs/results/2026-03-31-rgb-phase23-instance-local-stage2-summary.json`; `docs/archive/experiments/gisec-query-gates.md`; `docs/archive/experiments/gisec-query-ladder.md`.
 
 ### 6.3 Main Configurations
 
@@ -218,15 +218,15 @@ These numbers support three measured conclusions:
 
 ### 7.3 2026-04-13 Active RGB Rerun Status
 
-The 2026-04-13 active RGB rerun is still underway. The `base_rgb_1024` training state file reports `status = running` and `last_finite_checkpoint = resume_last.pth`. The launcher log shows an initial failed attempt on `NonFiniteActiveTrainingError` followed by a retry that is still progressing. There is no final `run_summary.json` yet, so the result fields remain empty here. Sources: `output/experiments/2026-04-13-rgb-full-rerun/phase_c/active_rgb_official/train/base_rgb_1024/run_state.json`; `output/experiments/2026-04-13-rgb-full-rerun/recovery_launcher/launcher.log`.
+The 2026-04-13 active RGB rerun is still underway. The `base_rgb_1024` training state file reports `status = running` and `last_finite_checkpoint = resume_last.pth`. The launcher log shows an initial failed attempt on `NonFiniteActiveTrainingError` followed by a retry that is still progressing. There is no final `run_summary.json` yet, so the result fields remain empty here. Sources: `output/experiments/2026-04-13-rgb-full-rerun/active_official/active_rgb_official/train/base_rgb_1024/run_state.json`; `output/experiments/2026-04-13-rgb-full-rerun/recovery_launcher/launcher.log`.
 
 | Stage | Status | segm/AP | bbox/AP | boundary/IoU | train wall_time_sec | Source |
 | --- | --- | --- | --- | --- | --- | --- |
-| `base_rgb_1024` rerun | running | [Not Found] | [Not Found] | [Not Found] | [Not Found] | `output/experiments/2026-04-13-rgb-full-rerun/phase_c/active_rgb_official/train/base_rgb_1024/run_state.json`; `output/experiments/2026-04-13-rgb-full-rerun/recovery_launcher/launcher.log` |
+| `base_rgb_1024` rerun | running | [Not Found] | [Not Found] | [Not Found] | [Not Found] | `output/experiments/2026-04-13-rgb-full-rerun/active_official/active_rgb_official/train/base_rgb_1024/run_state.json`; `output/experiments/2026-04-13-rgb-full-rerun/recovery_launcher/launcher.log` |
 
 ### 7.4 Legacy Baseline and Fragment/Instance-Local Branch
 
-The repaired legacy baseline remained materially below the active official result. The legacy `G1_best_eval` summary reports `segm/AP = 0.4153300741961166` and `bbox/AP = 0.3647817709084885`. Source: `docs/results/2026-04-06-phase-a-baseline-reset-closeout.md`.
+The repaired legacy baseline remained materially below the active official result. The legacy `legacy_prototype_unet_baseline_best_eval` summary reports `segm/AP = 0.4153300741961166` and `bbox/AP = 0.3647817709084885`. Source: `docs/results/2026-04-06-phase-a-baseline-reset-closeout.md`.
 
 The fragment-reset branch produced a strong negative result. Its own summary says the Stage-2 fragment gate failed and Stage 3 stayed off. The baseline active model at that time was `segm/AP = 0.5451`, but the fragment-quality metrics showed very high overflow and impurity:
 
@@ -244,11 +244,11 @@ This legacy result family is important because it explains the later architectur
 
 The repository contains detailed query-alpha plans, ladder documents, configs, and tests, but the stored full official result bundle is [Not Found]. What does exist is a clear protocol:
 
-- compare only `v1.5 legacy`, `UQ-s`, and `UQ-m` in alpha
-- promote `UR-*`, `UG-*`, and `UA-*` only after the query-only base is proven
+- compare only `v1.5 legacy`, `query_small_resnet18`, and `query_medium_resnet34` in alpha
+- promote `query_ref_*`, `query_graph_*`, and `query_refgraph_*` only after the query-only base is proven
 - use a fixed shared metric surface with count calibration and pathology summaries
 
-Sources: `docs/experiments/gisec-query-ladder.md`; `docs/experiments/gisec-query-gates.md`; `docs/experiments/gisec-query-metrics.md`; `docs/plans/2026-03-23-gisec-query-master-plan.md`; `configs/query/*`; `tests/test_query_eval_cli.py`.
+Sources: `docs/archive/experiments/gisec-query-ladder.md`; `docs/archive/experiments/gisec-query-gates.md`; `docs/archive/experiments/gisec-query-metrics.md`; `docs/archive/plans/2026-03-23-gisec-query-master-plan.md`; `configs/query/*`; `tests/test_query_eval_cli.py`.
 
 ### 7.6 Overall Interpretation
 
@@ -264,7 +264,7 @@ That is a practical research outcome, not a failure. The repository successfully
 
 ## 8. Conclusion and Future Work
 
-The main takeaway is that the repository evolved from a custom prototype-conditioned graph segmentation program into a more pragmatic staged Mask2Former mainline, and the stored evidence supports that shift. The strongest completed official result currently present in the repository is `base_rgb_1024_refine` with `segm/AP = 0.5761366653940664`, `bbox/AP = 0.5155950306627068`, and `boundary/IoU = 0.25118819472440657`. The 2026-04-13 rerun is still underway and is excluded from the official results below. Sources: `docs/results/2026-04-12-active-rgb-official-ladder-summary.md`; `docs/results/README.md`; `output/experiments/2026-04-13-rgb-full-rerun/phase_c/active_rgb_official/train/base_rgb_1024/run_state.json`; `output/experiments/2026-04-13-rgb-full-rerun/recovery_launcher/launcher.log`.
+The main takeaway is that the repository evolved from a custom prototype-conditioned graph segmentation program into a more pragmatic staged Mask2Former mainline, and the stored evidence supports that shift. The strongest completed official result currently present in the repository is `base_rgb_1024_refine` with `segm/AP = 0.5761366653940664`, `bbox/AP = 0.5155950306627068`, and `boundary/IoU = 0.25118819472440657`. The 2026-04-13 rerun is still underway and is excluded from the official results below. Sources: `docs/results/2026-04-12-active-rgb-official-ladder-summary.md`; `docs/results/README.md`; `output/experiments/2026-04-13-rgb-full-rerun/active_official/active_rgb_official/train/base_rgb_1024/run_state.json`; `output/experiments/2026-04-13-rgb-full-rerun/recovery_launcher/launcher.log`.
 
 The current implementation has several clear limitations.
 
@@ -273,16 +273,16 @@ The current implementation has several clear limitations.
 - Per-run hardware provenance is [Not Found].
 - Some experiment families produce very large artifacts, which is why the repository also contains output-hygiene and pruning work.
 
-Sources: `docs/results/2026-04-06-phase-a-baseline-reset-closeout.md`; `configs/runtime/*.yaml`; `docs/plans/2026-03-27-output-hygiene-and-training-observability-design.md`; `scripts/maintenance/prune_output_artifacts.py`; `docs/results/2026-04-08-active-rgb-resume-and-throughput-recovery.md`.
+Sources: `docs/results/2026-04-06-phase-a-baseline-reset-closeout.md`; `configs/runtime/*.yaml`; `docs/archive/plans/2026-03-27-output-hygiene-and-training-observability-design.md`; `scripts/maintenance/prune_output_artifacts.py`; `docs/results/2026-04-08-active-rgb-resume-and-throughput-recovery.md`.
 
 The most concrete future-work directions are already written into the process documents.
 
 - For the active line, continue the RGB-first staged path and treat reference or graph rescue as justified only if they beat the refine-only stage under the same evaluation surface.
 - For the legacy instance-local line, Stage 3 should stay paused until learned owner-union becomes strong enough and remains clearly merge-limited.
-- For query-alpha, only reopen `UR-*`, `UG-*`, and `UA-*` after `UQ-s` and `UQ-m` clear the documented alpha gates.
+- For query-alpha, only reopen `query_ref_*`, `query_graph_*`, and `query_refgraph_*` after `query_small_resnet18` and `query_medium_resnet34` clear the documented alpha gates.
 - For the repository itself, keep improving artifact hygiene, monitoring, and reproducibility around long-running experiments.
 
-Sources: `docs/results/2026-03-31-rgb-phase23-instance-local-stage2-summary.json`; `docs/experiments/gisec-query-gates.md`; `docs/plans/2026-03-23-05-gisec-query-reference-graph-reentry.md`; `docs/results/2026-04-08-active-rgb-resume-and-throughput-recovery.md`.
+Sources: `docs/results/2026-03-31-rgb-phase23-instance-local-stage2-summary.json`; `docs/archive/experiments/gisec-query-gates.md`; `docs/archive/plans/2026-03-23-05-gisec-query-reference-graph-reentry.md`; `docs/results/2026-04-08-active-rgb-resume-and-throughput-recovery.md`.
 
 The most important unfinished items are therefore not hidden. They are explicitly documented in the repository: the query-only object-first branch still needs decisive promoted results, the legacy graph branch still needs a much smaller oracle-to-learned gap, and the active line still needs evidence before later rescue stages can be treated as upgrades rather than optional experiments.
 
@@ -294,6 +294,6 @@ The most important unfinished items are therefore not hidden. They are explicitl
 |------|---------|--------|--------|
 | 2026-04-12 | Opening statement | Replaced raw experiment-artifact dependence with curated docs and source code evidence | `docs/results/README.md` |
 | 2026-04-12 | Sections 1-2 | Removed out-of-scope privacy and deployment discussion and kept the report research-focused | `README.md`; `docs/results/2026-04-08-active-rgb-resume-and-throughput-recovery.md` |
-| 2026-04-12 | Sections 5-8 | Replaced raw result citations with curated result notes, removed the depth-follow-up subsection, and added `[Not Found]` markers where needed | `docs/results/2026-04-12-active-rgb-official-ladder-summary.md`; `docs/results/2026-04-06-phase-a-baseline-reset-closeout.md`; `docs/experiments/gisec-query-ladder.md` |
+| 2026-04-12 | Sections 5-8 | Replaced raw result citations with curated result notes, removed the depth-follow-up subsection, and added `[Not Found]` markers where needed | `docs/results/2026-04-12-active-rgb-official-ladder-summary.md`; `docs/results/2026-04-06-phase-a-baseline-reset-closeout.md`; `docs/archive/experiments/gisec-query-ladder.md` |
 | 2026-04-12 | Sections 1-7 | Trimmed remaining depth-follow-up wording and kept the active results anchored to the RGB-first curated summaries | `docs/results/README.md`; `docs/results/2026-03-29-rgb-phase1-backbone-summary.md`; `docs/results/2026-04-12-active-rgb-official-ladder-summary.md` |
-| 2026-04-13 | Sections 7-8 | Marked the 2026-04-13 active RGB rerun as still running, kept its result fields empty, and excluded it from the official completed results | `output/experiments/2026-04-13-rgb-full-rerun/phase_c/active_rgb_official/train/base_rgb_1024/run_state.json`; `output/experiments/2026-04-13-rgb-full-rerun/recovery_launcher/launcher.log` |
+| 2026-04-13 | Sections 7-8 | Marked the 2026-04-13 active RGB rerun as still running, kept its result fields empty, and excluded it from the official completed results | `output/experiments/2026-04-13-rgb-full-rerun/active_official/active_rgb_official/train/base_rgb_1024/run_state.json`; `output/experiments/2026-04-13-rgb-full-rerun/recovery_launcher/launcher.log` |

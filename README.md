@@ -1,6 +1,6 @@
 # GISEC: Graph-based Instance Segmentation for Electronic Components
 
-`GISEC` now has one clean active front line and a quarantined legacy archive.
+`GISEC` now has one clean active front line, one executable query-alpha line, and a quarantined historical archive.
 
 - **Current active face.** The active method line is the staged `Mask2Former` surface. `Mask2Former RGB @1024` is the current backbone winner, `Mask R-CNN RGB @1024` is the benchmark companion, and the staged follow-up grows from that base through local refine, reference rescue, and graph rescue.
 - **Active staged variants.** Its canonical variants are:
@@ -10,7 +10,7 @@
   - `base_rgbd_1024_refine_ref`
   - `base_rgbd_1024_refine_ref_graph`
   - Active configs live under `configs/active/`, and `scripts/experiments/run_gisec_active.sh` is the dedicated runner for that surface.
-- **Archival surfaces.** The former fragment-first stack (`GISEC v1.5 legacy` and variants `A*/B*/G*/Q*`) plus the narrow `GISEC Query Alpha` path remain runnable for reproduction, diagnostics, and query-only experiments, but they are explicitly archival and are not the default repo face.
+- **Historical surfaces.** The former fragment-first stack (`GISEC v1.5 legacy` with descriptive `legacy_*` variants) remains runnable for reproduction, diagnostics, and query-only experiments. The old planning, review, and experiment documents now live under `docs/archive/`, and they are reference material only.
 
 ## Why This Repo Exists
 
@@ -22,6 +22,23 @@ The lightweight RGB-D line in `magformer` has already established a stable basel
 
 This repository is intentionally independent from the `magformer` training stack. The active line lives under `gisec` `train/eval/infer` with the staged `Mask2Former` follow-up, while the legacy scripts (`run_gisec_legacy*.sh`, `run_gisec_query_uq.sh`, `scripts/experiments/run_legacy_1k_20ep_1024_gisec*.sh`) stay available for historical comparison and query-only diagnostics.
 
+## Query Alpha
+
+The live query-alpha surface is variant-first and executable through these descriptive ids:
+
+- `query_small_resnet18`
+- `query_medium_resnet34`
+- `query_ref_resnet18`
+- `query_ref_resnet34`
+- `query_graph_resnet18`
+- `query_graph_resnet34`
+- `query_refgraph_resnet18`
+- `query_refgraph_resnet34`
+
+The small and medium variants are the current official baseline pair. The reference, graph, and reference-plus-graph variants are deferred branches, but they are executable and share the same CLI surface and result layout. Official runs write to dated `output/experiments/<date>-query-alpha-official/` roots, with `output/experiments/query_alpha_official` kept as a stable alias.
+
+Current query runs are launched through `python -m gisec.cli.train_query --variant ...` and `python -m gisec.cli.eval_query --variant ...`. The repo does not claim queued jobs are finished; result notes are only authoritative after the matching train and eval artifacts exist on disk.
+
 ## External Inputs
 
 - Query dataset root:
@@ -31,23 +48,50 @@ This repository is intentionally independent from the `magformer` training stack
 
 ## Key Docs
 
-- [docs/new-session-handoff.md](docs/new-session-handoff.md)
-- [docs/reading-pack.md](docs/reading-pack.md)
-- [docs/research-context.md](docs/research-context.md)
-- [docs/stage1-research-plan.md](docs/stage1-research-plan.md)
-- [docs/plans/2026-03-17-01-gisec-foundation.md](docs/plans/2026-03-17-01-gisec-foundation.md)
-- [docs/experiments/README.md](docs/experiments/README.md)
+- [docs/archive/plans/new-session-handoff.md](docs/archive/plans/new-session-handoff.md)
+- [docs/archive/plans/reading-pack.md](docs/archive/plans/reading-pack.md)
+- [docs/archive/plans/research-context.md](docs/archive/plans/research-context.md)
+- [docs/archive/plans/stage1-research-plan.md](docs/archive/plans/stage1-research-plan.md)
+- [docs/archive/plans/2026-03-17-01-gisec-foundation.md](docs/archive/plans/2026-03-17-01-gisec-foundation.md)
+- [docs/archive/experiments/README.md](docs/archive/experiments/README.md)
 - [docs/results/README.md](docs/results/README.md)
 - [docs/method/README.md](docs/method/README.md)
 - [docs/method/gisec-method-fragment-first.md](docs/method/gisec-method-fragment-first.md)
-- [docs/plans/2026-03-23-gisec-query-master-plan.md](docs/plans/2026-03-23-gisec-query-master-plan.md)
-- [docs/plans/2026-03-23-01-gisec-query-freeze-and-separation.md](docs/plans/2026-03-23-01-gisec-query-freeze-and-separation.md)
-- [docs/plans/2026-03-23-02-gisec-query-uq-backbone.md](docs/plans/2026-03-23-02-gisec-query-uq-backbone.md)
-- [docs/plans/2026-03-23-03-gisec-query-object-proposal-and-training.md](docs/plans/2026-03-23-03-gisec-query-object-proposal-and-training.md)
-- [docs/plans/2026-03-23-04-gisec-query-eval-ladder.md](docs/plans/2026-03-23-04-gisec-query-eval-ladder.md)
-- [docs/plans/2026-03-23-05-gisec-query-reference-graph-reentry.md](docs/plans/2026-03-23-05-gisec-query-reference-graph-reentry.md)
-- [docs/plans/2026-03-19-gisec-method-master-plan.md](docs/plans/2026-03-19-gisec-method-master-plan.md)
-- [docs/release-checklist.md](docs/release-checklist.md)
+- [docs/archive/plans/2026-03-23-gisec-query-master-plan.md](docs/archive/plans/2026-03-23-gisec-query-master-plan.md)
+- [docs/archive/plans/2026-03-23-01-gisec-query-freeze-and-separation.md](docs/archive/plans/2026-03-23-01-gisec-query-freeze-and-separation.md)
+- [docs/archive/plans/2026-03-23-02-gisec-query-uq-backbone.md](docs/archive/plans/2026-03-23-02-gisec-query-uq-backbone.md)
+- [docs/archive/plans/2026-03-23-03-gisec-query-object-proposal-and-training.md](docs/archive/plans/2026-03-23-03-gisec-query-object-proposal-and-training.md)
+- [docs/archive/plans/2026-03-23-04-gisec-query-eval-ladder.md](docs/archive/plans/2026-03-23-04-gisec-query-eval-ladder.md)
+- [docs/archive/plans/2026-03-23-05-gisec-query-reference-graph-reentry.md](docs/archive/plans/2026-03-23-05-gisec-query-reference-graph-reentry.md)
+- [docs/archive/plans/2026-03-19-gisec-method-master-plan.md](docs/archive/plans/2026-03-19-gisec-method-master-plan.md)
+- [docs/archive/plans/release-checklist.md](docs/archive/plans/release-checklist.md)
+
+## Variant Naming Reference
+
+| Historical name | Current descriptive name |
+| --- | --- |
+| `UQ-s` | `query_small_resnet18` |
+| `UQ-m` | `query_medium_resnet34` |
+| `UR-s` | `query_ref_resnet18` |
+| `UR-m` | `query_ref_resnet34` |
+| `UG-s` | `query_graph_resnet18` |
+| `UG-m` | `query_graph_resnet34` |
+| `UA-s` | `query_refgraph_resnet18` |
+| `UA-m` | `query_refgraph_resnet34` |
+| `G1` | `legacy_prototype_unet_baseline` |
+| `G2` | `legacy_prototype_unet_refined` |
+| `G3` | `legacy_prototype_unet_with_graph` |
+| `phase_a` | `backbone_benchmark` |
+| `phase_b` | `active_pilot` |
+| `phase_c` | `active_official` |
+| active `Stage 1` | `base_mask2former_training` |
+| active `Stage 2` | `local_refinement_training` |
+| active `Stage 3` | `graph_rescue_training` |
+| legacy `Stage 1` | `fragment_extraction` |
+| legacy `Stage 2` | `owner_union_learning` |
+| legacy `Stage 3` | `learned_owner_union_graph_merge` |
+
+Historical planning, review, and experiment documents now live under `docs/archive/`. They are reference material only and are not the active spec surface.
 
 ## Quick Start
 
@@ -97,13 +141,13 @@ bash scripts/experiments/run_gisec_active.sh \
   --run
 ```
 
-### Phase 1 RGB Backbone Benchmark
+### Active RGB Backbone Benchmark
 
 ```bash
 bash scripts/experiments/run_baseline_benchmarks.sh \
   --dataset-root /home/k100/zhn/electronic-components-grasp-and-segment/gisec/datasets/20260318_1K_1566 \
-  --output-root output/experiments/baselines/phase_a_rgb_full_20260327 \
-  --group phase_a_rgb_full \
+  --output-root output/experiments/baselines/backbone_benchmark_rgb_full_20260327 \
+  --group backbone_benchmark_rgb_full \
   --run
 ```
 
@@ -128,14 +172,16 @@ Use `--depth-mode rgbd_concat_valid_mask` when the active `base_rgbd_*` chain sh
 
 For `Query Alpha` eval, keep `--output-dir` separate from the checkpoint directory. Eval is now write-isolated and refuses in-place artifact writeback into the training checkpoint root.
 
+The query runners accept the official descriptive ids above, including the deferred reference and graph variants. Query alpha runs remain incomplete until the corresponding detached training and eval jobs finish and write their result bundles.
+
 ### Legacy Train / Eval
 
 Use the explicit legacy wrappers when the goal is to reproduce the archival fragment-first line:
 
 ```bash
-python -m gisec.cli.train_legacy --variant G5 --prototype-root /path/to/reference_bank ...
-python -m gisec.cli.eval_legacy --variant G5 --prototype-root /path/to/reference_bank ...
-python -m gisec.cli.infer_legacy --variant G5 --prototype-root /path/to/reference_bank ...
+python -m gisec.cli.train_legacy --variant legacy_prototype_unet_with_rgbd_similarity_shape_stats --prototype-root /path/to/reference_bank ...
+python -m gisec.cli.eval_legacy --variant legacy_prototype_unet_with_rgbd_similarity_shape_stats --prototype-root /path/to/reference_bank ...
+python -m gisec.cli.infer_legacy --variant legacy_prototype_unet_with_rgbd_similarity_shape_stats --prototype-root /path/to/reference_bank ...
 ```
 
 ### Configs
@@ -146,23 +192,23 @@ The repository now supports layered YAML defaults under [configs/README.md](conf
 python -m gisec.cli.train \
   --config configs/data/ecc_20260318_1k_1566.yaml \
   --config configs/reference/reference_20260318_1k_13440.yaml \
-  --config configs/variant/a1.yaml \
+  --config configs/variant/legacy_rgbd_prototype_ownership_graph_cues.yaml \
   --config configs/train/smoke_1024.yaml \
-  --output-dir output/experiments/gisec_v2_smoke/A1
+  --output-dir output/experiments/gisec_v2_smoke/legacy_rgbd_prototype_ownership_graph_cues
 ```
 
 ## Legacy Variant Semantics
 
 The following names are `historical/debug-only` and belong to the `v1.5 legacy` fragment-first line:
-- `B0`: heuristic merge baseline without prototype priors
-- `G1`: learned graph edge scorer with boundary + affinity
-- `G2`: `G1 + shape_stats`
-- `G3`: `G1 + RGB prototype similarity`
-- `G4`: `G1 + RGB-D prototype similarity`
-- `G5`: `G1 + RGB-D prototype similarity + shape_stats`
-- `Q0`: query-mask-only recovery debug variant
-- `Q1`: query-mask + reference routing recovery debug variant
-- `Q2`: query-mask + reference routing + graph rescue recovery debug variant
+- `legacy_heuristic_graph_merge_baseline`: heuristic merge baseline without prototype priors
+- `legacy_prototype_unet_baseline`: learned graph edge scorer with boundary + affinity
+- `legacy_prototype_unet_refined`: `legacy_prototype_unet_baseline + shape_stats`
+- `legacy_prototype_unet_with_graph`: `legacy_prototype_unet_baseline + RGB prototype similarity`
+- `legacy_prototype_unet_with_rgbd_similarity`: `legacy_prototype_unet_baseline + RGB-D prototype similarity`
+- `legacy_prototype_unet_with_rgbd_similarity_shape_stats`: `legacy_prototype_unet_baseline + RGB-D prototype similarity + shape_stats`
+- `legacy_query_mask_only_debug`: query-mask-only recovery debug variant
+- `legacy_query_mask_reference_routing_debug`: query-mask + reference routing recovery debug variant
+- `legacy_query_mask_reference_graph_rescue_debug`: query-mask + reference routing + graph rescue recovery debug variant
 
 `GISEC Query Alpha` does not reuse these names as its active model family.
 
@@ -203,15 +249,20 @@ Generate suite-level summaries after running a matrix:
 ```bash
 python scripts/analysis/summarize_suite.py \
   --suite-root output/experiments/gisec_0831_matrix \
-  --output-json docs/experiments/gisec_0831_matrix_summary.json \
-  --output-md docs/experiments/gisec_0831_matrix_summary.md
+  --output-json docs/archive/experiments/gisec_0831_matrix_summary.json \
+  --output-md docs/archive/experiments/gisec_0831_matrix_summary.md
 ```
 
 ```bash
 python scripts/analysis/write_extended_metrics_table.py \
   --suite-root output/experiments/gisec_0831_matrix \
-  --output docs/experiments/gisec_0831_matrix_extended_metrics.md
+  --output docs/archive/experiments/gisec_0831_matrix_extended_metrics.md
 ```
+
+## Out of Scope
+
+- RGB-D official experiments are paused for now. The repo keeps the RGB-only active line as the current focus.
+- Active rescue validation is deferred. The active refine-only result remains the accepted preliminary baseline until that work is explicitly resumed.
 
 ## Research Direction
 
