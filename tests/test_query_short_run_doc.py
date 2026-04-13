@@ -5,7 +5,7 @@ from pathlib import Path
 
 def test_query_alpha_short_run_protocol_locks_core_settings() -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    text = (repo_root / "docs" / "experiments" / "gisec-query-short-run-protocol.md").read_text(encoding="utf-8")
+    text = (repo_root / "docs" / "archive" / "experiments" / "gisec-query-short-run-protocol.md").read_text(encoding="utf-8")
 
     required = [
         "image size",

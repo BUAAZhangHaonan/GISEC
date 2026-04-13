@@ -1,3 +1,7 @@
+> **Historical Naming Notice**: This document uses the pre-rename naming convention (abbreviated stage/variant/phase codes). For the current mapping, see the "Variant Naming Reference" table in README.md.
+
+**Historical Naming Notice**: This document uses the pre-rename naming convention (abbreviated stage/variant/phase codes). For the current mapping, see the "Variant Naming Reference" table in README.md.
+
 # 2026-03-30 RGB Phase 2/3 Fragment Reset Summary
 
 ## Scope

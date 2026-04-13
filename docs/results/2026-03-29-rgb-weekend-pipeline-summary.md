@@ -1,3 +1,7 @@
+> **Historical Naming Notice**: This document uses the pre-rename naming convention (abbreviated stage/variant/phase codes). For the current mapping, see the "Variant Naming Reference" table in README.md.
+
+**Historical Naming Notice**: This document uses the pre-rename naming convention (abbreviated stage/variant/phase codes). For the current mapping, see the "Variant Naming Reference" table in README.md.
+
 # 2026-03-29 RGB Weekend Pipeline Summary
 
 ![RGB weekend Stage 3 summary](./figures/2026-03-29-rgb-weekend-stage3.png)

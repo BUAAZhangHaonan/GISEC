@@ -38,3 +38,8 @@ Keep raw machine-generated outputs in `output/`; use `docs/results/` for version
 - [2026-03-28-active-surface-pilot-summary.md](2026-03-28-active-surface-pilot-summary.md)
 - [2026-03-28-active-rescue-debug-summary.md](2026-03-28-active-rescue-debug-summary.md)
 - [2026-03-28-active-phasebc-followup.md](2026-03-28-active-phasebc-followup.md)
+
+## Query Alpha Notes
+
+- [2026-04-13-query-alpha-official-baseline-summary.md](2026-04-13-query-alpha-official-baseline-summary.md)
+- [2026-04-13-query-alpha-deferred-variants-summary.md](2026-04-13-query-alpha-deferred-variants-summary.md)

@@ -1,3 +1,7 @@
+> **Historical Naming Notice**: This document uses the pre-rename naming convention (abbreviated stage/variant/phase codes). For the current mapping, see the "Variant Naming Reference" table in README.md.
+
+**Historical Naming Notice**: This document uses the pre-rename naming convention (abbreviated stage/variant/phase codes). For the current mapping, see the "Variant Naming Reference" table in README.md.
+
 # RGB Phase 2/3 Instance-Local Stage 2 Comparison
 
 | row | segm/AP | boundary/IoU | split_gt_count | merge_pred_count |

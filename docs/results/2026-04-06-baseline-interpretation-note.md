@@ -1,3 +1,5 @@
+> **Historical Naming Notice**: This document uses the pre-rename naming convention (abbreviated stage/variant/phase codes). For the current mapping, see the "Variant Naming Reference" table in README.md.
+
 # 2026-04-06 Baseline Interpretation Note
 
 ## Repo Truths
@@ -32,3 +34,4 @@
   - establish a fresh repaired RGB-D baseline
   - measure the delta from `+ refine`, `+ reference`, and `+ graph rescue`
 - The oracle `0.8489` result is still useful, but only as an upper bound on what the instance-local machinery could recover under privileged conditions.
+**Historical Naming Notice**: This document uses the pre-rename naming convention (abbreviated stage/variant/phase codes). For the current mapping, see the "Variant Naming Reference" table in README.md.

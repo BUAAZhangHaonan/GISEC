@@ -9,8 +9,8 @@ def test_project_metadata_uses_gisec_identity() -> None:
     pyproject_text = (repo_root / "pyproject.toml").read_text(encoding="utf-8")
     environment_text = (repo_root / "environment.yml").read_text(encoding="utf-8")
     readme_text = (repo_root / "README.md").read_text(encoding="utf-8")
-    handoff_text = (repo_root / "docs" / "new-session-handoff.md").read_text(encoding="utf-8")
-    reading_pack_text = (repo_root / "docs" / "reading-pack.md").read_text(encoding="utf-8")
+    handoff_text = (repo_root / "docs" / "archive" / "plans" / "new-session-handoff.md").read_text(encoding="utf-8")
+    reading_pack_text = (repo_root / "docs" / "archive" / "plans" / "reading-pack.md").read_text(encoding="utf-8")
 
     assert 'name = "gisec"' in pyproject_text
     assert 'include = ["gisec*"]' in pyproject_text
@@ -48,12 +48,16 @@ def test_project_docs_freeze_v15_and_query_alpha_boundaries() -> None:
 
     assert "GISEC v1.5 legacy" in readme_text
     assert "GISEC Query Alpha" in readme_text
+    assert "query_small_resnet18" in readme_text
+    assert "query_refgraph_resnet34" in readme_text
+    assert "docs/archive/" in readme_text
     assert "fragment-first" in readme_text
     assert "object-first" in readme_text
     assert "base_rgb_1024" in readme_text
     assert "Mask2Former RGB @1024" in readme_text
     assert "Mask R-CNN RGB @1024" in readme_text
-    assert "RGB-D is deferred" in readme_text
+    assert "RGB-D official experiments are paused" in readme_text
+    assert "Active rescue validation is deferred" in readme_text
     assert "v1.5 legacy" in method_readme
     assert "Mask2Former staged line" in method_readme
     assert "Query Alpha" in method_readme
@@ -95,8 +99,9 @@ def test_project_metadata_includes_query_alpha_runner_surface() -> None:
     runner_text = runner_path.read_text(encoding="utf-8")
     assert "gisec.cli.train_query" in runner_text
     assert "gisec.cli.eval_query" in runner_text
-    assert "configs/query/model/uq_" in runner_text
-    assert "[gisec-query-uq]" in runner_text
+    assert "configs/query/model/" in runner_text
+    assert "--variant" in runner_text
+    assert "[gisec-query-alpha]" in runner_text
 
 
 def test_tracked_source_paths_do_not_use_version_number_names() -> None:

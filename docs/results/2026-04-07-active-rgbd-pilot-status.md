@@ -1,3 +1,7 @@
+> **Historical Naming Notice**: This document uses the pre-rename naming convention (abbreviated stage/variant/phase codes). For the current mapping, see the "Variant Naming Reference" table in README.md.
+
+**Historical Naming Notice**: This document uses the pre-rename naming convention (abbreviated stage/variant/phase codes). For the current mapping, see the "Variant Naming Reference" table in README.md.
+
 # 2026-04-07 Active RGB-D Pilot Status
 
 The official-environment RGB-D active Stage 1 run is recorded here as a pilot-only artifact. It is not the canonical baseline for the current RGB-first experiment policy.

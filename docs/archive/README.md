@@ -1,0 +1,1 @@
+These documents are historical artifacts from earlier development phases. They are retained for reference only. Do NOT use them as authoritative specifications. Current work is guided by active config files, source code, and the main README.

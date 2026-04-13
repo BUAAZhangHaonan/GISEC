@@ -1,3 +1,5 @@
+> **Historical Naming Notice**: This document uses the pre-rename naming convention (abbreviated stage/variant/phase codes). For the current mapping, see the "Variant Naming Reference" table in README.md.
+
 # 2026-03-29 RGB Phase 1 Backbone Summary
 
 ![RGB Phase 1 short matrix](./figures/2026-03-29-rgb-phase1-short-matrix.png)
@@ -50,3 +52,4 @@ This phase is only about the first-stage backbone choice. It is not yet the phas
 - Keep `Mask2Former RGB @1024` as the mainline base model.
 - Keep `Mask R-CNN RGB @1024` as the comparison anchor.
 - Resume later modules and later fusion work only after this RGB-first Phase 1 conclusion stays fixed.
+**Historical Naming Notice**: This document uses the pre-rename naming convention (abbreviated stage/variant/phase codes). For the current mapping, see the "Variant Naming Reference" table in README.md.
