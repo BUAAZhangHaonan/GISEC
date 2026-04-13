@@ -92,7 +92,7 @@ def test_gisec_model_builds_fragment_bundle_for_graph_refiner(tmp_path: Path) ->
         bundle=bundle,
         instance_map=None,
         prototype_cache=cache,
-        variant="G5",
+        variant="legacy_prototype_unet_with_rgbd_similarity_shape_stats",
     )
     assert graph_batch.node_features.ndim == 2
 
@@ -118,7 +118,7 @@ def test_gisec_model_routes_a0_graph_building_to_affinity_logits(monkeypatch) ->
         depth_map=torch.ones((1, 1, 16, 16), dtype=torch.float32),
         instance_map=None,
         prototype_cache=None,
-        variant="A0",
+        variant="legacy_rgbd_prototype_affinity_baseline",
     )
 
     assert result == "sentinel"
@@ -147,7 +147,7 @@ def test_gisec_model_routes_a1_graph_building_to_ownership_offsets(monkeypatch) 
         depth_map=torch.ones((1, 1, 16, 16), dtype=torch.float32),
         instance_map=None,
         prototype_cache=None,
-        variant="A1",
+        variant="legacy_rgbd_prototype_ownership_graph_cues",
     )
 
     assert result == "sentinel"
@@ -182,7 +182,7 @@ def test_gisec_model_forward_graph_accepts_current_graph_builder_edge_payload(mo
         depth_map=torch.ones((1, 1, 16, 16), dtype=torch.float32),
         instance_map=None,
         prototype_cache=None,
-        variant="G1",
+        variant="legacy_prototype_unet_baseline",
         min_area=2,
     )
 

@@ -82,7 +82,7 @@ def test_train_gisec_minibatch(tmp_path: Path) -> None:
             "--output-dir",
             str(output_root),
             "--variant",
-            "G5",
+            "legacy_prototype_unet_with_rgbd_similarity_shape_stats",
             "--device",
             "cpu",
             "--image-size",
@@ -138,7 +138,7 @@ def test_train_gisec_minibatch(tmp_path: Path) -> None:
     assert list((output_root / "visualizations" / "overlay").glob("*.png"))
     run_summary = json.loads((output_root / "run_summary.json").read_text(encoding="utf-8"))
     manifest = json.loads((output_root / "prototype_bank_manifest.json").read_text(encoding="utf-8"))
-    assert run_summary["variant"] == "G5"
+    assert run_summary["variant"] == "legacy_prototype_unet_with_rgbd_similarity_shape_stats"
     assert run_summary["dataset_root"] == str(dataset_root.resolve())
     assert run_summary["prototype_root"] == str(prototype_root.resolve())
     assert run_summary["split"] == "val"
@@ -151,6 +151,17 @@ def test_train_gisec_minibatch(tmp_path: Path) -> None:
     assert manifest["view_sampler"] == "all"
     assert manifest["prototype_slot_count"] == 6
     assert manifest["prototype_topk"] == 2
+    graph_rows = [json.loads(line) for line in (output_root / "graph_diagnostics.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert graph_rows
+    for key in [
+        "ownership_offset_prediction_error",
+        "boundary_miss_rate",
+        "fragment_overflow_rate",
+        "fragment_impurity_rate",
+        "over_merge_count",
+        "under_merge_count",
+    ]:
+        assert key in graph_rows[0]
     metric_rows = [json.loads(line) for line in (output_root / "metrics_log.jsonl").read_text(encoding="utf-8").splitlines()]
     profile_rows = [
         json.loads(line)
@@ -244,7 +255,7 @@ def test_train_gisec_minibatch_accepts_multi_part_reference_root(tmp_path: Path)
             "--output-dir",
             str(output_root),
             "--variant",
-            "G5",
+            "legacy_prototype_unet_with_rgbd_similarity_shape_stats",
             "--device",
             "cpu",
             "--image-size",
@@ -297,7 +308,7 @@ def test_train_gisec_minibatch_profiles_a_steady_state_window(tmp_path: Path) ->
             "--output-dir",
             str(output_root),
             "--variant",
-            "G5",
+            "legacy_prototype_unet_with_rgbd_similarity_shape_stats",
             "--device",
             "cpu",
             "--image-size",
@@ -363,7 +374,7 @@ def test_eval_can_reuse_model_config_saved_by_train_run(tmp_path: Path) -> None:
             "--output-dir",
             str(output_root),
             "--variant",
-            "A1",
+            "legacy_rgbd_prototype_ownership_graph_cues",
             "--device",
             "cpu",
             "--image-size",

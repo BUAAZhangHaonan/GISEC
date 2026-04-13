@@ -112,7 +112,7 @@ def test_build_fragment_graph_cache_exports_graph_ready_samples(tmp_path: Path) 
         center_threshold=0.03,
         min_area=8,
         boundary_threshold=0.5,
-        variant="B0",
+        variant="legacy_heuristic_graph_merge_baseline",
         reference_root=str(reference_root),
         max_images=1,
     )
@@ -176,7 +176,7 @@ def test_build_fragment_graph_cache_forwards_graph_purity_threshold(tmp_path: Pa
         min_area=8,
         boundary_threshold=0.5,
         purity_threshold=0.6,
-        variant="B0",
+        variant="legacy_heuristic_graph_merge_baseline",
         reference_root=str(reference_root),
         max_images=1,
     )
@@ -229,7 +229,7 @@ def test_build_fragment_graph_cache_forwards_bridge_max_gap(tmp_path: Path, monk
         min_area=8,
         boundary_threshold=0.5,
         bridge_max_gap=6.0,
-        variant="Q2",
+        variant="legacy_query_mask_reference_graph_rescue_debug",
         reference_root=str(reference_root),
         max_images=1,
     )

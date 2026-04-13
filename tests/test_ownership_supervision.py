@@ -70,6 +70,6 @@ def test_query_depth_affects_outputs_without_prototype_cache() -> None:
 
 
 def test_relation_target_key_switches_between_affinity_and_ownership() -> None:
-    assert relation_target_key("A0") == "affinity_target"
-    assert relation_target_key("A1") == "ownership_target"
-    assert relation_target_key("G4") == "ownership_target"
+    assert relation_target_key("legacy_rgbd_prototype_affinity_baseline") == "affinity_target"
+    assert relation_target_key("legacy_rgbd_prototype_ownership_graph_cues") == "ownership_target"
+    assert relation_target_key("legacy_prototype_unet_with_rgbd_similarity") == "ownership_target"

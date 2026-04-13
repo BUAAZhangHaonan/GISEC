@@ -2113,6 +2113,11 @@ def _merge_allowed(
     merged_bbox = _merge_bbox(stats_a["bbox"], stats_b["bbox"])
     _, _, width, height = merged_bbox
     merged_aspect = float(width) / float(max(1, height))
+    area_a = float(stats_a["area_ratio"])
+    area_b = float(stats_b["area_ratio"])
+    area_balance = min(area_a, area_b) / max(max(area_a, area_b), 1e-12)
+    if area_balance < 0.25:
+        return False
     if shape_stats:
         area_q10 = shape_stats.get("area_q10")
         area_q90 = shape_stats.get("area_q90")

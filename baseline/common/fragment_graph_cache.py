@@ -183,7 +183,7 @@ def build_fragment_graph_cache(
             decoder_channels=int(decoder_channels),
         )
         if checkpoint_path is not None:
-            state = torch.load(Path(checkpoint_path).resolve(), map_location=device)
+            state = torch.load(Path(checkpoint_path).resolve(), map_location=device, weights_only=True)
             model.load_state_dict(state["model"] if isinstance(state, dict) and "model" in state else state)
     model = model.to(device)
     model.eval()

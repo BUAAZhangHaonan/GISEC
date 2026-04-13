@@ -91,8 +91,8 @@ def _write_baseline_run_summary(
 def test_write_extended_metrics_table(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     suite_root = tmp_path / "suite"
-    _write_run_summary(suite_root / "B0", variant="B0", ap=71.1, ap50=90.0, fps=2.5, peak_memory_mb=1200.0)
-    _write_run_summary(suite_root / "G5", variant="G5", ap=74.2, ap50=92.5, fps=2.2, peak_memory_mb=1350.0)
+    _write_run_summary(suite_root / "legacy_heuristic_graph_merge_baseline", variant="legacy_heuristic_graph_merge_baseline", ap=71.1, ap50=90.0, fps=2.5, peak_memory_mb=1200.0)
+    _write_run_summary(suite_root / "legacy_prototype_unet_with_rgbd_similarity_shape_stats", variant="legacy_prototype_unet_with_rgbd_similarity_shape_stats", ap=74.2, ap50=92.5, fps=2.2, peak_memory_mb=1350.0)
     out_path = tmp_path / "extended_metrics_table.md"
 
     subprocess.run(
@@ -114,15 +114,15 @@ def test_write_extended_metrics_table(tmp_path: Path) -> None:
     assert "Model" in text
     assert "segm/AP" in text
     assert "throughput_fps" in text
-    assert "G5" in text
+    assert "legacy_prototype_unet_with_rgbd_similarity_shape_stats" in text
 
 
 def test_summarize_suite_reports_best_variant(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     suite_root = tmp_path / "suite"
-    _write_run_summary(suite_root / "B0", variant="B0", ap=71.1, ap50=90.0, fps=2.5, peak_memory_mb=1200.0)
-    _write_run_summary(suite_root / "G3", variant="G3", ap=72.6, ap50=91.0, fps=2.4, peak_memory_mb=1250.0)
-    _write_run_summary(suite_root / "G5", variant="G5", ap=74.2, ap50=92.5, fps=2.2, peak_memory_mb=1350.0)
+    _write_run_summary(suite_root / "legacy_heuristic_graph_merge_baseline", variant="legacy_heuristic_graph_merge_baseline", ap=71.1, ap50=90.0, fps=2.5, peak_memory_mb=1200.0)
+    _write_run_summary(suite_root / "legacy_prototype_unet_with_graph", variant="legacy_prototype_unet_with_graph", ap=72.6, ap50=91.0, fps=2.4, peak_memory_mb=1250.0)
+    _write_run_summary(suite_root / "legacy_prototype_unet_with_rgbd_similarity_shape_stats", variant="legacy_prototype_unet_with_rgbd_similarity_shape_stats", ap=74.2, ap50=92.5, fps=2.2, peak_memory_mb=1350.0)
     out_json = tmp_path / "suite_summary.json"
     out_md = tmp_path / "suite_summary.md"
 
@@ -144,7 +144,7 @@ def test_summarize_suite_reports_best_variant(tmp_path: Path) -> None:
     )
 
     summary = json.loads(out_json.read_text(encoding="utf-8"))
-    assert summary["best_variant"] == "G5"
+    assert summary["best_variant"] == "legacy_prototype_unet_with_rgbd_similarity_shape_stats"
     assert summary["num_runs"] == 3
     assert "best segm/AP" in out_md.read_text(encoding="utf-8")
 

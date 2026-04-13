@@ -63,7 +63,7 @@ def _run_train(repo_root: Path, dataset_root: Path, prototype_root: Path, output
             "--output-dir",
             str(output_root),
             "--variant",
-            "G5",
+            "legacy_prototype_unet_with_rgbd_similarity_shape_stats",
             "--device",
             "cpu",
             "--image-size",
@@ -117,7 +117,7 @@ def test_eval_and_infer_gisec_minibatch(tmp_path: Path) -> None:
             "--checkpoint-dir",
             str(train_output),
             "--variant",
-            "G5",
+            "legacy_prototype_unet_with_rgbd_similarity_shape_stats",
             "--checkpoint",
             "model_best.pth",
             "--device",
@@ -155,7 +155,7 @@ def test_eval_and_infer_gisec_minibatch(tmp_path: Path) -> None:
             "--checkpoint-dir",
             str(train_output),
             "--variant",
-            "G5",
+            "legacy_prototype_unet_with_rgbd_similarity_shape_stats",
             "--checkpoint",
             "model_best.pth",
             "--device",
@@ -264,6 +264,16 @@ def test_eval_and_infer_gisec_minibatch(tmp_path: Path) -> None:
     assert "num_fragments" in eval_graph_rows[0]
     assert "num_edges" in eval_graph_rows[0]
     assert "num_merged" in eval_graph_rows[0]
+    for key in [
+        "ownership_offset_prediction_error",
+        "boundary_miss_rate",
+        "fragment_overflow_rate",
+        "fragment_impurity_rate",
+        "over_merge_count",
+        "under_merge_count",
+    ]:
+        assert key in eval_graph_rows[0]
+        assert key in infer_graph_rows[0]
 
 
 def test_eval_and_infer_reject_shared_checkpoint_and_output_roots(tmp_path: Path) -> None:
@@ -290,7 +300,7 @@ def test_eval_and_infer_reject_shared_checkpoint_and_output_roots(tmp_path: Path
                 "--checkpoint-dir",
                 str(train_output),
                 "--variant",
-                "G5",
+                "legacy_prototype_unet_with_rgbd_similarity_shape_stats",
                 "--checkpoint",
                 "model_best.pth",
                 "--device",

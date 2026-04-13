@@ -88,7 +88,7 @@ class GraphRefiner:
         graph_batch: GraphBatch,
         edge_logits: torch.Tensor,
         threshold: float,
-        variant: str | VariantSpec = "G5",
+        variant: str | VariantSpec = "legacy_prototype_unet_with_rgbd_similarity_shape_stats",
         merge_order: str = "score",
         random_seed: int = 1337,
     ) -> torch.Tensor:

@@ -100,7 +100,7 @@ def test_build_graph_batch_from_fragments_regression_fixture() -> None:
         depth_map=depth_map,
         instance_map=instance_map,
         prototype_cache=None,
-        variant="G1",
+        variant="legacy_prototype_unet_baseline",
         boundary_threshold=0.5,
         purity_threshold=0.0,
     )
@@ -157,7 +157,7 @@ def test_evaluate_and_export_rejects_batched_loader(tmp_path) -> None:
             loader=loader,
             device=torch.device("cpu"),
             prototype_source=None,
-            variant="G5",
+            variant="legacy_prototype_unet_with_rgbd_similarity_shape_stats",
             ann_file=None,
             results_json=tmp_path / "results.json",
             min_area=4,

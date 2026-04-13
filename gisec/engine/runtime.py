@@ -889,7 +889,7 @@ def build_model(
         reference_skip_margin=reference_skip_margin,
     ).to(device)
     if checkpoint is not None:
-        state_dict = torch.load(str(checkpoint), map_location=device)
+        state_dict = torch.load(str(checkpoint), map_location=device, weights_only=True)
         model.load_state_dict(state_dict)
     return model
 
@@ -1132,11 +1132,52 @@ def evaluate_and_export(
                 diagnostics_budget is None or diagnostics_written < diagnostics_budget
             ):
                 graph_batch.diagnostics["num_merged"] = len(masks)
+                ownership_offset_prediction_error = None
+                boundary_miss_rate = None
+                fragment_overflow_rate = None
+                fragment_impurity_rate = None
+                over_merge_count = None
+                under_merge_count = None
+                if "ownership_offsets" in outputs and outputs["ownership_offsets"] is not None:
+                    from gisec.train.query_targets import build_ownership_target
+
+                    ownership_target = torch.from_numpy(
+                        build_ownership_target(batch["instance_maps"][0].detach().cpu().numpy())
+                    ).to(device=outputs["ownership_offsets"].device, dtype=outputs["ownership_offsets"].dtype)
+                    fg_mask = batch["fg_target"][0, 0].detach().to(device=ownership_target.device) > 0.5
+                    if bool(fg_mask.any()):
+                        ownership_diff = torch.abs(outputs["ownership_offsets"][0] - ownership_target)
+                        ownership_mask = fg_mask.unsqueeze(0).expand_as(ownership_diff)
+                        ownership_offset_prediction_error = float(ownership_diff.masked_select(ownership_mask).mean().item())
+                boundary_target = batch["boundary_target"][0, 0].detach().cpu().numpy()
+                boundary_positive = boundary_target > 0.5
+                if bool(boundary_positive.any()):
+                    boundary_miss_rate = float(
+                        np.logical_and(boundary_positive, boundary_prob < float(fragment_boundary_threshold)).sum()
+                        / max(int(boundary_positive.sum()), 1)
+                    )
+                gt_count = int(match_row["gt_count"])
+                pred_count = int(match_row["pred_count"])
+                fragment_count = int(graph_batch.diagnostics.get("num_fragments", 0))
+                if gt_count >= 0:
+                    fragment_overflow_rate = float(max(fragment_count - gt_count, 0) / max(gt_count, 1))
+                if graph_batch.fragment_geometry is not None:
+                    purity = graph_batch.fragment_geometry.purity.detach().to(dtype=torch.float32)
+                    if int(purity.numel()) > 0:
+                        fragment_impurity_rate = float((1.0 - purity).mean().item())
+                over_merge_count = int(max(gt_count - pred_count, 0))
+                under_merge_count = int(max(pred_count - gt_count, 0))
                 diagnostic_row = {
                     "image_id": int(batch["image_ids"][0]),
                     "file_name": batch["file_names"][0],
                     "variant": variant_spec.name,
                     **graph_batch.diagnostics,
+                    "ownership_offset_prediction_error": ownership_offset_prediction_error,
+                    "boundary_miss_rate": boundary_miss_rate,
+                    "fragment_overflow_rate": fragment_overflow_rate,
+                    "fragment_impurity_rate": fragment_impurity_rate,
+                    "over_merge_count": over_merge_count,
+                    "under_merge_count": under_merge_count,
                     "graph_has_edges": int(graph_batch.edge_index.shape[1] > 0),
                     "graph_positive_edge_targets": 0.0
                     if graph_batch.edge_targets is None

@@ -63,7 +63,7 @@ def test_build_graph_batch_emits_bridge_edges_for_short_supported_gaps(
         depth_map=depth_map,
         instance_map=instance_map,
         prototype_cache=_make_prototype_cache(),
-        variant=get_variant_spec("G4"),
+        variant=get_variant_spec("legacy_prototype_unet_with_rgbd_similarity"),
         min_area=2,
     )
 
@@ -92,7 +92,7 @@ def test_build_graph_batch_keeps_contact_edges_when_ownership_is_weak(
         depth_map=depth_map,
         instance_map=None,
         prototype_cache=_make_prototype_cache(),
-        variant=get_variant_spec("Q2"),
+        variant=get_variant_spec("legacy_query_mask_reference_graph_rescue_debug"),
         min_area=2,
     )
 
@@ -118,7 +118,7 @@ def test_build_graph_batch_detects_contact_edges_when_boundary_pixel_is_already_
         depth_map=depth_map,
         instance_map=None,
         prototype_cache=_make_prototype_cache(),
-        variant=get_variant_spec("Q1"),
+        variant=get_variant_spec("legacy_query_mask_reference_routing_debug"),
         min_area=2,
     )
 
@@ -144,7 +144,7 @@ def test_build_graph_batch_does_not_drop_bridge_candidates_only_for_low_ownershi
         depth_map=depth_map,
         instance_map=None,
         prototype_cache=_make_prototype_cache(),
-        variant=get_variant_spec("Q2"),
+        variant=get_variant_spec("legacy_query_mask_reference_graph_rescue_debug"),
         min_area=2,
     )
 
@@ -175,7 +175,7 @@ def test_build_graph_batch_marks_low_purity_edges_as_ignored(
         depth_map=depth_map,
         instance_map=instance_map,
         prototype_cache=_make_prototype_cache(),
-        variant=get_variant_spec("G4"),
+        variant=get_variant_spec("legacy_prototype_unet_with_rgbd_similarity"),
         min_area=2,
     )
 
@@ -194,6 +194,31 @@ def test_merge_instances_from_edge_scores_rejects_shape_violating_merges() -> No
         {"area_ratio": 0.22, "aspect_ratio": 0.5, "bbox": (6, 2, 4, 8)},
     ]
     shape_stats = {"area_q10": 0.05, "area_q90": 0.25, "aspect_q10": 0.4, "aspect_q90": 0.8}
+
+    merged = merge_instances_from_edge_scores(
+        fragments=fragments,
+        edge_index=edge_index,
+        edge_scores=edge_scores,
+        threshold=0.5,
+        fragment_stats=fragment_stats,
+        shape_stats=shape_stats,
+    )
+
+    labels = sorted(x for x in np.unique(merged).tolist() if x > 0)
+    assert labels == [1, 2]
+
+
+def test_merge_instances_from_edge_scores_rejects_area_imbalanced_merges() -> None:
+    fragments = np.zeros((12, 12), dtype=np.int32)
+    fragments[2:10, 1:4] = 1
+    fragments[2:10, 6:11] = 2
+    edge_index = torch.tensor([[0], [1]], dtype=torch.long)
+    edge_scores = torch.tensor([0.95], dtype=torch.float32)
+    fragment_stats = [
+        {"area_ratio": 0.10, "aspect_ratio": 0.5, "bbox": (1, 2, 3, 8)},
+        {"area_ratio": 0.50, "aspect_ratio": 0.5, "bbox": (6, 2, 5, 8)},
+    ]
+    shape_stats = {"area_q10": 0.0, "area_q90": 1.0, "aspect_q10": 0.0, "aspect_q90": 10.0}
 
     merged = merge_instances_from_edge_scores(
         fragments=fragments,
@@ -327,7 +352,7 @@ def test_build_graph_batch_uses_ownership_supervision_for_fragment_splitting_bef
         depth_map=depth_map,
         instance_map=None,
         prototype_cache=_make_prototype_cache(),
-        variant=get_variant_spec("Q1"),
+        variant=get_variant_spec("legacy_query_mask_reference_routing_debug"),
         min_area=2,
     )
 
@@ -368,7 +393,7 @@ def test_build_graph_batch_returns_tensor_fragments_and_tensor_geometry() -> Non
         depth_map=depth_map,
         instance_map=None,
         prototype_cache=_make_prototype_cache(),
-        variant=get_variant_spec("G1"),
+        variant=get_variant_spec("legacy_prototype_unet_baseline"),
         min_area=2,
     )
 
@@ -426,7 +451,7 @@ def test_build_graph_batch_passes_runtime_boundary_threshold_to_contact_pairs(
         depth_map=depth_map,
         instance_map=None,
         prototype_cache=_make_prototype_cache(),
-        variant=get_variant_spec("Q2"),
+        variant=get_variant_spec("legacy_query_mask_reference_graph_rescue_debug"),
         boundary_threshold=0.17,
         min_area=2,
     )

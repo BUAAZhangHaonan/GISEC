@@ -60,7 +60,7 @@ def test_build_graph_batch_matches_cpu_reference_on_cuda() -> None:
         depth_map=depth_map,
         instance_map=instance_map,
         prototype_cache=None,
-        variant=get_variant_spec("G1"),
+        variant=get_variant_spec("legacy_prototype_unet_baseline"),
         min_area=2,
     )
     gpu_batch = build_graph_batch(
@@ -71,7 +71,7 @@ def test_build_graph_batch_matches_cpu_reference_on_cuda() -> None:
         depth_map=depth_map.cuda(),
         instance_map=instance_map.cuda(),
         prototype_cache=None,
-        variant=get_variant_spec("G1"),
+        variant=get_variant_spec("legacy_prototype_unet_baseline"),
         min_area=2,
     )
 
