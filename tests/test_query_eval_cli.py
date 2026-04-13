@@ -63,8 +63,7 @@ def test_query_eval_cli_runs_official_eval_protocol(tmp_path: Path) -> None:
                 "common": {
                     "dataset_root": str(dataset_root),
                     "output_dir": str(train_output),
-                    "model_family": "UQ",
-                    "model_scale": "s",
+                    "variant": "query_small_resnet18",
                 },
                 "train": {
                     "device": "cpu",
@@ -95,8 +94,7 @@ def test_query_eval_cli_runs_official_eval_protocol(tmp_path: Path) -> None:
                 "common": {
                     "dataset_root": str(dataset_root),
                     "output_dir": str(eval_output),
-                    "model_family": "UQ",
-                    "model_scale": "s",
+                    "variant": "query_small_resnet18",
                 },
                 "eval": {
                     "device": "cpu",
@@ -124,9 +122,34 @@ def test_query_eval_cli_runs_official_eval_protocol(tmp_path: Path) -> None:
     assert (eval_output / "metrics.cocoeval.json").exists()
     assert (eval_output / "failure_summary.json").exists()
     assert not (eval_output / "model_best.pth").exists()
+    run_summary = json.loads((eval_output / "run_summary.json").read_text(encoding="utf-8"))
+    assert run_summary["variant"] == "query_small_resnet18"
+    assert run_summary["checkpoint_path"] == str(train_output / "model_best.pth")
     metric_rows = [json.loads(line) for line in (eval_output / "metrics_log.jsonl").read_text(encoding="utf-8").splitlines()]
     assert metric_rows
     assert all(row["mode"] == "eval" for row in metric_rows)
+
+
+def test_query_eval_cli_rejects_reference_variant_without_prototype_root(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gisec.cli.eval_query",
+            "--dry-run",
+            "--variant",
+            "query_ref_resnet18",
+        ],
+        cwd=str(repo_root),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "--prototype-root is required for reference query variants" in result.stderr
 
 
 def test_query_eval_cli_rejects_missing_checkpoint_file(tmp_path: Path) -> None:
@@ -144,10 +167,8 @@ def test_query_eval_cli_rejects_missing_checkpoint_file(tmp_path: Path) -> None:
             str(dataset_root),
             "--output-dir",
             str(eval_output),
-            "--model-family",
-            "UQ",
-            "--model-scale",
-            "s",
+            "--variant",
+            "query_small_resnet18",
             "--checkpoint",
             str(tmp_path / "missing.pth"),
         ],
@@ -174,8 +195,7 @@ def test_query_eval_cli_rejects_output_dir_that_matches_checkpoint_parent(tmp_pa
                 "common": {
                     "dataset_root": str(dataset_root),
                     "output_dir": str(train_output),
-                    "model_family": "UQ",
-                    "model_scale": "s",
+                    "variant": "query_small_resnet18",
                 },
                 "train": {
                     "device": "cpu",
@@ -208,10 +228,8 @@ def test_query_eval_cli_rejects_output_dir_that_matches_checkpoint_parent(tmp_pa
             str(dataset_root),
             "--output-dir",
             str(train_output),
-            "--model-family",
-            "UQ",
-            "--model-scale",
-            "s",
+            "--variant",
+            "query_small_resnet18",
             "--checkpoint",
             str(train_output / "model_best.pth"),
         ],

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 import time
 from pathlib import Path
@@ -10,12 +11,16 @@ from torch.utils.data import DataLoader
 
 from baseline.common.coco_export import masks_to_coco_results
 from gisec.datasets.ecc_query_dataset import ECCGraphDataset, collate_graph_batch
+from gisec.datasets.prototype_bank import PrototypeBank, PrototypeBankSource
 from gisec.engine.runtime import evaluate_json
 from gisec.engine.query_factory import build_query_model
 from gisec.engine.query_runtime import (
     UQRunSummary,
+    build_query_graph_batch,
+    merge_query_graph_instances,
     predict_instance_map,
     save_run_summary,
+    score_query_graph_edges,
     summarize_instance_matching,
     summarize_mask_calibration,
     summarize_object_pathology,
@@ -28,6 +33,10 @@ from gisec.train.query_targets import (
     build_instance_boundary_target,
     build_ownership_target,
 )
+
+
+DEFAULT_GRAPH_LOSS_WEIGHT = 0.5
+DEFAULT_GRAPH_WARMUP_STEPS = 0
 
 
 def _build_alpha_targets_from_instance_maps(instance_maps: torch.Tensor) -> dict[str, torch.Tensor]:
@@ -136,7 +145,7 @@ def _build_alpha_optimizer(model: torch.nn.Module, *, lr: float, head_lr_multipl
     for name, param in model.named_parameters():
         if not param.requires_grad:
             continue
-        if any(token in name for token in ("fg_head", "boundary_head", "core_head", "ownership_head")):
+        if any(token in name for token in ("fg_head", "boundary_head", "core_head", "ownership_head", "graph_head", "edge_scorer")):
             head_params.append(param)
         else:
             base_params.append(param)
@@ -152,6 +161,136 @@ def _append_jsonl(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "a", encoding="utf-8") as handle:
         handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+
+def _requires_prototype_source(model_id: str) -> bool:
+    model_id = str(model_id)
+    return model_id.startswith("query_ref_") or model_id.startswith("query_refgraph_")
+
+
+def _prototype_source_enabled(model_id: str, prototype_root: str | Path | None) -> bool:
+    return _requires_prototype_source(model_id) and bool(prototype_root)
+
+
+def _graph_variant_enabled(model_id: str) -> bool:
+    model_id = str(model_id)
+    return model_id.startswith("query_graph_") or model_id.startswith("query_refgraph_")
+
+
+def _model_supports_reference_bank(model: torch.nn.Module) -> bool:
+    forward = getattr(model, "forward", None)
+    if forward is None:
+        return False
+    try:
+        signature = inspect.signature(forward)
+    except (TypeError, ValueError):
+        return False
+    return "reference_bank" in signature.parameters or any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in signature.parameters.values()
+    )
+
+
+class _QueryPrototypeSource:
+    def __init__(
+        self,
+        *,
+        model: torch.nn.Module,
+        prototype_root: str | Path,
+        image_size: int,
+        device_obj: torch.device,
+        contract_mode: str = "compat",
+        max_views: int = 0,
+        view_sampler: str = "all",
+        build_batch_size: int = 4,
+    ) -> None:
+        self.model = model
+        self.device_obj = device_obj
+        self.source = PrototypeBankSource(
+            root=Path(prototype_root),
+            image_size=image_size,
+            contract_mode=contract_mode,
+            max_views=max_views,
+            view_sampler=view_sampler,
+        )
+
+    def resolve_for_file_name(self, file_name: str) -> PrototypeBank:
+        return self.source.load_for_query(str(file_name))
+
+
+def _maybe_prepare_prototype_source(
+    *,
+    model_id: str,
+    prototype_root: str | Path | None,
+    model: torch.nn.Module,
+    image_size: int,
+    device_obj: torch.device,
+    contract_mode: str = "compat",
+    max_views: int = 0,
+    view_sampler: str = "all",
+    build_batch_size: int = 4,
+) -> _QueryPrototypeSource | None:
+    if not _prototype_source_enabled(model_id, prototype_root):
+        return None
+    return _QueryPrototypeSource(
+        model=model,
+        prototype_root=Path(prototype_root),
+        image_size=image_size,
+        device_obj=device_obj,
+        contract_mode=contract_mode,
+        max_views=max_views,
+        view_sampler=view_sampler,
+        build_batch_size=build_batch_size,
+    )
+
+
+def _forward_query_batch(
+    *,
+    model: torch.nn.Module,
+    images: torch.Tensor,
+    depths: torch.Tensor,
+    file_names: list[str],
+    prototype_source: _QueryPrototypeSource | None,
+) -> dict[str, torch.Tensor]:
+    if prototype_source is None:
+        return model(images, depths)
+    if not _model_supports_reference_bank(model):
+        raise ValueError(
+            "reference query variants require a model.forward that accepts reference_bank"
+        )
+
+    grouped_indices: dict[Path, list[int]] = {}
+    bank_by_root: dict[Path, PrototypeBank] = {}
+    for index, file_name in enumerate(file_names):
+        bank = prototype_source.resolve_for_file_name(file_name)
+        root = bank.root.resolve()
+        grouped_indices.setdefault(root, []).append(index)
+        bank_by_root[root] = bank
+
+    merged_tensor_outputs: dict[str, list[torch.Tensor | None]] = {}
+    for root, indices in grouped_indices.items():
+        subset_images = images[indices]
+        subset_depths = depths[indices]
+        subset_outputs = model(subset_images, subset_depths, reference_bank=bank_by_root[root])
+        for key, value in subset_outputs.items():
+            if not torch.is_tensor(value):
+                continue
+            slots = merged_tensor_outputs.setdefault(key, [None] * len(file_names))
+            for local_index, sample_index in enumerate(indices):
+                slots[sample_index] = value[local_index:local_index + 1]
+
+    merged_outputs: dict[str, torch.Tensor] = {}
+    for key, chunks in merged_tensor_outputs.items():
+        if any(chunk is None for chunk in chunks):
+            raise RuntimeError(f"Query model output '{key}' was not produced for every sample in the batch")
+        merged_outputs[key] = torch.cat([chunk for chunk in chunks if chunk is not None], dim=0)
+    return merged_outputs
+
+
+def _graph_loss_weight(step_index: int, *, graph_loss_weight: float, graph_warmup_steps: int) -> float:
+    if int(step_index) < int(graph_warmup_steps):
+        return 0.0
+    return float(graph_loss_weight)
 
 
 def _predicted_masks_from_instance_map(instance_map: torch.Tensor) -> list[torch.Tensor]:
@@ -207,7 +346,7 @@ def _load_query_model_state(
 ) -> torch.nn.Module:
     model = build_query_model(model_id).to(device_obj)
     if checkpoint is not None and Path(checkpoint).exists():
-        state = torch.load(Path(checkpoint), map_location=device_obj)
+        state = torch.load(Path(checkpoint), map_location=device_obj, weights_only=True)
         model.load_state_dict(state["model"] if isinstance(state, dict) and "model" in state else state)
     return model
 
@@ -225,6 +364,7 @@ def _run_uq_eval_outputs(
     output_dir: Path,
     model_id: str,
     model: torch.nn.Module,
+    prototype_source: _QueryPrototypeSource | None,
     val_loader: DataLoader,
     device_obj: torch.device,
     image_size: int,
@@ -234,6 +374,7 @@ def _run_uq_eval_outputs(
     min_area: int,
     start_time: float,
     metrics_log_path: Path,
+    checkpoint_path: Path | None,
 ) -> None:
     mask_rows: list[dict[str, float]] = []
     pathology_rows: list[dict[str, float]] = []
@@ -248,53 +389,94 @@ def _run_uq_eval_outputs(
     }
     coco_results: list[dict] = []
     model.eval()
-    for batch_idx, batch in enumerate(val_loader):
-        if batch_idx >= int(max_val_images):
-            break
+    processed_count = 0
+    for batch in val_loader:
         images = batch["images"].to(device_obj)
         depths = batch["depths"].to(device_obj)
         with torch.no_grad():
-            outputs = model(images, depths)
-        alpha_targets = _build_alpha_targets_from_batch(batch)
-        pred_map, stats = predict_instance_map(
-            fg_logits=outputs["fg_logits"][0, 0].detach().cpu(),
-            boundary_logits=outputs["boundary_logits"][0, 0].detach().cpu(),
-            core_heatmap=outputs["core_heatmap"][0, 0].detach().cpu(),
-            ownership_offsets=outputs["ownership_offsets"][0].detach().cpu(),
-            min_area=min_area,
-        )
-        fg_prob = torch.sigmoid(outputs["fg_logits"][0, 0].detach().cpu())
-        boundary_prob = torch.sigmoid(outputs["boundary_logits"][0, 0].detach().cpu())
-        mask_rows.append(
-            {
-                "pred_fg_rate": float((fg_prob >= 0.5).float().mean().item()),
-                "pred_boundary_rate": float((boundary_prob >= 0.5).float().mean().item()),
-                "target_fg_rate": float(alpha_targets["fg"][0, 0].float().mean().item()),
-                "target_boundary_rate": float(alpha_targets["boundary"][0, 0].float().mean().item()),
-            }
-        )
-        pathology_rows.append(stats)
-        match_rows.append(summarize_instance_matching(batch["instance_maps"][0], pred_map))
-        failure_counts[_classify_failure(batch["instance_maps"][0], pred_map)] += 1
-        pred_masks = [mask.cpu().numpy().astype("uint8") for mask in _predicted_masks_from_instance_map(pred_map)]
-        mask_scores = _mask_scores_from_fg_prob(pred_map, fg_prob)
-        coco_results.extend(
-            masks_to_coco_results(
-                image_id=int(batch["image_ids"][0]),
-                masks=pred_masks,
-                scores=mask_scores,
+            outputs = _forward_query_batch(
+                model=model,
+                images=images,
+                depths=depths,
+                file_names=[str(file_name) for file_name in batch["file_names"]],
+                prototype_source=prototype_source,
             )
-        )
-        evaluated_image_ids.append(int(batch["image_ids"][0]))
-        _append_jsonl(
-            metrics_log_path,
-            {
-                "mode": "eval",
-                "image_id": int(batch["image_ids"][0]),
-                **stats,
-                **match_rows[-1],
-            },
-        )
+        alpha_targets = _build_alpha_targets_from_batch(batch)
+        for sample_idx in range(int(outputs["fg_logits"].shape[0])):
+            if int(max_val_images) > 0 and processed_count >= int(max_val_images):
+                break
+            sample_outputs = {key: value[sample_idx:sample_idx + 1] for key, value in outputs.items()}
+            graph_variant = _graph_variant_enabled(model_id)
+            if graph_variant:
+                graph_batch = build_query_graph_batch(
+                    outputs=sample_outputs,
+                    depth_map=depths[sample_idx:sample_idx + 1],
+                    instance_map=batch["instance_maps"][sample_idx:sample_idx + 1],
+                    prototype_cache=None,
+                    variant=model_id,
+                    fragment_fg_threshold=0.5,
+                    fragment_boundary_threshold=0.5,
+                    min_area=min_area,
+                )
+                edge_logits = score_query_graph_edges(model, graph_batch)
+                pred_map = merge_query_graph_instances(
+                    graph_batch=graph_batch,
+                    edge_logits=edge_logits,
+                    threshold=0.5,
+                )
+                pred_count = len([int(x) for x in torch.unique(pred_map).tolist() if int(x) > 0])
+                gt_count = len([int(x) for x in torch.unique(batch["instance_maps"][sample_idx]).tolist() if int(x) > 0])
+                stats = {
+                    "object_count": float(pred_count),
+                    "split_count": float(max(pred_count - gt_count, 0)),
+                    "avg_cores_per_object": float(graph_batch.diagnostics.get("num_edges", 0)) / float(max(pred_count, 1)),
+                }
+            else:
+                pred_map, stats = predict_instance_map(
+                    fg_logits=outputs["fg_logits"][sample_idx, 0].detach().cpu(),
+                    boundary_logits=outputs["boundary_logits"][sample_idx, 0].detach().cpu(),
+                    core_heatmap=outputs["core_heatmap"][sample_idx, 0].detach().cpu(),
+                    ownership_offsets=outputs["ownership_offsets"][sample_idx].detach().cpu(),
+                    min_area=min_area,
+                )
+            fg_prob = torch.sigmoid(outputs["fg_logits"][sample_idx, 0].detach().cpu())
+            boundary_prob = torch.sigmoid(outputs["boundary_logits"][sample_idx, 0].detach().cpu())
+            mask_rows.append(
+                {
+                    "pred_fg_rate": float((fg_prob >= 0.5).float().mean().item()),
+                    "pred_boundary_rate": float((boundary_prob >= 0.5).float().mean().item()),
+                    "target_fg_rate": float(alpha_targets["fg"][sample_idx, 0].float().mean().item()),
+                    "target_boundary_rate": float(alpha_targets["boundary"][sample_idx, 0].float().mean().item()),
+                }
+            )
+            pathology_rows.append(stats)
+            gt_instance_map = batch["instance_maps"][sample_idx]
+            match = summarize_instance_matching(gt_instance_map, pred_map)
+            match_rows.append(match)
+            failure_counts[_classify_failure(gt_instance_map, pred_map)] += 1
+            pred_masks = [mask.cpu().numpy().astype("uint8") for mask in _predicted_masks_from_instance_map(pred_map)]
+            mask_scores = _mask_scores_from_fg_prob(pred_map, fg_prob)
+            image_id = int(batch["image_ids"][sample_idx])
+            coco_results.extend(
+                masks_to_coco_results(
+                    image_id=image_id,
+                    masks=pred_masks,
+                    scores=mask_scores,
+                )
+            )
+            evaluated_image_ids.append(image_id)
+            _append_jsonl(
+                metrics_log_path,
+                {
+                    "mode": "eval",
+                    "image_id": image_id,
+                    **stats,
+                    **match,
+                },
+            )
+            processed_count += 1
+        if int(max_val_images) > 0 and processed_count >= int(max_val_images):
+            break
 
     results_json = output_dir / "coco_instances_results.json"
     results_json.write_text(json.dumps(coco_results, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -321,9 +503,10 @@ def _run_uq_eval_outputs(
         UQRunSummary(
             variant=model_id,
             model_id=model_id,
+            checkpoint_path=None if checkpoint_path is None else str(Path(checkpoint_path)),
             split_mode="object_first",
-            use_reference=False,
-            use_graph_rescue=False,
+            use_reference=_requires_prototype_source(model_id),
+            use_graph_rescue=_graph_variant_enabled(model_id),
             dataset_root=str(dataset_root),
             output_dir=str(output_dir),
             image_size=int(image_size),
@@ -345,6 +528,7 @@ def run_uq_minibatch(
     output_dir: Path,
     model_id: str,
     checkpoint: Path | None = None,
+    prototype_root: Path | None = None,
     device: str = "cpu",
     image_size: int = 64,
     batch_size: int = 1,
@@ -359,6 +543,8 @@ def run_uq_minibatch(
     core_loss_weight: float = 4.0,
     ownership_loss_weight: float = 0.25,
     ownership_warmup_steps: int = 16,
+    graph_loss_weight: float = DEFAULT_GRAPH_LOSS_WEIGHT,
+    graph_warmup_steps: int = DEFAULT_GRAPH_WARMUP_STEPS,
 ) -> None:
     start_time = time.perf_counter()
     dataset_root = Path(dataset_root).resolve()
@@ -368,10 +554,41 @@ def run_uq_minibatch(
 
     train_dataset = ECCGraphDataset(str(dataset_root), "train", image_size, train=True)
     val_dataset = ECCGraphDataset(str(dataset_root), "val", image_size, train=False)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, collate_fn=collate_graph_batch)
-    val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=num_workers, collate_fn=collate_graph_batch)
+    use_cuda = str(device_obj.type) == "cuda"
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=max(batch_size, 1),
+        shuffle=False,
+        num_workers=num_workers,
+        collate_fn=collate_graph_batch,
+        pin_memory=use_cuda,
+    )
+    val_loader_kwargs = {
+        "batch_size": max(batch_size, 1),
+        "shuffle": False,
+        "num_workers": num_workers,
+        "collate_fn": collate_graph_batch,
+        "pin_memory": use_cuda,
+    }
+    if int(num_workers) > 0:
+        val_loader_kwargs["prefetch_factor"] = 2
+        val_loader_kwargs["persistent_workers"] = True
+    val_loader = DataLoader(val_dataset, **val_loader_kwargs)
 
     model = _load_query_model_state(model_id=model_id, device_obj=device_obj, checkpoint=checkpoint)
+    if _requires_prototype_source(model_id) and not prototype_root:
+        raise ValueError("reference query variants require prototype_root")
+    if _requires_prototype_source(model_id) and not _model_supports_reference_bank(model):
+        raise ValueError("reference query variants require a model.forward that accepts reference_bank")
+    if _graph_variant_enabled(model_id) and getattr(model, "forward_graph", None) is None and getattr(model, "graph_head", None) is None:
+        raise ValueError("graph query variants require a learned graph scorer")
+    prototype_source = _maybe_prepare_prototype_source(
+        model_id=model_id,
+        prototype_root=prototype_root,
+        model=model,
+        image_size=image_size,
+        device_obj=device_obj,
+    )
     optimizer = _build_alpha_optimizer(model, lr=lr, head_lr_multiplier=head_lr_multiplier)
     loss_weights = {
         "fg": float(fg_loss_weight),
@@ -388,23 +605,73 @@ def run_uq_minibatch(
     for batch in train_loader:
         images = batch["images"].to(device_obj)
         depths = batch["depths"].to(device_obj)
+        file_names = [str(file_name) for file_name in batch["file_names"]]
         alpha_targets = {
             key: value.to(device_obj)
             for key, value in _build_alpha_targets_from_batch(batch).items()
         }
 
-        outputs = model(images, depths)
+        outputs = _forward_query_batch(
+            model=model,
+            images=images,
+            depths=depths,
+            file_names=file_names,
+            prototype_source=prototype_source,
+        )
         losses = _compute_alpha_losses(outputs, alpha_targets)
         loss_fg = losses["fg"]
         loss_boundary = losses["boundary"]
         loss_core = losses["core"]
         loss_ownership = losses["ownership"]
+        graph_loss = outputs["fg_logits"].new_zeros(())
+        graph_edge_count = 0
+        graph_valid_edge_count = 0
+        graph_positive_edge_targets = 0
+        graph_loss_rows: list[torch.Tensor] = []
+        if _graph_variant_enabled(model_id):
+            for batch_idx in range(images.shape[0]):
+                sample_outputs = {key: value[batch_idx:batch_idx + 1] for key, value in outputs.items()}
+                graph_batch = build_query_graph_batch(
+                    outputs=sample_outputs,
+                    depth_map=depths[batch_idx:batch_idx + 1],
+                    instance_map=batch["instance_maps"][batch_idx:batch_idx + 1],
+                    prototype_cache=None,
+                    variant=model_id,
+                    fragment_fg_threshold=0.5,
+                    fragment_boundary_threshold=0.5,
+                    min_area=min_area,
+                )
+                if graph_batch.edge_targets is None or graph_batch.edge_targets.numel() == 0:
+                    continue
+                edge_logits = score_query_graph_edges(model, graph_batch)
+                valid_mask = torch.ones_like(graph_batch.edge_targets, dtype=torch.bool)
+                if graph_batch.edge_ignore_mask is not None:
+                    valid_mask = ~graph_batch.edge_ignore_mask.to(dtype=torch.bool)
+                if not bool(valid_mask.any()):
+                    continue
+                graph_edge_count += int(graph_batch.edge_targets.numel())
+                graph_valid_edge_count += int(valid_mask.sum().item())
+                graph_positive_edge_targets += int(graph_batch.edge_targets[valid_mask].sum().item())
+                graph_loss_rows.append(
+                    F.binary_cross_entropy_with_logits(
+                        edge_logits[valid_mask],
+                        graph_batch.edge_targets[valid_mask],
+                    )
+                )
+        if graph_loss_rows:
+            graph_loss = torch.stack(graph_loss_rows).mean()
         loss = _reduce_alpha_losses(
             losses,
             step_index=train_steps + 1,
             ownership_warmup_steps=ownership_warmup_steps,
             loss_weights=loss_weights,
         )
+        if _graph_variant_enabled(model_id):
+            loss = loss + _graph_loss_weight(
+                train_steps + 1,
+                graph_loss_weight=graph_loss_weight,
+                graph_warmup_steps=graph_warmup_steps,
+            ) * graph_loss
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
@@ -413,16 +680,41 @@ def run_uq_minibatch(
         split_count = 0.0
         avg_cores_per_object = 0.0
         for batch_idx in range(images.shape[0]):
-            pred_map, stats = predict_instance_map(
-                fg_logits=outputs["fg_logits"][batch_idx, 0].detach().cpu(),
-                boundary_logits=outputs["boundary_logits"][batch_idx, 0].detach().cpu(),
-                core_heatmap=outputs["core_heatmap"][batch_idx, 0].detach().cpu(),
-                ownership_offsets=outputs["ownership_offsets"][batch_idx].detach().cpu(),
-                min_area=min_area,
-            )
-            object_count += stats["object_count"]
-            split_count += stats["split_count"]
-            avg_cores_per_object += stats["avg_cores_per_object"]
+            if _graph_variant_enabled(model_id):
+                sample_outputs = {key: value[batch_idx:batch_idx + 1] for key, value in outputs.items()}
+                graph_batch = build_query_graph_batch(
+                    outputs=sample_outputs,
+                    depth_map=depths[batch_idx:batch_idx + 1],
+                    instance_map=batch["instance_maps"][batch_idx:batch_idx + 1],
+                    prototype_cache=None,
+                    variant=model_id,
+                    fragment_fg_threshold=0.5,
+                    fragment_boundary_threshold=0.5,
+                    min_area=min_area,
+                )
+                if graph_batch.edge_targets is None or graph_batch.edge_targets.numel() == 0:
+                    continue
+                pred_map = merge_query_graph_instances(
+                    graph_batch=graph_batch,
+                    edge_logits=score_query_graph_edges(model, graph_batch),
+                    threshold=0.5,
+                )
+                pred_count = len([int(x) for x in torch.unique(pred_map).tolist() if int(x) > 0])
+                gt_count = len([int(x) for x in torch.unique(batch["instance_maps"][batch_idx]).tolist() if int(x) > 0])
+                object_count += float(pred_count)
+                split_count += float(max(pred_count - gt_count, 0))
+                avg_cores_per_object += float(graph_batch.diagnostics.get("num_edges", 0)) / float(max(pred_count, 1))
+            else:
+                pred_map, stats = predict_instance_map(
+                    fg_logits=outputs["fg_logits"][batch_idx, 0].detach().cpu(),
+                    boundary_logits=outputs["boundary_logits"][batch_idx, 0].detach().cpu(),
+                    core_heatmap=outputs["core_heatmap"][batch_idx, 0].detach().cpu(),
+                    ownership_offsets=outputs["ownership_offsets"][batch_idx].detach().cpu(),
+                    min_area=min_area,
+                )
+                object_count += stats["object_count"]
+                split_count += stats["split_count"]
+                avg_cores_per_object += stats["avg_cores_per_object"]
 
         row = {
             "mode": "train",
@@ -432,6 +724,10 @@ def run_uq_minibatch(
             "loss_boundary": float(loss_boundary.detach().cpu()),
             "loss_core": float(loss_core.detach().cpu()),
             "loss_ownership": float(loss_ownership.detach().cpu()),
+            "graph_loss": float(graph_loss.detach().cpu()),
+            "graph_edge_count": int(graph_edge_count),
+            "graph_valid_edge_count": int(graph_valid_edge_count),
+            "graph_positive_edge_targets": int(graph_positive_edge_targets),
             "object_count": float(object_count / max(images.shape[0], 1)),
             "split_count": float(split_count / max(images.shape[0], 1)),
             "avg_cores_per_object": float(avg_cores_per_object / max(images.shape[0], 1)),
@@ -441,13 +737,16 @@ def run_uq_minibatch(
         if train_steps >= int(max_train_steps):
             break
 
-    checkpoint_path = output_dir / "model_best.pth"
-    torch.save({"model": model.state_dict()}, checkpoint_path)
+    best_checkpoint_path = output_dir / "model_best.pth"
+    final_checkpoint_path = output_dir / "model_final.pth"
+    torch.save({"model": model.state_dict()}, best_checkpoint_path)
+    torch.save({"model": model.state_dict()}, final_checkpoint_path)
     _run_uq_eval_outputs(
         dataset_root=dataset_root,
         output_dir=output_dir,
         model_id=model_id,
         model=model,
+        prototype_source=prototype_source,
         val_loader=val_loader,
         device_obj=device_obj,
         image_size=image_size,
@@ -457,6 +756,7 @@ def run_uq_minibatch(
         min_area=min_area,
         start_time=start_time,
         metrics_log_path=metrics_log_path,
+        checkpoint_path=final_checkpoint_path,
     )
 
 
@@ -466,6 +766,7 @@ def run_uq_eval(
     output_dir: Path,
     model_id: str,
     checkpoint: Path,
+    prototype_root: Path | None = None,
     device: str = "cpu",
     image_size: int = 64,
     batch_size: int = 1,
@@ -481,8 +782,31 @@ def run_uq_eval(
     output_dir.mkdir(parents=True, exist_ok=True)
     device_obj = torch.device(device)
     val_dataset = ECCGraphDataset(str(dataset_root), "val", image_size, train=False)
-    val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=num_workers, collate_fn=collate_graph_batch)
+    val_loader_kwargs = {
+        "batch_size": max(batch_size, 1),
+        "shuffle": False,
+        "num_workers": num_workers,
+        "collate_fn": collate_graph_batch,
+        "pin_memory": str(device_obj.type) == "cuda",
+    }
+    if int(num_workers) > 0:
+        val_loader_kwargs["prefetch_factor"] = 2
+        val_loader_kwargs["persistent_workers"] = True
+    val_loader = DataLoader(val_dataset, **val_loader_kwargs)
     model = _load_query_model_state(model_id=model_id, device_obj=device_obj, checkpoint=checkpoint)
+    if _requires_prototype_source(model_id) and not prototype_root:
+        raise ValueError("reference query variants require prototype_root")
+    if _requires_prototype_source(model_id) and not _model_supports_reference_bank(model):
+        raise ValueError("reference query variants require a model.forward that accepts reference_bank")
+    if _graph_variant_enabled(model_id) and getattr(model, "forward_graph", None) is None and getattr(model, "graph_head", None) is None:
+        raise ValueError("graph query variants require a learned graph scorer")
+    prototype_source = _maybe_prepare_prototype_source(
+        model_id=model_id,
+        prototype_root=prototype_root,
+        model=model,
+        image_size=image_size,
+        device_obj=device_obj,
+    )
     metrics_log_path = output_dir / "metrics_log.jsonl"
     if metrics_log_path.exists():
         metrics_log_path.unlink()
@@ -491,6 +815,7 @@ def run_uq_eval(
         output_dir=output_dir,
         model_id=model_id,
         model=model,
+        prototype_source=prototype_source,
         val_loader=val_loader,
         device_obj=device_obj,
         image_size=image_size,
@@ -500,4 +825,5 @@ def run_uq_eval(
         min_area=min_area,
         start_time=start_time,
         metrics_log_path=metrics_log_path,
+        checkpoint_path=checkpoint,
     )

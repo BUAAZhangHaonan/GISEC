@@ -61,8 +61,7 @@ def test_query_train_cli_runs_alpha_short_config_and_writes_artifacts(tmp_path: 
                 "common": {
                     "dataset_root": str(dataset_root),
                     "output_dir": str(output_root),
-                    "model_family": "UQ",
-                    "model_scale": "s",
+                    "variant": "query_small_resnet18",
                 },
                 "train": {
                     "device": "cpu",
@@ -94,5 +93,33 @@ def test_query_train_cli_runs_alpha_short_config_and_writes_artifacts(tmp_path: 
     )
 
     assert (output_root / "run_summary.json").exists()
+    assert (output_root / "model_best.pth").exists()
+    assert (output_root / "model_final.pth").exists()
     assert (output_root / "metrics.cocoeval.json").exists()
     assert (output_root / "failure_summary.json").exists()
+
+    run_summary = json.loads((output_root / "run_summary.json").read_text(encoding="utf-8"))
+    assert run_summary["variant"] == "query_small_resnet18"
+    assert run_summary["checkpoint_path"] == str(output_root / "model_final.pth")
+
+
+def test_query_train_cli_rejects_reference_variant_without_prototype_root(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gisec.cli.train_query",
+            "--dry-run",
+            "--variant",
+            "query_ref_resnet18",
+        ],
+        cwd=str(repo_root),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "--prototype-root is required for reference query variants" in result.stderr

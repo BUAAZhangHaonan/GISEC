@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from gisec.config.query_models import active_alpha_model_ids, get_query_model_spec, later_phase_model_ids
+from gisec.config.query_models import active_alpha_model_ids, deferred_query_model_ids, get_query_model_spec
 from gisec.engine.query_reentry_contracts import (
     GraphRescueContract,
     GraphRescueInput,
@@ -113,13 +113,26 @@ def test_query_reentry_contract_validation_rejects_forbidden_graph_scope() -> No
         )
 
 
-def test_query_model_registry_keeps_alpha_active_ids_separate_from_later_phase_ids() -> None:
-    assert active_alpha_model_ids() == ("UQ-s", "UQ-m")
-    assert later_phase_model_ids() == ("UR-s", "UR-m", "UG-s", "UG-m", "UA-s", "UA-m")
+def test_query_model_registry_keeps_alpha_active_ids_separate_from_deferred_ids() -> None:
+    assert active_alpha_model_ids() == ("query_small_resnet18", "query_medium_resnet34")
+    assert deferred_query_model_ids() == (
+        "query_ref_resnet18",
+        "query_ref_resnet34",
+        "query_graph_resnet18",
+        "query_graph_resnet34",
+        "query_refgraph_resnet18",
+        "query_refgraph_resnet34",
+    )
+    assert get_query_model_spec("query_ref_resnet18").use_reference is True
+    assert get_query_model_spec("query_ref_resnet18").use_graph_rescue is False
+    assert get_query_model_spec("query_graph_resnet18").use_reference is False
+    assert get_query_model_spec("query_graph_resnet18").use_graph_rescue is True
+    assert get_query_model_spec("query_refgraph_resnet18").use_reference is True
+    assert get_query_model_spec("query_refgraph_resnet18").use_graph_rescue is True
 
 
 def test_query_alpha_model_spec_carries_stage_and_module_flags() -> None:
-    spec = get_query_model_spec("UQ-s")
+    spec = get_query_model_spec("query_small_resnet18")
 
     assert spec.stage == "alpha"
     assert spec.use_reference is False

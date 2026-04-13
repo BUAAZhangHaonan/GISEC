@@ -1,0 +1,4 @@
+common:
+  variant: query_ref_resnet18
+  encoder_name: resnet18
+  depth_fusion_mode: early6

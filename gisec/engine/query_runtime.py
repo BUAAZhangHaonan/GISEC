@@ -16,6 +16,7 @@ from gisec.engine.query_coarse_objects import (
     build_coarse_objects,
 )
 from gisec.engine.query_object_split import _resolve_peak_threshold, split_coarse_object
+from gisec.models.graph_utils import GraphBatch, build_graph_batch, merge_instances_from_edge_scores
 
 
 def _sigmoid_tensor(x: torch.Tensor) -> torch.Tensor:
@@ -24,10 +25,86 @@ def _sigmoid_tensor(x: torch.Tensor) -> torch.Tensor:
     return torch.sigmoid(x.float())
 
 
+def build_query_graph_batch(
+    *,
+    outputs: dict[str, torch.Tensor],
+    depth_map: torch.Tensor,
+    instance_map: torch.Tensor | None,
+    prototype_cache: object | None,
+    variant: object,
+    fragment_fg_threshold: float = 0.5,
+    fragment_boundary_threshold: float = 0.5,
+    min_area: int = 8,
+) -> GraphBatch:
+    return build_graph_batch(
+        feature_map=outputs["feature_map"],
+        fg_logits=outputs["fg_logits"],
+        boundary_logits=outputs["boundary_logits"],
+        affinity_logits=outputs.get("affinity_logits"),
+        ownership_offsets=outputs.get("ownership_offsets"),
+        depth_map=depth_map,
+        instance_map=instance_map,
+        prototype_cache=prototype_cache,
+        variant=variant,
+        fg_threshold=fragment_fg_threshold,
+        boundary_threshold=fragment_boundary_threshold,
+        min_area=min_area,
+    )
+
+
+def score_query_graph_edges(model: torch.nn.Module, graph_batch: GraphBatch) -> torch.Tensor:
+    forward_graph = getattr(model, "forward_graph", None)
+    if callable(forward_graph):
+        return forward_graph(graph_batch)
+
+    graph_head = getattr(model, "graph_head", None)
+    if graph_head is None:
+        raise ValueError("query graph variants require a learned graph scorer and do not allow heuristic fallback")
+    edge_features = graph_batch.edge_features
+    num_edges = int(edge_features.shape[0])
+    if int(graph_batch.edge_type.numel()) == 0:
+        edge_type = torch.zeros((num_edges,), dtype=torch.long, device=edge_features.device)
+    elif int(graph_batch.edge_type.numel()) == num_edges:
+        edge_type = graph_batch.edge_type.to(device=edge_features.device, dtype=torch.long)
+    else:
+        raise ValueError(
+            "GraphBatch edge_type rows must match edge_features rows: "
+            f"{int(graph_batch.edge_type.numel())} vs {num_edges}"
+        )
+    edge_type_features = F.one_hot(edge_type, num_classes=2).to(dtype=edge_features.dtype)
+    scored_edge_features = torch.cat([edge_features, edge_type_features], dim=1)
+    return graph_head(graph_batch.node_features, graph_batch.edge_index, scored_edge_features)
+
+
+def merge_query_graph_instances(
+    *,
+    graph_batch: GraphBatch,
+    edge_logits: torch.Tensor,
+    threshold: float,
+    merge_order: str = "score",
+    random_seed: int = 1337,
+) -> torch.Tensor:
+    merged = merge_instances_from_edge_scores(
+        fragments=graph_batch.fragments_cpu_numpy(),
+        edge_index=graph_batch.edge_index,
+        edge_scores=torch.sigmoid(edge_logits),
+        threshold=threshold,
+        merge_order=merge_order,
+        random_seed=random_seed,
+        constrained=True,
+        fragment_stats=graph_batch.fragment_stats_cpu(),
+        shape_stats=graph_batch.shape_stats,
+        edge_features=graph_batch.edge_features,
+        edge_ignore_mask=graph_batch.edge_ignore_mask,
+    )
+    return torch.from_numpy(merged)
+
+
 @dataclass(frozen=True)
 class UQRunSummary:
     variant: str
     model_id: str
+    checkpoint_path: str | None
     split_mode: str
     use_reference: bool
     use_graph_rescue: bool

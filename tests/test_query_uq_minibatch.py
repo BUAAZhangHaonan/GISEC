@@ -8,8 +8,9 @@ import numpy as np
 import torch
 
 from gisec.datasets.ecc_query_dataset import build_ownership_target as build_legacy_ownership_target
+from gisec.models.graph_head import GraphEdgeScorer
+from gisec.models.graph_utils import GraphBatch
 from gisec.train.query_targets import build_ownership_target as build_query_ownership_target
-from gisec.train.train_query import run_uq_minibatch
 from gisec.train.train_query import (
     _build_alpha_targets_from_batch,
     _build_alpha_optimizer,
@@ -17,8 +18,10 @@ from gisec.train.train_query import (
     _classify_failure,
     _compute_alpha_losses,
     _reduce_alpha_losses,
+    run_uq_minibatch,
     run_uq_eval,
 )
+from gisec.engine.query_runtime import score_query_graph_edges
 from gisec.engine.query_factory import build_query_model
 
 
@@ -61,7 +64,7 @@ def _write_dataset(root: Path, *, file_name: str = "000001.png") -> None:
         (root / "annotations" / f"instances_{split}.json").write_text(json.dumps(ann), encoding="utf-8")
 
 
-def test_query_uq_minibatch_runs_single_stage_training_and_eval(tmp_path: Path) -> None:
+def test_query_minibatch_runs_single_stage_training_and_eval(tmp_path: Path) -> None:
     dataset_root = tmp_path / "dataset"
     output_root = tmp_path / "out"
     _write_dataset(dataset_root)
@@ -69,7 +72,7 @@ def test_query_uq_minibatch_runs_single_stage_training_and_eval(tmp_path: Path) 
     run_uq_minibatch(
         dataset_root=dataset_root,
         output_dir=output_root,
-        model_id="UQ-s",
+        model_id="query_small_resnet18",
         device="cpu",
         image_size=64,
         batch_size=1,
@@ -80,6 +83,8 @@ def test_query_uq_minibatch_runs_single_stage_training_and_eval(tmp_path: Path) 
     )
 
     assert (output_root / "run_summary.json").exists()
+    assert (output_root / "model_best.pth").exists()
+    assert (output_root / "model_final.pth").exists()
     assert (output_root / "metrics_log.jsonl").exists()
     assert (output_root / "mask_calibration_summary.json").exists()
     assert (output_root / "object_pathology_summary.json").exists()
@@ -89,8 +94,9 @@ def test_query_uq_minibatch_runs_single_stage_training_and_eval(tmp_path: Path) 
     assert (output_root / "metrics.cocoeval.json").exists()
 
     run_summary = json.loads((output_root / "run_summary.json").read_text(encoding="utf-8"))
-    assert run_summary["model_id"] == "UQ-s"
-    assert run_summary["variant"] == "UQ-s"
+    assert run_summary["model_id"] == "query_small_resnet18"
+    assert run_summary["variant"] == "query_small_resnet18"
+    assert run_summary["checkpoint_path"] == str(output_root / "model_final.pth")
     assert run_summary["split_mode"] == "object_first"
     assert run_summary["use_reference"] is False
     assert run_summary["use_graph_rescue"] is False
@@ -119,7 +125,7 @@ def test_query_uq_eval_runs_without_checkpoint_rewrite_or_train_rows(tmp_path: P
     run_uq_minibatch(
         dataset_root=dataset_root,
         output_dir=train_root,
-        model_id="UQ-s",
+        model_id="query_small_resnet18",
         device="cpu",
         image_size=64,
         batch_size=1,
@@ -134,7 +140,7 @@ def test_query_uq_eval_runs_without_checkpoint_rewrite_or_train_rows(tmp_path: P
     run_uq_eval(
         dataset_root=dataset_root,
         output_dir=eval_root,
-        model_id="UQ-s",
+        model_id="query_small_resnet18",
         checkpoint=checkpoint,
         device="cpu",
         image_size=64,
@@ -249,6 +255,28 @@ def test_query_failure_classifier_keeps_oversized_blob_separate_from_under_count
     assert _classify_failure(gt_map, pred_map) == "oversized_blob"
 
 
+def test_query_graph_edge_scoring_uses_a_learned_head_instead_of_heuristics() -> None:
+    model = type(
+        "DummyGraphModel",
+        (),
+        {"graph_head": GraphEdgeScorer(node_dim=4, edge_dim=12, hidden_dim=8)},
+    )()
+    graph_batch = GraphBatch(
+        node_features=torch.randn(3, 4),
+        edge_index=torch.tensor([[0, 1], [1, 2]], dtype=torch.long),
+        edge_features=torch.randn(2, 10),
+        edge_targets=torch.tensor([1.0, 0.0]),
+        fragments=torch.tensor([[1, 1], [0, 2]], dtype=torch.int32),
+        diagnostics={"num_fragments": 2, "num_edges": 2, "num_contact_edges": 2, "num_bridge_edges": 0, "num_ignored_edges": 0, "num_merged": 0},
+        edge_type=torch.tensor([0, 1], dtype=torch.long),
+        edge_ignore_mask=torch.tensor([False, False]),
+    )
+
+    edge_logits = score_query_graph_edges(model, graph_batch)
+
+    assert edge_logits.shape == (2,)
+
+
 def test_query_alpha_loss_reduction_uses_ownership_warmup_and_weighted_terms() -> None:
     losses = {
         "fg": torch.tensor(1.0),
@@ -271,7 +299,7 @@ def test_query_alpha_loss_reduction_uses_ownership_warmup_and_weighted_terms() -
 
 
 def test_query_alpha_optimizer_uses_higher_lr_for_prediction_heads() -> None:
-    model = build_query_model("UQ-s")
+    model = build_query_model("query_small_resnet18")
 
     optimizer = _build_alpha_optimizer(model, lr=1.0e-4, head_lr_multiplier=10.0)
 

@@ -53,4 +53,4 @@ def test_query_runner_uses_gisec_python_and_handles_quoted_paths(tmp_path: Path)
     assert "-m" in wrapper_args
     assert "gisec.cli.train_query" in wrapper_args
     assert str(dataset_root) in wrapper_args
-    assert str(output_root / "UQ-s") in wrapper_args
+    assert str(output_root / "query_small_resnet18") in wrapper_args
