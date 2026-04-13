@@ -267,3 +267,37 @@ def test_active_backward_skips_optimizer_step_for_constant_loss() -> None:
 
     assert stepped is False
     assert all(param.grad is None for param in model.parameters())
+
+
+def test_active_backward_allows_amp_overflow_to_skip_without_failing() -> None:
+    model = torch.nn.Linear(1, 1)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+    scaler = torch.amp.GradScaler("cpu", enabled=True)
+    initial_scale = scaler.get_scale()
+    loss = model.weight.sum() * torch.tensor(float("inf"))
+
+    stepped = _backward_active_loss(
+        model=model,
+        optimizer=optimizer,
+        scaler=scaler,
+        loss=loss,
+    )
+
+    assert stepped is True
+    assert scaler.get_scale() < initial_scale
+    assert any(param.grad is not None for param in model.parameters())
+
+
+def test_active_backward_still_fails_on_non_finite_grads_without_amp() -> None:
+    model = torch.nn.Linear(1, 1)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+    scaler = torch.amp.GradScaler("cpu", enabled=False)
+    loss = model.weight.sum() * torch.tensor(float("inf"))
+
+    with pytest.raises(train_active_module.NonFiniteActiveTrainingError, match="Non-finite gradients"):
+        _backward_active_loss(
+            model=model,
+            optimizer=optimizer,
+            scaler=scaler,
+            loss=loss,
+        )

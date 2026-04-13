@@ -940,7 +940,7 @@ def _backward_active_loss(
                 continue
             if not bool(torch.isfinite(param.grad.detach()).all().item()):
                 grad_failures.append(name)
-        if grad_failures:
+        if grad_failures and not scaler.is_enabled():
             preview = ", ".join(grad_failures[:8])
             raise NonFiniteActiveTrainingError(f"Non-finite gradients detected after backward: {preview}")
     scaler.step(optimizer)
