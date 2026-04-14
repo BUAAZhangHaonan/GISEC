@@ -9,6 +9,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from gisec.config.query_models import QueryModelSpec, get_query_model_spec
 from gisec.engine.query_coarse_objects import (
     COARSE_BOUNDARY_MAX_LARGEST_RATIO,
     COARSE_BOUNDARY_SPLIT_MIN_AREA,
@@ -23,6 +24,23 @@ def _sigmoid_tensor(x: torch.Tensor) -> torch.Tensor:
     if torch.all((x >= 0.0) & (x <= 1.0)):
         return x.float()
     return torch.sigmoid(x.float())
+
+
+def _resolve_query_graph_variant(variant: object) -> object:
+    if isinstance(variant, QueryModelSpec):
+        model_spec = variant
+    elif isinstance(variant, str) and variant.startswith("query_"):
+        model_spec = get_query_model_spec(variant)
+    else:
+        return variant
+
+    if not model_spec.use_graph_rescue:
+        if model_spec.use_reference:
+            return "legacy_query_mask_reference_routing_debug"
+        return "legacy_query_mask_only_debug"
+    if model_spec.use_reference:
+        return "legacy_query_mask_reference_graph_rescue_debug"
+    return "legacy_prototype_unet_baseline"
 
 
 def build_query_graph_batch(
@@ -45,7 +63,7 @@ def build_query_graph_batch(
         depth_map=depth_map,
         instance_map=instance_map,
         prototype_cache=prototype_cache,
-        variant=variant,
+        variant=_resolve_query_graph_variant(variant),
         fg_threshold=fragment_fg_threshold,
         boundary_threshold=fragment_boundary_threshold,
         min_area=min_area,
