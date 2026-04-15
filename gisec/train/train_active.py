@@ -1425,6 +1425,17 @@ def _apply_local_rescue(
     refinement_invocations = 0
     graph_invocations = 0
     updated = list(predictions)
+    projected_feature_map = _project_local_features_float32(model, feature_map.unsqueeze(0))[0]
+    reference_rgb: torch.Tensor | None = None
+    reference_depth: torch.Tensor | None = None
+    reference_mask: torch.Tensor | None = None
+    if variant_spec.use_reference_rescue:
+        reference_rgb, reference_depth, reference_mask = _prepare_reference_tensors(
+            sample=sample,
+            source=prototype_source,
+            crop_size=int(crop_size),
+            device=full_input.device,
+        )
     for index in selected:
         row = dict(updated[int(index)])
         bbox = expand_bbox(
@@ -1435,14 +1446,7 @@ def _apply_local_rescue(
         feature_bbox = _scale_bbox(bbox, source_shape=image_shape, target_shape=feature_shape)
         query_crop = crop_and_resize(full_input, bbox=bbox, output_size=int(crop_size), mode="bilinear").unsqueeze(0)
         coarse_mask_crop = crop_and_resize(row["mask_probs"].unsqueeze(0), bbox=bbox, output_size=int(crop_size), mode="bilinear").unsqueeze(0)
-        projected_feature_map = _project_local_features_float32(model, feature_map.unsqueeze(0))[0]
         feature_crop = crop_and_resize(projected_feature_map, bbox=feature_bbox, output_size=int(crop_size), mode="bilinear").unsqueeze(0)
-        reference_rgb, reference_depth, reference_mask = _prepare_reference_tensors(
-            sample=sample,
-            source=prototype_source if variant_spec.use_reference_rescue else None,
-            crop_size=int(crop_size),
-            device=full_input.device,
-        )
         refined = _run_local_refiner_float32(
             model=model,
             query_crop=query_crop,
@@ -1807,20 +1811,23 @@ def _train_local_modules_with_metrics(
             mask_threshold=0.5,
         )
         matches = _match_query_predictions_to_gt(predictions=predictions, gt_masks=gt_masks)
-        positive_reference = _prepare_reference_tensors(
-            sample=sample,
-            source=prototype_source if variant_spec.use_reference_rescue else None,
-            crop_size=int(crop_size),
-            device=pixel_values.device,
-        )
-        reference_examples = _reference_match_examples(
-            sample=sample,
-            source=prototype_source if variant_spec.use_reference_rescue else None,
-            crop_size=int(crop_size),
-            device=pixel_values.device,
-        )
         if not matches:
             continue
+        positive_reference: tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None] = (None, None, None)
+        reference_examples: list[tuple[tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None], float]] = []
+        if variant_spec.use_reference_rescue:
+            positive_reference = _prepare_reference_tensors(
+                sample=sample,
+                source=prototype_source,
+                crop_size=int(crop_size),
+                device=pixel_values.device,
+            )
+            reference_examples = _reference_match_examples(
+                sample=sample,
+                source=prototype_source,
+                crop_size=int(crop_size),
+                device=pixel_values.device,
+            )
         query_crops: list[torch.Tensor] = []
         feature_crops: list[torch.Tensor] = []
         coarse_masks: list[torch.Tensor] = []
@@ -1882,9 +1889,12 @@ def _train_local_modules_with_metrics(
         loss_boundary = F.binary_cross_entropy_with_logits(refined["refined_boundary_logits"][:, 0], gt_boundary_batch)
         _assert_finite_tensor("loss_local_mask", loss_mask)
         _assert_finite_tensor("loss_local_boundary", loss_boundary)
-        sample_loss_sum = (loss_mask + 0.5 * loss_boundary) * float(batch_size)
-        component_totals["loss_local_mask"] += float(loss_mask.detach().cpu()) * float(batch_size)
-        component_totals["loss_local_boundary"] += float((0.5 * loss_boundary).detach().cpu()) * float(batch_size)
+        batch_size_f = float(batch_size)
+        loss_mask_value = float(loss_mask.detach().cpu())
+        loss_boundary_value = float(loss_boundary.detach().cpu())
+        sample_loss_sum = (loss_mask + 0.5 * loss_boundary) * batch_size_f
+        component_totals["loss_local_mask"] += loss_mask_value * batch_size_f
+        component_totals["loss_local_boundary"] += 0.5 * loss_boundary_value * batch_size_f
         if variant_spec.use_reference_rescue and refined["reference_match_logits"] is not None and len(reference_examples) > 1:
             reference_start = time.perf_counter()
             positive_target = torch.ones_like(refined["reference_match_logits"])
@@ -1913,9 +1923,11 @@ def _train_local_modules_with_metrics(
             )
             _assert_finite_tensor("loss_local_reference_negative", negative_loss)
             component_totals["local_reference_sec"] += float(time.perf_counter() - reference_start)
-            sample_loss_sum = sample_loss_sum + (positive_loss + negative_loss) * float(batch_size)
-            component_totals["loss_local_reference_positive"] += float(positive_loss.detach().cpu()) * float(batch_size)
-            component_totals["loss_local_reference_negative"] += float(negative_loss.detach().cpu()) * float(batch_size)
+            positive_loss_value = float(positive_loss.detach().cpu())
+            negative_loss_value = float(negative_loss.detach().cpu())
+            sample_loss_sum = sample_loss_sum + (positive_loss + negative_loss) * batch_size_f
+            component_totals["loss_local_reference_positive"] += positive_loss_value * batch_size_f
+            component_totals["loss_local_reference_negative"] += negative_loss_value * batch_size_f
         if variant_spec.use_graph_rescue and model.graph_head is not None:
             graph_start = time.perf_counter()
             graph_losses: list[torch.Tensor] = []
@@ -1941,7 +1953,8 @@ def _train_local_modules_with_metrics(
                 graph_loss_sum = torch.stack(graph_losses).sum()
                 _assert_finite_tensor("loss_local_graph", graph_loss_sum)
                 sample_loss_sum = sample_loss_sum + graph_loss_sum
-                component_totals["loss_local_graph"] += float(graph_loss_sum.detach().cpu())
+                graph_loss_value = float(graph_loss_sum.detach().cpu())
+                component_totals["loss_local_graph"] += graph_loss_value
         loss_sum = loss_sum + sample_loss_sum
         loss_count += int(batch_size)
     if loss_count <= 0:

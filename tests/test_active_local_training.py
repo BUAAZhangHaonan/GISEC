@@ -13,7 +13,7 @@ import pytest
 import gisec.train.train_active as train_active_module
 from gisec.active.model import LocalRefinementModule, crop_and_resize, expand_bbox, mask_bbox
 from gisec.datasets.prototype_bank import PrototypeBankSource
-from gisec.train.train_active import _reference_match_examples, _train_local_modules
+from gisec.train.train_active import _apply_local_rescue, _reference_match_examples, _train_local_modules
 
 
 def _write_part_bank(root: Path, *, part_key: str) -> None:
@@ -451,6 +451,78 @@ def test_train_local_modules_shares_reference_bank_across_matched_queries(tmp_pa
     assert all(shape_row[0] == (1, 1, 3, 4, 4) for shape_row in model.refiner.seen_reference_shapes)
     assert all(shape_row[1] == (1, 1, 1, 4, 4) for shape_row in model.refiner.seen_reference_shapes)
     assert all(shape_row[2] == (1, 1, 1, 4, 4) for shape_row in model.refiner.seen_reference_shapes)
+
+
+def test_apply_local_rescue_hoists_projected_features_and_reference_tensors(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    model = _DummyReferenceActiveModel()
+    sample = {
+        "image": torch.zeros((3, 8, 8), dtype=torch.float32),
+        "depth": torch.zeros((1, 8, 8), dtype=torch.float32),
+        "file_name": "PARTA_scene_0001.png",
+    }
+    feature_map = torch.zeros((16, 8, 8), dtype=torch.float32)
+    predictions = [
+        {
+            "query_index": 0,
+            "score": 0.9,
+            "category_id": 1,
+            "mask_probs": torch.zeros((8, 8), dtype=torch.float32),
+            "binary_mask": torch.zeros((8, 8), dtype=torch.float32),
+        },
+        {
+            "query_index": 1,
+            "score": 0.8,
+            "category_id": 1,
+            "mask_probs": torch.zeros((8, 8), dtype=torch.float32),
+            "binary_mask": torch.zeros((8, 8), dtype=torch.float32),
+        },
+    ]
+    predictions[0]["binary_mask"][1:5, 1:5] = 1.0
+    predictions[1]["binary_mask"][3:7, 3:7] = 1.0
+    predictions[0]["mask_probs"] = predictions[0]["binary_mask"].clone()
+    predictions[1]["mask_probs"] = predictions[1]["binary_mask"].clone()
+
+    monkeypatch.setattr(train_active_module, "select_refinement_instances", lambda **kwargs: [0, 1])
+    project_calls = {"count": 0}
+    reference_calls = {"count": 0}
+
+    def fake_project_local_features(model, feature_map):
+        project_calls["count"] += 1
+        return torch.ones((1, 16, 8, 8), dtype=torch.float32)
+
+    def fake_prepare_reference_tensors(*, sample, source, crop_size, device):
+        reference_calls["count"] += 1
+        return (
+            torch.ones((1, 3, 4, 4), dtype=torch.float32, device=device),
+            torch.ones((1, 1, 4, 4), dtype=torch.float32, device=device),
+            torch.ones((1, 1, 4, 4), dtype=torch.float32, device=device),
+        )
+
+    monkeypatch.setattr(train_active_module, "_project_local_features_float32", fake_project_local_features)
+    monkeypatch.setattr(train_active_module, "_prepare_reference_tensors", fake_prepare_reference_tensors)
+
+    updated, refinement_invocations, graph_invocations = _apply_local_rescue(
+        model=model,
+        variant_name="base_rgbd_1024_refine_ref",
+        sample=sample,
+        full_input=torch.zeros((4, 8, 8), dtype=torch.float32),
+        feature_map=feature_map,
+        predictions=predictions,
+        crop_size=4,
+        crop_pad=0,
+        mask_threshold=0.5,
+        boundary_band_width=4,
+        prototype_source=None,
+    )
+
+    assert len(updated) == 2
+    assert refinement_invocations == 2
+    assert graph_invocations == 0
+    assert project_calls["count"] == 1
+    assert reference_calls["count"] == 1
 
 
 def test_local_refinement_module_accepts_shared_reference_bank() -> None:
