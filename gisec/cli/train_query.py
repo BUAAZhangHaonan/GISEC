@@ -7,7 +7,13 @@ from pathlib import Path
 
 from gisec.config.io import extract_argparse_defaults, load_yaml_config, merge_config_dicts
 from gisec.config.query_models import is_alpha_enabled_model_id
-from gisec.train.train_query import DEFAULT_GRAPH_LOSS_WEIGHT, DEFAULT_GRAPH_WARMUP_STEPS, _requires_prototype_source, run_uq_minibatch
+from gisec.train.train_query import (
+    DEFAULT_GRAPH_LOSS_WEIGHT,
+    DEFAULT_GRAPH_WARMUP_STEPS,
+    _parse_optional_bool,
+    _requires_prototype_source,
+    run_uq_minibatch,
+)
 
 
 def _config_defaults(argv: list[str] | None, mode: str) -> dict[str, object]:
@@ -35,6 +41,9 @@ def build_parser(argv: list[str] | None = None, *, mode: str = "train") -> argpa
     parser.add_argument("--image-size", type=int, default=64)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--num-workers", type=int, default=0)
+    parser.add_argument("--pin-memory", type=_parse_optional_bool, default=None)
+    parser.add_argument("--persistent-workers", type=_parse_optional_bool, default=None)
+    parser.add_argument("--prefetch-factor", type=int, default=None)
     parser.add_argument("--lr", type=float, default=1.0e-4)
     parser.add_argument("--head-lr-multiplier", type=float, default=10.0)
     parser.add_argument("--max-train-steps", type=int, default=1)
@@ -64,6 +73,9 @@ def _print_payload(args: argparse.Namespace, *, mode: str) -> None:
         "image_size": int(args.image_size),
         "batch_size": int(args.batch_size),
         "num_workers": int(args.num_workers),
+        "pin_memory": args.pin_memory,
+        "persistent_workers": args.persistent_workers,
+        "prefetch_factor": args.prefetch_factor,
         "lr": float(args.lr),
         "head_lr_multiplier": float(args.head_lr_multiplier),
         "max_train_steps": int(args.max_train_steps),
@@ -110,6 +122,9 @@ def main(argv: list[str] | None = None) -> None:
         image_size=int(args.image_size),
         batch_size=int(args.batch_size),
         num_workers=int(args.num_workers),
+        pin_memory=args.pin_memory,
+        persistent_workers=args.persistent_workers,
+        prefetch_factor=args.prefetch_factor,
         lr=float(args.lr),
         head_lr_multiplier=float(args.head_lr_multiplier),
         max_train_steps=int(args.max_train_steps),

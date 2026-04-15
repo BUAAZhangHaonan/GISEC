@@ -36,6 +36,9 @@ def main(argv: list[str] | None = None) -> None:
             image_size=int(args.image_size),
             batch_size=int(args.batch_size),
             num_workers=int(args.num_workers),
+            pin_memory=args.pin_memory,
+            persistent_workers=args.persistent_workers,
+            prefetch_factor=args.prefetch_factor,
             max_val_images=int(args.max_val_images),
             min_area=int(args.min_area),
         )

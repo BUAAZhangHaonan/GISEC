@@ -14,6 +14,7 @@ from gisec.train.query_targets import build_ownership_target as build_query_owne
 from gisec.train.train_query import (
     _build_alpha_targets_from_batch,
     _build_alpha_optimizer,
+    _build_query_loader_kwargs,
     _build_alpha_targets_from_instance_maps,
     _classify_failure,
     _compute_alpha_losses,
@@ -187,6 +188,39 @@ def test_query_alpha_targets_prefer_precomputed_batch_targets_when_available() -
     assert torch.equal(targets["boundary"], batch["boundary_target"])
     assert torch.equal(targets["core"], batch["core_target"])
     assert torch.equal(targets["ownership"], batch["query_ownership_target"])
+
+
+def test_query_loader_kwargs_apply_symmetry_and_keep_cuda_defaults() -> None:
+    device_obj = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    default_kwargs = _build_query_loader_kwargs(
+        batch_size=1,
+        num_workers=4,
+        device_obj=device_obj,
+    )
+    tuned_kwargs = _build_query_loader_kwargs(
+        batch_size=2,
+        num_workers=4,
+        device_obj=device_obj,
+        pin_memory=False,
+        persistent_workers=False,
+        prefetch_factor=6,
+    )
+
+    assert default_kwargs["shuffle"] is False
+    assert default_kwargs["batch_size"] == 1
+    assert default_kwargs["num_workers"] == 4
+    assert "persistent_workers" in default_kwargs
+    assert default_kwargs["prefetch_factor"] == 2
+    if device_obj.type == "cuda":
+        assert default_kwargs["pin_memory"] is True
+    else:
+        assert default_kwargs["pin_memory"] is False
+
+    assert tuned_kwargs["batch_size"] == 2
+    assert tuned_kwargs["pin_memory"] is False
+    assert tuned_kwargs["persistent_workers"] is False
+    assert tuned_kwargs["prefetch_factor"] == 6
 
 
 def test_query_alpha_losses_reward_better_predictions() -> None:

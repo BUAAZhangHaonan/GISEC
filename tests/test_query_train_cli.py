@@ -123,3 +123,47 @@ def test_query_train_cli_rejects_reference_variant_without_prototype_root(tmp_pa
 
     assert result.returncode != 0
     assert "--prototype-root is required for reference query variants" in result.stderr
+
+
+def test_query_train_cli_dry_run_exposes_loader_tuning_keys(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    config_path = tmp_path / "query_cli.yaml"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "common": {
+                    "dataset_root": str(tmp_path / "dataset"),
+                    "output_dir": str(tmp_path / "out"),
+                    "variant": "query_small_resnet18",
+                    "pin_memory": True,
+                    "persistent_workers": True,
+                    "prefetch_factor": 6,
+                },
+                "train": {
+                    "device": "cpu",
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gisec.cli.train_query",
+            "--config",
+            str(config_path),
+            "--dry-run",
+        ],
+        cwd=str(repo_root),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(result.stdout)
+    assert payload["pin_memory"] is True
+    assert payload["persistent_workers"] is True
+    assert payload["prefetch_factor"] == 6

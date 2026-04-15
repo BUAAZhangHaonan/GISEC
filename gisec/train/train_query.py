@@ -39,6 +39,38 @@ DEFAULT_GRAPH_LOSS_WEIGHT = 0.5
 DEFAULT_GRAPH_WARMUP_STEPS = 0
 
 
+def _parse_optional_bool(value: str) -> bool:
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"expected a boolean value, got {value!r}")
+
+
+def _build_query_loader_kwargs(
+    *,
+    batch_size: int,
+    num_workers: int,
+    device_obj: torch.device,
+    pin_memory: bool | None = None,
+    persistent_workers: bool | None = None,
+    prefetch_factor: int | None = None,
+) -> dict[str, object]:
+    use_cuda = str(device_obj.type) == "cuda"
+    loader_kwargs: dict[str, object] = {
+        "batch_size": max(batch_size, 1),
+        "shuffle": False,
+        "num_workers": int(num_workers),
+        "collate_fn": collate_graph_batch,
+        "pin_memory": use_cuda if pin_memory is None else bool(pin_memory),
+    }
+    if int(num_workers) > 0:
+        loader_kwargs["persistent_workers"] = True if persistent_workers is None else bool(persistent_workers)
+        loader_kwargs["prefetch_factor"] = 2 if prefetch_factor is None else int(prefetch_factor)
+    return loader_kwargs
+
+
 def _build_alpha_targets_from_instance_maps(instance_maps: torch.Tensor) -> dict[str, torch.Tensor]:
     fg_targets = []
     boundary_targets = []
@@ -533,6 +565,9 @@ def run_uq_minibatch(
     image_size: int = 64,
     batch_size: int = 1,
     num_workers: int = 0,
+    pin_memory: bool | None = None,
+    persistent_workers: bool | None = None,
+    prefetch_factor: int | None = None,
     max_train_steps: int = 1,
     max_val_images: int = 1,
     min_area: int = 8,
@@ -554,26 +589,16 @@ def run_uq_minibatch(
 
     train_dataset = ECCGraphDataset(str(dataset_root), "train", image_size, train=True)
     val_dataset = ECCGraphDataset(str(dataset_root), "val", image_size, train=False)
-    use_cuda = str(device_obj.type) == "cuda"
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=max(batch_size, 1),
-        shuffle=False,
+    loader_kwargs = _build_query_loader_kwargs(
+        batch_size=batch_size,
         num_workers=num_workers,
-        collate_fn=collate_graph_batch,
-        pin_memory=use_cuda,
+        device_obj=device_obj,
+        pin_memory=pin_memory,
+        persistent_workers=persistent_workers,
+        prefetch_factor=prefetch_factor,
     )
-    val_loader_kwargs = {
-        "batch_size": max(batch_size, 1),
-        "shuffle": False,
-        "num_workers": num_workers,
-        "collate_fn": collate_graph_batch,
-        "pin_memory": use_cuda,
-    }
-    if int(num_workers) > 0:
-        val_loader_kwargs["prefetch_factor"] = 2
-        val_loader_kwargs["persistent_workers"] = True
-    val_loader = DataLoader(val_dataset, **val_loader_kwargs)
+    train_loader = DataLoader(train_dataset, **loader_kwargs)
+    val_loader = DataLoader(val_dataset, **loader_kwargs)
 
     model = _load_query_model_state(model_id=model_id, device_obj=device_obj, checkpoint=checkpoint)
     if _requires_prototype_source(model_id) and not prototype_root:
@@ -771,6 +796,9 @@ def run_uq_eval(
     image_size: int = 64,
     batch_size: int = 1,
     num_workers: int = 0,
+    pin_memory: bool | None = None,
+    persistent_workers: bool | None = None,
+    prefetch_factor: int | None = None,
     max_val_images: int = 1,
     min_area: int = 8,
 ) -> None:
@@ -782,16 +810,14 @@ def run_uq_eval(
     output_dir.mkdir(parents=True, exist_ok=True)
     device_obj = torch.device(device)
     val_dataset = ECCGraphDataset(str(dataset_root), "val", image_size, train=False)
-    val_loader_kwargs = {
-        "batch_size": max(batch_size, 1),
-        "shuffle": False,
-        "num_workers": num_workers,
-        "collate_fn": collate_graph_batch,
-        "pin_memory": str(device_obj.type) == "cuda",
-    }
-    if int(num_workers) > 0:
-        val_loader_kwargs["prefetch_factor"] = 2
-        val_loader_kwargs["persistent_workers"] = True
+    val_loader_kwargs = _build_query_loader_kwargs(
+        batch_size=batch_size,
+        num_workers=num_workers,
+        device_obj=device_obj,
+        pin_memory=pin_memory,
+        persistent_workers=persistent_workers,
+        prefetch_factor=prefetch_factor,
+    )
     val_loader = DataLoader(val_dataset, **val_loader_kwargs)
     model = _load_query_model_state(model_id=model_id, device_obj=device_obj, checkpoint=checkpoint)
     if _requires_prototype_source(model_id) and not prototype_root:
