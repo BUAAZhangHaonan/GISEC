@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import numpy as np
 
+from gisec.train import query_targets as query_targets_module
 from gisec.train.query_targets import (
     build_boundary_target,
+    build_core_heatmap_and_ownership_targets,
     build_core_heatmap_target,
     build_fg_target,
     build_ownership_target,
@@ -69,3 +71,34 @@ def test_query_core_heatmap_target_scales_support_with_image_resolution() -> Non
     assert base_ratio > 0.0
     assert scaled_ratio > 0.0
     assert 0.5 <= scaled_ratio / base_ratio <= 2.0
+
+
+def test_query_shared_core_and_ownership_builder_reuses_core_points_per_instance(monkeypatch) -> None:
+    instance_map = np.zeros((18, 18), dtype=np.int32)
+    instance_map[2:8, 3:9] = 1
+    instance_map[10:16, 11:17] = 2
+    instance_masks = [
+        (instance_map == 1).astype(np.uint8),
+        (instance_map == 2).astype(np.uint8),
+    ]
+
+    expected_core = build_core_heatmap_target(instance_map)
+    expected_ownership = build_ownership_target(instance_map)
+
+    call_count = 0
+    original_core_point = query_targets_module._core_point
+
+    def wrapped_core_point(mask: np.ndarray) -> tuple[int, int]:
+        nonlocal call_count
+        call_count += 1
+        return original_core_point(mask)
+
+    monkeypatch.setattr(query_targets_module, "_core_point", wrapped_core_point)
+    core, ownership = build_core_heatmap_and_ownership_targets(
+        instance_map,
+        instance_masks=instance_masks,
+    )
+
+    assert call_count == 2
+    assert np.array_equal(core, expected_core)
+    assert np.array_equal(ownership, expected_ownership)

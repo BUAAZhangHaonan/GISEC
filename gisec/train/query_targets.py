@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import cv2
 import numpy as np
+from typing import Sequence
 
 
 DEFAULT_CORE_EROSION_PX = 3
@@ -106,33 +107,136 @@ def _core_sigma(instance_map: np.ndarray, base_sigma: float = 2.0, reference_siz
     return float(base_sigma) * scale
 
 
-def build_core_heatmap_target(instance_map: np.ndarray, sigma: float | None = None) -> np.ndarray:
-    height, width = instance_map.shape
-    yy, xx = np.indices((height, width), dtype=np.float32)
-    heatmap = np.zeros((height, width), dtype=np.float32)
-    sigma_value = _core_sigma(instance_map) if sigma is None else float(sigma)
+def _iter_instance_masks(
+    instance_map: np.ndarray,
+    instance_masks: Sequence[np.ndarray] | None = None,
+):
+    if instance_masks is not None:
+        for inst_id, mask in enumerate(instance_masks, start=1):
+            mask_arr = np.asarray(mask, dtype=np.uint8)
+            if mask_arr.any():
+                yield int(inst_id), mask_arr
+        return
+
+    instance_map = instance_map.astype(np.int32, copy=False)
     for inst_id in np.unique(instance_map):
         if int(inst_id) <= 0:
             continue
-        mask = instance_map == int(inst_id)
-        cy, cx = _core_point(mask)
-        dist_sq = (yy - float(cy)) ** 2 + (xx - float(cx)) ** 2
-        gaussian = np.exp(-dist_sq / (2.0 * sigma_value ** 2)).astype(np.float32)
-        gaussian *= mask.astype(np.float32)
-        heatmap = np.maximum(heatmap, gaussian)
+        mask = (instance_map == int(inst_id)).astype(np.uint8)
+        if mask.any():
+            yield int(inst_id), mask
+
+
+def _bbox_for_mask(mask: np.ndarray) -> tuple[int, int, int, int]:
+    ys, xs = np.nonzero(mask)
+    if xs.size == 0 or ys.size == 0:
+        return 0, 0, 0, 0
+    y0 = int(ys.min())
+    y1 = int(ys.max()) + 1
+    x0 = int(xs.min())
+    x1 = int(xs.max()) + 1
+    return y0, y1, x0, x1
+
+
+def _iter_instance_regions(
+    instance_map: np.ndarray,
+    instance_masks: Sequence[np.ndarray] | None = None,
+):
+    for _, mask in _iter_instance_masks(instance_map, instance_masks=instance_masks):
+        y0, y1, x0, x1 = _bbox_for_mask(mask)
+        if y1 <= y0 or x1 <= x0:
+            continue
+        mask_region = mask[y0:y1, x0:x1].astype(bool, copy=False)
+        if not mask_region.any():
+            continue
+        cy_local, cx_local = _core_point(mask_region)
+        yield mask_region, y0, y1, x0, x1, float(cy_local + y0), float(cx_local + x0)
+
+
+def build_core_heatmap_target(
+    instance_map: np.ndarray,
+    sigma: float | None = None,
+    *,
+    instance_masks: Sequence[np.ndarray] | None = None,
+) -> np.ndarray:
+    instance_map = instance_map.astype(np.int32, copy=False)
+    height, width = instance_map.shape
+    heatmap = np.zeros((height, width), dtype=np.float32)
+    sigma_value = _core_sigma(instance_map) if sigma is None else float(sigma)
+    sigma_denom = 2.0 * sigma_value ** 2
+
+    for mask_region, y0, y1, x0, x1, cy, cx in _iter_instance_regions(
+        instance_map,
+        instance_masks=instance_masks,
+    ):
+        rows = np.arange(y0, y1, dtype=np.float32)[:, None]
+        cols = np.arange(x0, x1, dtype=np.float32)[None, :]
+        dist_sq = (rows - cy) ** 2 + (cols - cx) ** 2
+        gaussian = np.exp(-dist_sq / sigma_denom).astype(np.float32)
+        gaussian *= mask_region.astype(np.float32, copy=False)
+        heatmap_slice = heatmap[y0:y1, x0:x1]
+        np.maximum(heatmap_slice, gaussian, out=heatmap_slice)
+
     return heatmap
 
 
-def build_ownership_target(instance_map: np.ndarray) -> np.ndarray:
-    instance_map = instance_map.astype(np.int32)
+def build_ownership_target(
+    instance_map: np.ndarray,
+    *,
+    instance_masks: Sequence[np.ndarray] | None = None,
+) -> np.ndarray:
+    instance_map = instance_map.astype(np.int32, copy=False)
     height, width = instance_map.shape
-    yy, xx = np.indices((height, width), dtype=np.float32)
     ownership = np.zeros((2, height, width), dtype=np.float32)
-    for inst_id in np.unique(instance_map):
-        if int(inst_id) <= 0:
+
+    for mask_region, y0, y1, x0, x1, cy, cx in _iter_instance_regions(
+        instance_map,
+        instance_masks=instance_masks,
+    ):
+        ys_local, xs_local = np.nonzero(mask_region)
+        if xs_local.size == 0 or ys_local.size == 0:
             continue
-        mask = instance_map == int(inst_id)
-        cy, cx = _core_point(mask)
-        ownership[0, mask] = float(cx) - xx[mask]
-        ownership[1, mask] = float(cy) - yy[mask]
+        abs_x = xs_local.astype(np.float32) + float(x0)
+        abs_y = ys_local.astype(np.float32) + float(y0)
+        ownership_slice = ownership[:, y0:y1, x0:x1]
+        ownership_slice[0, ys_local, xs_local] = cx - abs_x
+        ownership_slice[1, ys_local, xs_local] = cy - abs_y
+
     return ownership
+
+
+def build_core_heatmap_and_ownership_targets(
+    instance_map: np.ndarray,
+    *,
+    sigma: float | None = None,
+    instance_masks: Sequence[np.ndarray] | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    instance_map = instance_map.astype(np.int32, copy=False)
+    height, width = instance_map.shape
+    heatmap = np.zeros((height, width), dtype=np.float32)
+    ownership = np.zeros((2, height, width), dtype=np.float32)
+    sigma_value = _core_sigma(instance_map) if sigma is None else float(sigma)
+    sigma_denom = 2.0 * sigma_value ** 2
+
+    for mask_region, y0, y1, x0, x1, cy, cx in _iter_instance_regions(
+        instance_map,
+        instance_masks=instance_masks,
+    ):
+        rows = np.arange(y0, y1, dtype=np.float32)[:, None]
+        cols = np.arange(x0, x1, dtype=np.float32)[None, :]
+        dist_sq = (rows - cy) ** 2 + (cols - cx) ** 2
+        gaussian = np.exp(-dist_sq / sigma_denom).astype(np.float32)
+        gaussian *= mask_region.astype(np.float32, copy=False)
+        heatmap_slice = heatmap[y0:y1, x0:x1]
+        np.maximum(heatmap_slice, gaussian, out=heatmap_slice)
+
+        ys_local, xs_local = np.nonzero(mask_region)
+        if xs_local.size == 0 or ys_local.size == 0:
+            continue
+        abs_x = xs_local.astype(np.float32) + float(x0)
+        abs_y = ys_local.astype(np.float32) + float(y0)
+        ownership_slice = ownership[:, y0:y1, x0:x1]
+        ownership_slice[0, ys_local, xs_local] = cx - abs_x
+        ownership_slice[1, ys_local, xs_local] = cy - abs_y
+
+    return heatmap, ownership

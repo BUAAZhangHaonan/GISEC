@@ -181,8 +181,7 @@ class ECCGraphDataset(Dataset):
         return len(self.image_ids)
 
     def __getitem__(self, index: int) -> QuerySample:
-        from gisec.train.query_targets import build_core_heatmap_target
-        from gisec.train.query_targets import build_ownership_target as build_query_ownership_target
+        from gisec.train.query_targets import build_core_heatmap_and_ownership_targets
 
         image_id = int(self.image_ids[index])
         info = self.image_infos[index]
@@ -198,8 +197,10 @@ class ECCGraphDataset(Dataset):
         fg_mask = np.zeros((orig_height, orig_width), dtype=np.uint8)
         boundary = np.zeros((orig_height, orig_width), dtype=np.uint8)
         instance_map = np.zeros((orig_height, orig_width), dtype=np.int32)
+        instance_masks: List[np.ndarray] = []
         for inst_id, ann in enumerate(anns, start=1):
             mask = ann_to_mask(ann, orig_height, orig_width)
+            instance_masks.append(mask)
             fg_mask = np.maximum(fg_mask, mask)
             boundary = np.maximum(boundary, build_boundary_target(mask))
             instance_map[mask > 0] = inst_id
@@ -215,6 +216,7 @@ class ECCGraphDataset(Dataset):
             fg_mask = fg_mask[:, ::-1].copy()
             boundary = boundary[:, ::-1].copy()
             instance_map = instance_map[:, ::-1].copy()
+            instance_masks = [mask[:, ::-1].copy() for mask in instance_masks]
             if depth is not None:
                 depth = depth[:, ::-1].copy()
 
@@ -226,9 +228,18 @@ class ECCGraphDataset(Dataset):
             boundary, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
         instance_map = cv2.resize(
             instance_map, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
+        instance_masks = [
+            cv2.resize(mask, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
+            for mask in instance_masks
+        ]
         if depth is not None:
             depth = cv2.resize(
                 depth, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
+
+        core_target, query_ownership_target = build_core_heatmap_and_ownership_targets(
+            instance_map,
+            instance_masks=instance_masks,
+        )
 
         return QuerySample(
             image_id=image_id,
@@ -240,12 +251,11 @@ class ECCGraphDataset(Dataset):
             else torch.zeros((1, self.image_size, self.image_size), dtype=torch.float32),
             fg_target=torch.from_numpy(fg_mask[None, ...]).float(),
             boundary_target=torch.from_numpy(boundary[None, ...]).float(),
-            core_target=torch.from_numpy(build_core_heatmap_target(instance_map)[None, ...]).float(),
+            core_target=torch.from_numpy(core_target[None, ...]).float(),
             affinity_target=torch.from_numpy(build_affinity_target(instance_map)).float(),
             ownership_target=torch.from_numpy(
                 build_ownership_target(instance_map)).float(),
-            query_ownership_target=torch.from_numpy(
-                build_query_ownership_target(instance_map)).float(),
+            query_ownership_target=torch.from_numpy(query_ownership_target).float(),
             instance_map=torch.from_numpy(instance_map).long(),
         )
 
