@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
+import torch
 
 from gisec.engine.runtime import (
     _component_merge_score,
     _classify_mask_failure,
+    _diagnostic_query_ownership_target,
     _summarize_instance_matching,
     _prepare_overlay_dir,
     _summarize_reference_routing,
@@ -133,6 +136,23 @@ def test_summarize_reference_routing_counts_selected_views() -> None:
     assert summary["top1_weight_mean"] == 0.85
     assert summary["skip_conditioning_ratio"] == 0.5
     assert summary["selected_view_histogram"]["view_003"] == 2
+
+
+def test_diagnostic_query_ownership_target_uses_precomputed_query_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _fail(*_args, **_kwargs) -> np.ndarray:
+        raise AssertionError("fallback should not be used when query_ownership_target is present")
+
+    monkeypatch.setattr("gisec.train.query_targets.build_ownership_target", _fail)
+
+    batch = {
+        "query_ownership_target": torch.full((1, 2, 4, 4), 3.25, dtype=torch.float32),
+        "instance_maps": torch.zeros((1, 4, 4), dtype=torch.long),
+    }
+    outputs = {"ownership_offsets": torch.zeros((1, 2, 4, 4), dtype=torch.float32)}
+
+    ownership_target = _diagnostic_query_ownership_target(batch, outputs)
+
+    assert torch.equal(ownership_target, batch["query_ownership_target"][0])
 
 
 def test_summarize_instance_matching_reports_gt_pred_count_and_iou() -> None:

@@ -23,7 +23,6 @@ from gisec.datasets.prototype_bank import (
 )
 from gisec.graph_refiner import GraphRefiner
 from gisec.models.gisec_model import GISECModel
-from gisec.models.prototype_cache import cache_to_device
 from gisec.utils.visualization import render_fragment_merge_preview
 
 
@@ -115,13 +114,10 @@ class PrototypeCacheSource:
         if cache_key not in self._cache_by_root:
             cache_miss = True
             cache_build_start = time.perf_counter()
-            cache = cache_to_device(
-                self.model.build_prototype_cache(
-                    bank,
-                    self.device,
-                    build_batch_size=self.prototype_build_batch_size,
-                ),
+            cache = self.model.build_prototype_cache(
+                bank,
                 self.device,
+                build_batch_size=self.prototype_build_batch_size,
             )
             cache_build_sec = float(time.perf_counter() - cache_build_start)
             if part_key is not None and part_key in self._query_shape_priors:
@@ -900,6 +896,21 @@ def write_json(path: Path, payload: Dict[str, Any]) -> None:
                     indent=2, default=str) + "\n", encoding="utf-8")
 
 
+def _diagnostic_query_ownership_target(batch: dict[str, Any], outputs: dict[str, Any]) -> torch.Tensor:
+    ownership_offsets = outputs["ownership_offsets"]
+    query_ownership_target = batch.get("query_ownership_target")
+    if query_ownership_target is not None:
+        return query_ownership_target[0].detach().to(
+            device=ownership_offsets.device,
+            dtype=ownership_offsets.dtype,
+        )
+    from gisec.train.query_targets import build_ownership_target
+
+    return torch.from_numpy(
+        build_ownership_target(batch["instance_maps"][0].detach().cpu().numpy())
+    ).to(device=ownership_offsets.device, dtype=ownership_offsets.dtype)
+
+
 def evaluate_and_export(
     *,
     model: GISECModel,
@@ -1139,11 +1150,7 @@ def evaluate_and_export(
                 over_merge_count = None
                 under_merge_count = None
                 if "ownership_offsets" in outputs and outputs["ownership_offsets"] is not None:
-                    from gisec.train.query_targets import build_ownership_target
-
-                    ownership_target = torch.from_numpy(
-                        build_ownership_target(batch["instance_maps"][0].detach().cpu().numpy())
-                    ).to(device=outputs["ownership_offsets"].device, dtype=outputs["ownership_offsets"].dtype)
+                    ownership_target = _diagnostic_query_ownership_target(batch, outputs)
                     fg_mask = batch["fg_target"][0, 0].detach().to(device=ownership_target.device) > 0.5
                     if bool(fg_mask.any()):
                         ownership_diff = torch.abs(outputs["ownership_offsets"][0] - ownership_target)
