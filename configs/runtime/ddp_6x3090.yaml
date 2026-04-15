@@ -1,8 +1,0 @@
-common:
-  launcher: torchrun
-  device: cuda
-  nproc_per_node: 6
-  master_port: 29610
-  dist_backend: nccl
-  dist_url: env://
-  sync_bn: true

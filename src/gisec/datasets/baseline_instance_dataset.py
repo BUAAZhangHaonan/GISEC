@@ -1,0 +1,240 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import cv2
+import numpy as np
+import torch
+from torch.utils.data import Dataset
+
+from gisec.datasets.coco_utils import LiteCOCO, ann_to_mask, load_depth_array
+from gisec.datasets.depth_cache import load_depth_feature_cache, resolve_depth_feature_cache_dir
+from gisec.datasets.instance_targets import (
+    DEFAULT_BOUNDARY_BAND_PX,
+    DEFAULT_CORE_EROSION_PX,
+    build_instance_target_pack,
+    load_instance_target_cache,
+    resolve_instance_target_cache_dir,
+)
+
+
+def _mask_to_box(mask: np.ndarray) -> list[float]:
+    ys, xs = np.nonzero(mask > 0)
+    if xs.size == 0 or ys.size == 0:
+        return [0.0, 0.0, 0.0, 0.0]
+    x0, x1 = int(xs.min()), int(xs.max())
+    y0, y1 = int(ys.min()), int(ys.max())
+    return [float(x0), float(y0), float(x1 - x0 + 1), float(y1 - y0 + 1)]
+
+
+class BaselineInstanceDataset(Dataset):
+    def __init__(
+        self,
+        *,
+        dataset_root: str,
+        split: str,
+        image_size: int,
+        include_depth: bool = False,
+        include_annotations: bool = True,
+        include_instance_map: bool = True,
+        include_instance_targets: bool = False,
+        instance_target_cache_dir: str | None = None,
+        core_erosion_px: int = DEFAULT_CORE_EROSION_PX,
+        boundary_band_px: int = DEFAULT_BOUNDARY_BAND_PX,
+        depth_feature_mode: str | None = None,
+        depth_feature_cache_dir: str | None = None,
+    ) -> None:
+        self.root = Path(dataset_root).resolve()
+        self.split = str(split)
+        self.image_size = int(image_size)
+        self.include_depth = bool(include_depth)
+        self.include_annotations = bool(include_annotations)
+        self.include_instance_map = bool(include_instance_map)
+        self.include_instance_targets = bool(include_instance_targets)
+        self.core_erosion_px = int(core_erosion_px)
+        self.boundary_band_px = int(boundary_band_px)
+        self.instance_target_cache_dir = (
+            Path(instance_target_cache_dir).resolve()
+            if instance_target_cache_dir is not None
+            else resolve_instance_target_cache_dir(
+                str(self.root),
+                split=self.split,
+                image_size=self.image_size,
+                core_erosion_px=self.core_erosion_px,
+                boundary_band_px=self.boundary_band_px,
+            )
+        )
+        self.depth_feature_mode = None if depth_feature_mode is None else str(depth_feature_mode)
+        self.depth_feature_cache_dir = (
+            None
+            if self.depth_feature_mode is None
+            else (
+                Path(depth_feature_cache_dir).resolve()
+                if depth_feature_cache_dir is not None
+                else resolve_depth_feature_cache_dir(
+                    str(self.root),
+                    split=self.split,
+                    image_size=self.image_size,
+                    feature_mode=self.depth_feature_mode,
+                )
+            )
+        )
+        self.coco = LiteCOCO(self.root / "annotations" / f"instances_{self.split}.json")
+        self.image_ids = sorted(self.coco.getImgIds())
+        depth_candidates = [
+            self.root / "depth" / self.split,
+            self.root / "depth" / "depth_npy" / self.split,
+        ]
+        self.depth_dir = next((path for path in depth_candidates if path.exists()), None)
+
+    def __len__(self) -> int:
+        return len(self.image_ids)
+
+    def __getitem__(self, index: int) -> dict[str, Any]:
+        image_id = int(self.image_ids[index])
+        info = self.coco.loadImgs([image_id])[0]
+        image = cv2.imread(str(self.root / "images" / self.split / info["file_name"]), cv2.IMREAD_COLOR)
+        if image is None:
+            raise FileNotFoundError(info["file_name"])
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        height, width = image.shape[:2]
+        image = cv2.resize(image, (self.image_size, self.image_size), interpolation=cv2.INTER_LINEAR)
+
+        cached = None
+        if self.include_instance_targets and self.instance_target_cache_dir.exists():
+            cached = load_instance_target_cache(
+                cache_dir=self.instance_target_cache_dir,
+                image_id=image_id,
+                file_name=str(info["file_name"]),
+            )
+
+        masks: list[np.ndarray] = []
+        boxes: list[list[float]] = []
+        labels: list[int] = []
+        instance_map = None if cached is None else cached["instance_map"]
+        needs_annotations = (
+            self.include_annotations
+            or (self.include_instance_map and instance_map is None)
+            or self.include_instance_targets
+        )
+        if needs_annotations:
+            ann_ids = self.coco.getAnnIds(imgIds=[image_id], iscrowd=None)
+            anns = self.coco.loadAnns(ann_ids)
+            if instance_map is None:
+                instance_map = np.zeros((self.image_size, self.image_size), dtype=np.int64)
+            next_instance_id = int(instance_map.max())
+            for ann in anns:
+                mask = ann_to_mask(ann, height, width)
+                mask = cv2.resize(mask, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
+                if int(mask.max()) <= 0:
+                    continue
+                next_instance_id += 1
+                if self.include_annotations:
+                    masks.append(mask.astype(np.uint8))
+                    boxes.append(_mask_to_box(mask))
+                    labels.append(int(ann.get("category_id", 1)))
+                instance_map[mask > 0] = int(next_instance_id)
+
+        depth_tensor = None
+        depth_feature_tensor = None
+        if self.include_depth and self.depth_dir is not None:
+            depth_path = self.depth_dir / f"{Path(info['file_name']).stem}.npy"
+            if depth_path.exists():
+                depth = load_depth_array(depth_path)
+                depth = cv2.resize(depth, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
+                depth_tensor = torch.from_numpy(depth[None, ...]).float()
+                if self.depth_feature_mode is not None and self.depth_feature_cache_dir is not None:
+                    cached_features = None
+                    if self.depth_feature_cache_dir.exists():
+                        cached_features = load_depth_feature_cache(
+                            cache_dir=self.depth_feature_cache_dir,
+                            image_id=image_id,
+                            file_name=str(info["file_name"]),
+                        )
+                    if cached_features is not None:
+                        depth_feature_tensor = torch.from_numpy(np.asarray(cached_features, dtype=np.float32)).float()
+
+        instance_targets = None
+        if self.include_instance_targets:
+            if instance_map is None:
+                raise RuntimeError("instance_map is required to build instance targets")
+            targets = cached["targets"] if cached is not None else build_instance_target_pack(
+                instance_map,
+                core_erosion_px=self.core_erosion_px,
+                boundary_band_px=self.boundary_band_px,
+            )
+            instance_targets = {
+                "fg": torch.from_numpy(np.asarray(targets["fg"], dtype=np.float32)).float(),
+                "boundary": torch.from_numpy(np.asarray(targets["boundary"], dtype=np.float32)).float(),
+                "center": torch.from_numpy(np.asarray(targets["center"], dtype=np.float32)).float(),
+                "offsets": torch.from_numpy(np.asarray(targets["offsets"], dtype=np.float32)).float(),
+            }
+
+        masks_tensor = None
+        boxes_tensor = None
+        labels_tensor = None
+        if self.include_annotations:
+            if masks:
+                masks_tensor = torch.from_numpy(np.stack(masks, axis=0)).to(torch.uint8)
+                boxes_tensor = torch.tensor(boxes, dtype=torch.float32)
+                labels_tensor = torch.tensor(labels, dtype=torch.int64)
+            else:
+                masks_tensor = torch.zeros((0, self.image_size, self.image_size), dtype=torch.uint8)
+                boxes_tensor = torch.zeros((0, 4), dtype=torch.float32)
+                labels_tensor = torch.zeros((0,), dtype=torch.int64)
+
+        instance_map_tensor = None
+        if self.include_instance_map:
+            if instance_map is None:
+                instance_map = np.zeros((self.image_size, self.image_size), dtype=np.int64)
+            instance_map_tensor = torch.from_numpy(instance_map).long()
+
+        return {
+            "image_id": image_id,
+            "file_name": info["file_name"],
+            "image": torch.from_numpy(image.transpose(2, 0, 1)).float() / 255.0,
+            "depth": depth_tensor,
+            "depth_features": depth_feature_tensor,
+            "masks": masks_tensor,
+            "boxes": boxes_tensor,
+            "labels": labels_tensor,
+            "instance_map": instance_map_tensor,
+            "instance_targets": instance_targets,
+        }
+
+
+def collate_baseline_batch(batch: list[dict[str, Any]]) -> dict[str, Any]:
+    depths = [item.get("depth") for item in batch]
+    has_depth = all(depth is not None for depth in depths)
+    depth_features = [item.get("depth_features") for item in batch]
+    has_depth_features = all(feature is not None for feature in depth_features)
+    mask_batch = [item.get("masks") for item in batch]
+    box_batch = [item.get("boxes") for item in batch]
+    label_batch = [item.get("labels") for item in batch]
+    has_masks = all(masks is not None for masks in mask_batch)
+    has_boxes = all(boxes is not None for boxes in box_batch)
+    has_labels = all(labels is not None for labels in label_batch)
+    instance_map_batch = [item.get("instance_map") for item in batch]
+    has_instance_maps = all(item is not None for item in instance_map_batch)
+    target_batch = [item.get("instance_targets") for item in batch]
+    has_instance_targets = all(item is not None for item in target_batch)
+    return {
+        "image_ids": [int(item["image_id"]) for item in batch],
+        "file_names": [str(item["file_name"]) for item in batch],
+        "images": torch.stack([item["image"].float() for item in batch], dim=0),
+        "depths": None if not has_depth else torch.stack([depth.float() for depth in depths if depth is not None], dim=0),
+        "depth_features": None if not has_depth_features else torch.stack([feature.float() for feature in depth_features if feature is not None], dim=0),
+        "masks": None if not has_masks else [masks for masks in mask_batch if masks is not None],
+        "boxes": None if not has_boxes else [boxes for boxes in box_batch if boxes is not None],
+        "labels": None if not has_labels else [labels for labels in label_batch if labels is not None],
+        "instance_maps": None if not has_instance_maps else torch.stack([item.long() for item in instance_map_batch if item is not None], dim=0),
+        "instance_targets": None
+        if not has_instance_targets
+        else {
+            "fg": torch.stack([item["instance_targets"]["fg"].float() for item in batch], dim=0),
+            "boundary": torch.stack([item["instance_targets"]["boundary"].float() for item in batch], dim=0),
+            "center": torch.stack([item["instance_targets"]["center"].float() for item in batch], dim=0),
+            "offsets": torch.stack([item["instance_targets"]["offsets"].float() for item in batch], dim=0),
+        },
+    }

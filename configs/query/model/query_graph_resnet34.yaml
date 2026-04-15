@@ -1,4 +1,0 @@
-common:
-  variant: query_graph_resnet34
-  encoder_name: resnet34
-  depth_fusion_mode: early6

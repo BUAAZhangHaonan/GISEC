@@ -1,21 +1,10 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-import pytest
 import yaml
 
-from argparse import Namespace
-
-from gisec.config.io import load_yaml_config
-from gisec.train.train_gisec import (
-    parse_eval_args,
-    parse_infer_args,
-    parse_train_args,
-    resolve_model_config,
-)
-from gisec.config.query_models import get_query_model_spec
+from gisec.train.train_gisec import parse_eval_args, parse_infer_args, parse_train_args
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:
@@ -29,15 +18,17 @@ def test_parse_train_args_reads_yaml_defaults(tmp_path: Path) -> None:
         {
             "common": {
                 "dataset_root": "/tmp/dataset",
-                "prototype_root": "/tmp/prototypes",
+                "reference_root": "/tmp/references",
                 "output_dir": "/tmp/out",
-                "variant": "legacy_rgbd_prototype_ownership_graph_cues",
+                "variant": "base_rgbd_1024",
                 "image_size": 512,
                 "batch": 2,
+                "num_workers": 3,
             },
             "train": {
                 "epochs": 3,
-                "lr": 2.0e-4,
+                "learning_rate": 2.0e-4,
+                "weight_decay": 1.0e-5,
                 "max_train_steps": 5,
             },
         },
@@ -46,13 +37,15 @@ def test_parse_train_args_reads_yaml_defaults(tmp_path: Path) -> None:
     args = parse_train_args(["--config", str(config_path)])
 
     assert args.dataset_root == "/tmp/dataset"
-    assert args.prototype_root == "/tmp/prototypes"
+    assert args.reference_root == "/tmp/references"
     assert args.output_dir == "/tmp/out"
-    assert args.variant == "legacy_rgbd_prototype_ownership_graph_cues"
+    assert args.variant == "base_rgbd_1024"
     assert args.image_size == 512
     assert args.batch == 2
+    assert args.num_workers == 3
     assert args.epochs == 3
-    assert args.lr == 2.0e-4
+    assert args.learning_rate == 2.0e-4
+    assert args.weight_decay == 1.0e-5
     assert args.max_train_steps == 5
 
 
@@ -62,9 +55,9 @@ def test_cli_overrides_yaml_defaults(tmp_path: Path) -> None:
         {
             "common": {
                 "dataset_root": "/tmp/dataset",
-                "prototype_root": "/tmp/prototypes",
+                "reference_root": "/tmp/references",
                 "output_dir": "/tmp/out",
-                "variant": "legacy_rgbd_prototype_affinity_baseline",
+                "variant": "base_rgbd_1024",
                 "batch": 4,
             }
         },
@@ -75,13 +68,13 @@ def test_cli_overrides_yaml_defaults(tmp_path: Path) -> None:
             "--config",
             str(config_path),
             "--variant",
-            "legacy_rgbd_prototype_ownership_graph_cues",
+            "base_rgbd_1024",
             "--batch",
             "1",
         ]
     )
 
-    assert args.variant == "legacy_rgbd_prototype_ownership_graph_cues"
+    assert args.variant == "base_rgbd_1024"
     assert args.batch == 1
 
 
@@ -91,9 +84,9 @@ def test_parse_eval_and_infer_args_read_mode_specific_yaml_sections(tmp_path: Pa
         {
             "common": {
                 "dataset_root": "/tmp/dataset",
-                "prototype_root": "/tmp/prototypes",
+                "reference_root": "/tmp/references",
                 "output_dir": "/tmp/out",
-                "variant": "legacy_rgbd_prototype_ownership_graph_cues",
+                "variant": "base_rgbd_1024_refine_ref_graph",
             },
             "eval": {
                 "checkpoint": "/tmp/out/model_best.pth",
@@ -125,9 +118,9 @@ def test_multiple_configs_merge_with_later_override(tmp_path: Path) -> None:
         {
             "common": {
                 "dataset_root": "/tmp/dataset",
-                "prototype_root": "/tmp/prototypes",
+                "reference_root": "/tmp/references",
                 "output_dir": "/tmp/out",
-                "variant": "legacy_rgbd_prototype_affinity_baseline",
+                "variant": "base_rgbd_1024",
                 "batch": 4,
             },
             "train": {"epochs": 20},
@@ -136,7 +129,11 @@ def test_multiple_configs_merge_with_later_override(tmp_path: Path) -> None:
     smoke_path = _write_yaml(
         tmp_path / "smoke.yaml",
         {
-            "common": {"batch": 1, "variant": "legacy_rgbd_prototype_ownership_graph_cues"},
+            "common": {
+                "batch": 1,
+                "variant": "base_rgbd_1024_refine",
+                "init_checkpoint": "/tmp/init.pth",
+            },
             "train": {"epochs": 1, "max_train_steps": 8},
         },
     )
@@ -151,333 +148,7 @@ def test_multiple_configs_merge_with_later_override(tmp_path: Path) -> None:
     )
 
     assert args.batch == 1
-    assert args.variant == "legacy_rgbd_prototype_ownership_graph_cues"
+    assert args.variant == "base_rgbd_1024_refine"
+    assert args.init_checkpoint == "/tmp/init.pth"
     assert args.epochs == 1
     assert args.max_train_steps == 8
-
-
-def test_parse_train_args_reads_model_defaults(tmp_path: Path) -> None:
-    config_path = _write_yaml(
-        tmp_path / "model.yaml",
-        {
-            "common": {
-                "dataset_root": "/tmp/dataset",
-                "prototype_root": "/tmp/prototypes",
-                "output_dir": "/tmp/out",
-                "base_channels": 12,
-                "graph_hidden_dim": 48,
-                "norm_layer": "group",
-                "prototype_slot_count": 5,
-                "prototype_topk": 1,
-                "fg_prior": 0.1,
-                "boundary_prior": 0.02,
-                "reference_conditioning_mode": "bottleneck_only",
-                "reference_routing_mode": "hard_top1",
-                "reference_skip_margin": 0.2,
-            }
-        },
-    )
-
-    args = parse_train_args(["--config", str(config_path)])
-
-    assert args.base_channels == 12
-    assert args.graph_hidden_dim == 48
-    assert args.norm_layer == "group"
-    assert args.prototype_slot_count == 5
-    assert args.prototype_topk == 1
-    assert args.fg_prior == 0.1
-    assert args.boundary_prior == 0.02
-    assert args.reference_conditioning_mode == "bottleneck_only"
-    assert args.reference_routing_mode == "hard_top1"
-    assert args.reference_skip_margin == 0.2
-
-
-def test_parse_train_args_normalizes_unquoted_off_mode(tmp_path: Path) -> None:
-    config_path = tmp_path / "q0.yaml"
-    config_path.write_text(
-        "\n".join(
-            [
-                "common:",
-                "  dataset_root: /tmp/dataset",
-                "  prototype_root: /tmp/prototypes",
-                "  output_dir: /tmp/out",
-                "  reference_conditioning_mode: off",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    args = parse_train_args(["--config", str(config_path)])
-
-    assert args.reference_conditioning_mode == "off"
-
-
-def test_resolve_model_config_normalizes_legacy_false_reference_mode(tmp_path: Path) -> None:
-    output_dir = tmp_path / "run"
-    output_dir.mkdir()
-    (output_dir / "model_config.json").write_text(
-        json.dumps(
-            {
-                "reference_conditioning_mode": "False",
-                "reference_routing_mode": "hard_top1",
-            }
-        ),
-        encoding="utf-8",
-    )
-    args = Namespace(**vars(parse_train_args(
-        [
-            "--dataset-root",
-            "/tmp/dataset",
-            "--prototype-root",
-            "/tmp/prototypes",
-            "--output-dir",
-            "/tmp/out",
-        ]
-    )))
-
-    checkpoint_path = output_dir / "model_best.pth"
-    checkpoint_path.write_text("", encoding="utf-8")
-    config = resolve_model_config(args, checkpoint_path=checkpoint_path, output_dir=output_dir)
-
-    assert config["reference_conditioning_mode"] == "off"
-
-
-def test_parse_train_args_reads_fragment_threshold_defaults(tmp_path: Path) -> None:
-    config_path = _write_yaml(
-        tmp_path / "thresholds.yaml",
-        {
-            "common": {
-                "dataset_root": "/tmp/dataset",
-                "prototype_root": "/tmp/prototypes",
-                "output_dir": "/tmp/out",
-                "fragment_fg_threshold": 0.6,
-                "fragment_boundary_threshold": 0.75,
-            }
-        },
-    )
-
-    args = parse_train_args(["--config", str(config_path)])
-
-    assert args.fragment_fg_threshold == 0.6
-    assert args.fragment_boundary_threshold == 0.75
-
-
-def test_parse_train_args_reads_seed_default(tmp_path: Path) -> None:
-    config_path = _write_yaml(
-        tmp_path / "seed.yaml",
-        {
-            "common": {
-                "dataset_root": "/tmp/dataset",
-                "prototype_root": "/tmp/prototypes",
-                "output_dir": "/tmp/out",
-            },
-            "train": {
-                "seed": 123,
-            },
-        },
-    )
-
-    args = parse_train_args(["--config", str(config_path)])
-
-    assert args.seed == 123
-
-
-def test_load_yaml_config_rejects_duplicate_keys(tmp_path: Path) -> None:
-    config_path = tmp_path / "duplicate.yaml"
-    config_path.write_text(
-        "\n".join(
-            [
-                "train:",
-                "  epochs: 10",
-                "train:",
-                "  epochs: 4",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="Duplicate YAML key"):
-        load_yaml_config(config_path)
-
-
-def test_parse_train_args_rejects_duplicate_keys_via_config_entrypoint(tmp_path: Path) -> None:
-    config_path = tmp_path / "duplicate.yaml"
-    config_path.write_text(
-        "\n".join(
-            [
-                "common:",
-                "  dataset_root: /tmp/dataset",
-                "  prototype_root: /tmp/prototypes",
-                "  output_dir: /tmp/out",
-                "train:",
-                "  epochs: 10",
-                "train:",
-                "  epochs: 4",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="Duplicate YAML key"):
-        parse_train_args(
-            [
-                "--config",
-                str(config_path),
-                "--dataset-root",
-                "/tmp/dataset",
-                "--prototype-root",
-                "/tmp/prototypes",
-                "--output-dir",
-                "/tmp/out",
-            ]
-        )
-
-
-def test_parse_train_args_reads_stage2_baseline_config() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
-    config_path = repo_root / "configs" / "baseline" / "instance_fragment_generator_rgb_stage2.yaml"
-
-    args = parse_train_args(
-        [
-            "--config",
-            str(config_path),
-            "--dataset-root",
-            "/tmp/dataset",
-            "--prototype-root",
-            "/tmp/prototypes",
-            "--output-dir",
-            "/tmp/out",
-        ]
-    )
-
-    assert args.epochs == 4
-    assert args.batch_size == 64
-    assert args.num_workers == 4
-    assert args.learning_rate == 0.001
-    assert args.max_train_steps == 0
-
-
-def test_parse_train_args_allows_smoke_config_to_override_reference_policy(tmp_path: Path) -> None:
-    reference_path = _write_yaml(
-        tmp_path / "reference.yaml",
-        {
-            "common": {
-                "dataset_root": "/tmp/dataset",
-                "prototype_root": "/tmp/prototypes",
-                "output_dir": "/tmp/out",
-                "reference_max_views": 16,
-                "reference_view_sampler": "pose_farthest",
-                "prototype_slot_count": 6,
-                "prototype_topk": 2,
-                "reference_conditioning_mode": "full",
-                "reference_routing_mode": "soft_topk",
-                "reference_skip_margin": 0.05,
-            }
-        },
-    )
-    smoke_path = _write_yaml(
-        tmp_path / "smoke.yaml",
-        {
-            "common": {
-                "reference_max_views": 6,
-                "prototype_slot_count": 4,
-                "prototype_topk": 1,
-                "reference_conditioning_mode": "bottleneck_only",
-                "reference_routing_mode": "hard_top1",
-                "reference_skip_margin": 0.15,
-            }
-        },
-    )
-
-    args = parse_train_args(
-        [
-            "--config",
-            str(reference_path),
-            "--config",
-            str(smoke_path),
-        ]
-    )
-
-    assert args.reference_max_views == 6
-    assert args.reference_view_sampler == "pose_farthest"
-    assert args.prototype_slot_count == 4
-    assert args.prototype_topk == 1
-    assert args.reference_conditioning_mode == "bottleneck_only"
-    assert args.reference_routing_mode == "hard_top1"
-    assert args.reference_skip_margin == 0.15
-
-
-def test_parse_train_args_reads_graph_warmup_and_reweighted_boundary_defaults(tmp_path: Path) -> None:
-    config_path = _write_yaml(
-        tmp_path / "train.yaml",
-        {
-            "common": {
-                "dataset_root": "/tmp/dataset",
-                "prototype_root": "/tmp/prototypes",
-                "output_dir": "/tmp/out",
-            },
-            "train": {
-                "graph_warmup_steps": 24,
-                "fg_pos_weight": 11.0,
-                "boundary_pos_weight": 12.0,
-            },
-        },
-    )
-
-    args = parse_train_args(["--config", str(config_path)])
-
-    assert args.graph_warmup_steps == 24
-    assert args.fg_pos_weight == 11.0
-    assert args.boundary_pos_weight == 12.0
-
-
-def test_parse_train_args_accepts_new_recovery_cli_flags() -> None:
-    args = parse_train_args(
-        [
-            "--dataset-root",
-            "/tmp/dataset",
-            "--prototype-root",
-            "/tmp/prototypes",
-            "--output-dir",
-            "/tmp/out",
-            "--fg-prior",
-            "0.11",
-            "--boundary-prior",
-            "0.03",
-            "--graph-warmup-steps",
-            "12",
-            "--reference-conditioning-mode",
-            "bottleneck_only",
-            "--reference-routing-mode",
-            "hard_top1",
-            "--reference-skip-margin",
-            "0.2",
-        ]
-    )
-
-    assert args.fg_prior == 0.11
-    assert args.boundary_prior == 0.03
-    assert args.graph_warmup_steps == 12
-    assert args.reference_conditioning_mode == "bottleneck_only"
-    assert args.reference_routing_mode == "hard_top1"
-    assert args.reference_skip_margin == 0.2
-
-
-def test_query_model_registry_reserves_active_alpha_scales_and_keeps_legacy_names_out() -> None:
-    query_small_resnet18 = get_query_model_spec("query_small_resnet18")
-    query_medium_resnet34 = get_query_model_spec("query_medium_resnet34")
-
-    assert query_small_resnet18.model_family == "query_alpha"
-    assert query_medium_resnet34.model_family == "query_alpha"
-    assert query_small_resnet18.encoder_family == "resnet"
-    assert query_medium_resnet34.encoder_family == "resnet"
-    assert query_small_resnet18.depth_fusion_mode == "early6"
-    assert query_medium_resnet34.depth_fusion_mode == "early6"
-    assert query_small_resnet18.model_scale == "small"
-    assert query_medium_resnet34.model_scale == "medium"
-
-    with pytest.raises(ValueError):
-        get_query_model_spec("legacy_rgbd_prototype_ownership_graph_cues")

@@ -7,14 +7,14 @@ import cv2
 import numpy as np
 import pytest
 
-from baseline.common.coco_export import masks_to_coco_results
-from baseline.common.dataset import BaselineInstanceDataset
-from baseline.common.instance_targets import (
+from gisec.datasets.baseline_instance_dataset import BaselineInstanceDataset
+from gisec.datasets.instance_targets import (
     build_instance_target_pack,
     load_instance_target_cache,
     resolve_instance_target_cache_dir,
     save_instance_target_cache,
 )
+from gisec.eval.coco_export import masks_to_coco_results
 
 
 def _write_dataset(root: Path, *, file_name: str = "000001.png") -> None:
@@ -134,7 +134,7 @@ def test_baseline_dataset_uses_cached_instance_targets_without_rebuilding(tmp_pa
     def _fail(_: np.ndarray) -> dict[str, np.ndarray]:
         raise AssertionError("online instance target build should be skipped when cache exists")
 
-    monkeypatch.setattr("baseline.common.dataset.build_instance_target_pack", _fail)
+    monkeypatch.setattr("gisec.datasets.baseline_instance_dataset.build_instance_target_pack", _fail)
 
     dataset = BaselineInstanceDataset(
         dataset_root=str(dataset_root),

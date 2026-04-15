@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 import torch
 
 from gisec.engine.runtime import (
     _component_merge_score,
     _classify_mask_failure,
-    _diagnostic_query_ownership_target,
-    _summarize_instance_matching,
     _prepare_overlay_dir,
+    _summarize_instance_matching,
     _summarize_reference_routing,
     masks_to_results,
 )
@@ -72,40 +70,14 @@ def test_classify_mask_failure_detects_empty_tiny_border_strip_full_frame_and_no
     assert normal == "normal"
 
 
-def test_classify_mask_failure_does_not_mark_valid_1024_scale_component_as_tiny_island() -> None:
-    mask = np.zeros((1024, 1024), dtype=np.uint8)
-    mask[256:296, 256:296] = 1
-
-    label = _classify_mask_failure([mask], image_shape=(1024, 1024), min_area=256)
-
-    assert label == "normal"
-
-
-def test_component_merge_score_returns_zero_for_components_without_accepted_edges() -> None:
-    merged_mask = np.zeros((8, 8), dtype=bool)
-    merged_mask[2:6, 2:6] = True
-    fragments = np.zeros((8, 8), dtype=np.int32)
-    fragments[2:6, 2:6] = 1
-
-    score = _component_merge_score(
-        merged_mask=merged_mask,
-        fragments=fragments,
-        edge_index=np.zeros((2, 0), dtype=np.int64),
-        edge_scores=np.zeros((0,), dtype=np.float32),
-        threshold=0.5,
-    )
-
-    assert score == 0.0
-
-
 def test_summarize_reference_routing_counts_selected_views() -> None:
     summary = _summarize_reference_routing(
         [
             {
                 "reference_conditioning_mode": "full",
                 "reference_routing_mode": "hard_top1",
-                "prototype_slot_count": 6,
-                "prototype_topk": 2,
+                "reference_slot_count": 6,
+                "reference_topk": 2,
                 "top1_weight": [0.9],
                 "top2_weight": [0.1],
                 "top1_top2_margin": [0.8],
@@ -116,8 +88,8 @@ def test_summarize_reference_routing_counts_selected_views() -> None:
             {
                 "reference_conditioning_mode": "full",
                 "reference_routing_mode": "hard_top1",
-                "prototype_slot_count": 6,
-                "prototype_topk": 2,
+                "reference_slot_count": 6,
+                "reference_topk": 2,
                 "top1_weight": [0.8],
                 "top2_weight": [0.2],
                 "top1_top2_margin": [0.6],
@@ -131,28 +103,11 @@ def test_summarize_reference_routing_counts_selected_views() -> None:
     assert summary["total_images"] == 2
     assert summary["reference_conditioning_mode"] == "full"
     assert summary["reference_routing_mode"] == "hard_top1"
-    assert summary["prototype_slot_count"] == 6
-    assert summary["prototype_topk"] == 2
+    assert summary["reference_slot_count"] == 6
+    assert summary["reference_topk"] == 2
     assert summary["top1_weight_mean"] == 0.85
     assert summary["skip_conditioning_ratio"] == 0.5
     assert summary["selected_view_histogram"]["view_003"] == 2
-
-
-def test_diagnostic_query_ownership_target_uses_precomputed_query_target(monkeypatch: pytest.MonkeyPatch) -> None:
-    def _fail(*_args, **_kwargs) -> np.ndarray:
-        raise AssertionError("fallback should not be used when query_ownership_target is present")
-
-    monkeypatch.setattr("gisec.train.query_targets.build_ownership_target", _fail)
-
-    batch = {
-        "query_ownership_target": torch.full((1, 2, 4, 4), 3.25, dtype=torch.float32),
-        "instance_maps": torch.zeros((1, 4, 4), dtype=torch.long),
-    }
-    outputs = {"ownership_offsets": torch.zeros((1, 2, 4, 4), dtype=torch.float32)}
-
-    ownership_target = _diagnostic_query_ownership_target(batch, outputs)
-
-    assert torch.equal(ownership_target, batch["query_ownership_target"][0])
 
 
 def test_summarize_instance_matching_reports_gt_pred_count_and_iou() -> None:

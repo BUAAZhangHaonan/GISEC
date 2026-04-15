@@ -7,13 +7,17 @@ name = "gisec"
 version = "0.1.0"
 description = "GISEC: Graph-based Instance Segmentation for Electronic Components"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
   "numpy",
   "opencv-python",
   "pycocotools",
-  "torch",
   "PyYAML",
+  "scipy==1.15.2",
+  "matplotlib==3.10.1",
+  "torch==2.7.0",
+  "torchvision==0.22.0",
+  "transformers",
 ]
 
 [project.optional-dependencies]
@@ -21,6 +25,12 @@ dev = [
   "pytest",
 ]
 
+[project.scripts]
+gisec = "gisec.cli.main:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
 [tool.setuptools.packages.find]
-where = ["."]
+where = ["src"]
 include = ["gisec*"]

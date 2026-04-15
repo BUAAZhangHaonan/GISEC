@@ -2,7 +2,7 @@ name: gisec
 channels:
   - defaults
 dependencies:
-  - python=3.13
+  - python=3.12
   - pip
   - ninja
   - pip:
@@ -10,12 +10,11 @@ dependencies:
       - pytest
       - opencv-python
       - pycocotools
-      - scipy==1.15.2
       - PyYAML==6.0.3
-      - transformers==4.57.6
-      - matplotlib==3.10.7
-      - --index-url https://download.pytorch.org/whl/cu130
+      - scipy==1.15.2
+      - matplotlib==3.10.1
+      - transformers
+      - --index-url https://download.pytorch.org/whl/cu128
       - --extra-index-url https://pypi.org/simple
-      - torch==2.10.0
-      - torchvision==0.25.0
-      - torchaudio==2.10.0
+      - torch==2.7.0
+      - torchvision==0.22.0

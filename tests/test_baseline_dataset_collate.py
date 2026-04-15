@@ -6,7 +6,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from baseline.common.dataset import BaselineInstanceDataset, collate_baseline_batch
+from gisec.datasets.baseline_instance_dataset import BaselineInstanceDataset, collate_baseline_batch
 
 
 def _write_dataset(root: Path, *, file_name: str = "000001.png") -> None:

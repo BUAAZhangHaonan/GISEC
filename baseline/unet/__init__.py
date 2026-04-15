@@ -1,1 +1,0 @@
-"""RGB U-Net baseline."""
