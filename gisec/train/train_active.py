@@ -1273,44 +1273,49 @@ def _build_local_graph_inputs(
             torch.zeros((2, 0), dtype=torch.long, device=feature_crop.device),
             torch.zeros((0, 4), dtype=feature_crop.dtype, device=feature_crop.device),
         )
-    node_features = []
-    geometry_rows: dict[int, tuple[float, float, float, float]] = {}
     height, width = component_map.shape
-    depth_map = None if depth_crop is None else depth_crop[0]
-    for label in labels:
-        mask_np = component_map == int(label)
-        mask_t = torch.from_numpy(mask_np).to(feature_crop.device)
-        denom = mask_t.sum().clamp_min(1).float()
-        pooled = (feature_crop * mask_t.unsqueeze(0)).sum(dim=(1, 2)) / denom
-        ys, xs = np.nonzero(mask_np)
-        centroid_x = float(xs.mean()) / float(max(width, 1))
-        centroid_y = float(ys.mean()) / float(max(height, 1))
-        area_ratio = float(mask_np.mean())
-        mean_prob = float(mask_prob_crop[mask_t].mean().item()) if bool(mask_t.any()) else 0.0
-        node_features.append(torch.cat([pooled, feature_crop.new_tensor([area_ratio, centroid_x, centroid_y, mean_prob])], dim=0))
-        depth_mean = float(depth_map[mask_t].mean().item()) if depth_map is not None and bool(mask_t.any()) else 0.0
-        geometry_rows[int(label)] = (centroid_x, centroid_y, area_ratio, depth_mean)
-    edge_index = []
-    edge_features = []
-    for src_index, src_label in enumerate(labels):
-        for dst_index, dst_label in enumerate(labels[src_index + 1 :], start=src_index + 1):
-            sx, sy, sa, sd = geometry_rows[int(src_label)]
-            dx, dy, da, dd = geometry_rows[int(dst_label)]
-            edge_index.append([src_index, dst_index])
-            edge_features.append(
-                feature_crop.new_tensor(
-                    [
-                        float(math.hypot(sx - dx, sy - dy)),
-                        abs(float(sa - da)),
-                        abs(float(sd - dd)),
-                        abs(float(node_features[src_index][-1].item()) - float(node_features[dst_index][-1].item())),
-                    ]
-                )
-            )
+    labels_tensor = torch.tensor(labels, dtype=torch.long, device=feature_crop.device)
+    component_map_t = torch.as_tensor(component_map, dtype=torch.long, device=feature_crop.device)
+    mask_tensor = component_map_t.unsqueeze(0).eq(labels_tensor[:, None, None])
+    mask_float = mask_tensor.to(dtype=feature_crop.dtype)
+    counts = mask_float.sum(dim=(1, 2)).clamp_min(1.0)
+    pooled = (feature_crop.unsqueeze(0) * mask_float.unsqueeze(1)).sum(dim=(2, 3)) / counts.unsqueeze(1)
+    x_coords = torch.arange(width, dtype=feature_crop.dtype, device=feature_crop.device).view(1, 1, width)
+    y_coords = torch.arange(height, dtype=feature_crop.dtype, device=feature_crop.device).view(1, height, 1)
+    centroid_x = (mask_float * x_coords).sum(dim=(1, 2)) / counts / float(max(width, 1))
+    centroid_y = (mask_float * y_coords).sum(dim=(1, 2)) / counts / float(max(height, 1))
+    area_ratio = counts / float(max(height * width, 1))
+    mean_prob = (mask_prob_crop.unsqueeze(0).to(dtype=feature_crop.dtype) * mask_float).sum(dim=(1, 2)) / counts
+    if depth_crop is None:
+        depth_mean = torch.zeros_like(area_ratio)
+    else:
+        depth_map = depth_crop[0].to(dtype=feature_crop.dtype)
+        depth_mean = (depth_map.unsqueeze(0) * mask_float).sum(dim=(1, 2)) / counts
+    node_features = torch.cat(
+        [
+            pooled,
+            torch.stack([area_ratio, centroid_x, centroid_y, mean_prob], dim=1),
+        ],
+        dim=1,
+    )
+    geometry = torch.stack([centroid_x, centroid_y, area_ratio, depth_mean], dim=1)
+    edge_pair_index = torch.triu_indices(len(labels), len(labels), offset=1, device=feature_crop.device)
+    src_index = edge_pair_index[0]
+    dst_index = edge_pair_index[1]
+    edge_index = edge_pair_index.contiguous()
+    edge_features = torch.stack(
+        [
+            torch.hypot(geometry[src_index, 0] - geometry[dst_index, 0], geometry[src_index, 1] - geometry[dst_index, 1]),
+            (geometry[src_index, 2] - geometry[dst_index, 2]).abs(),
+            (geometry[src_index, 3] - geometry[dst_index, 3]).abs(),
+            (node_features[src_index, -1] - node_features[dst_index, -1]).abs(),
+        ],
+        dim=1,
+    )
     return (
-        torch.stack(node_features, dim=0),
-        torch.tensor(edge_index, dtype=torch.long, device=feature_crop.device).t().contiguous(),
-        torch.stack(edge_features, dim=0),
+        node_features,
+        edge_index,
+        edge_features,
     )
 
 
@@ -1324,32 +1329,21 @@ def _graph_rescue_edge_targets(
     if len(labels) <= 1 or edge_index.numel() == 0:
         empty = torch.zeros((0,), dtype=torch.float32, device=edge_index.device)
         return empty, torch.zeros((0,), dtype=torch.bool, device=edge_index.device)
-    owners: dict[int, int] = {}
     instance_masks = instance_mask_crops.float()
-    for label in labels:
-        component_mask = torch.from_numpy(component_map == int(label)).to(instance_masks.device)
-        overlap_scores = []
-        for instance_index in range(int(instance_masks.shape[0])):
-            overlap_scores.append(float((instance_masks[instance_index] * component_mask.float()).sum().item()))
-        best_overlap = max(overlap_scores, default=0.0)
-        owners[int(label)] = 0 if best_overlap <= 0.0 else int(np.argmax(overlap_scores)) + 1
-    targets: list[float] = []
-    valid_mask: list[bool] = []
-    for src_index, dst_index in edge_index.t().tolist():
-        src_owner = owners[labels[int(src_index)]]
-        dst_owner = owners[labels[int(dst_index)]]
-        if src_owner == 0 and dst_owner == 0:
-            targets.append(0.0)
-            valid_mask.append(False)
-            continue
-        targets.append(1.0 if src_owner > 0 and src_owner == dst_owner else 0.0)
-        valid_mask.append(True)
-    if not targets:
-        empty = torch.zeros((0,), dtype=torch.float32, device=edge_index.device)
-        return empty, torch.zeros((0,), dtype=torch.bool, device=edge_index.device)
+    component_map_t = torch.as_tensor(component_map, dtype=torch.long, device=instance_masks.device)
+    labels_tensor = torch.tensor(labels, dtype=torch.long, device=instance_masks.device)
+    component_masks = component_map_t.unsqueeze(0).eq(labels_tensor[:, None, None])
+    overlaps = (component_masks.unsqueeze(1).to(dtype=instance_masks.dtype) * instance_masks.unsqueeze(0)).sum(dim=(2, 3))
+    best_overlap, best_instance = overlaps.max(dim=1)
+    owners = torch.where(best_overlap > 0, best_instance.to(dtype=torch.long) + 1, torch.zeros_like(best_instance, dtype=torch.long))
+    edge_index_local = edge_index.to(device=owners.device)
+    src_owner = owners[edge_index_local[0].long()]
+    dst_owner = owners[edge_index_local[1].long()]
+    valid_mask = (src_owner > 0) | (dst_owner > 0)
+    targets = torch.where((src_owner > 0) & (src_owner == dst_owner), torch.ones_like(src_owner, dtype=torch.float32), torch.zeros_like(src_owner, dtype=torch.float32))
     return (
-        torch.tensor(targets, dtype=torch.float32, device=edge_index.device),
-        torch.tensor(valid_mask, dtype=torch.bool, device=edge_index.device),
+        targets.to(dtype=torch.float32, device=edge_index.device),
+        valid_mask.to(dtype=torch.bool, device=edge_index.device),
     )
 
 
