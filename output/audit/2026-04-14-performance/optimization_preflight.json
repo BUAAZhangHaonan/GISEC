@@ -1,0 +1,1290 @@
+[
+  {
+    "category": "source_file",
+    "planned_reference": "gisec/train/query_targets.py",
+    "exists": true,
+    "actual_name_or_path": "gisec/train/query_targets.py",
+    "notes": "Verified on disk."
+  },
+  {
+    "category": "source_file",
+    "planned_reference": "gisec/train/train_query.py",
+    "exists": true,
+    "actual_name_or_path": "gisec/train/train_query.py",
+    "notes": "Verified on disk."
+  },
+  {
+    "category": "source_file",
+    "planned_reference": "gisec/cli/train_query.py",
+    "exists": true,
+    "actual_name_or_path": "gisec/cli/train_query.py",
+    "notes": "Verified on disk."
+  },
+  {
+    "category": "source_file",
+    "planned_reference": "gisec/cli/eval_query.py",
+    "exists": true,
+    "actual_name_or_path": "gisec/cli/eval_query.py",
+    "notes": "Verified on disk."
+  },
+  {
+    "category": "source_file",
+    "planned_reference": "gisec/datasets/ecc_query_dataset.py",
+    "exists": true,
+    "actual_name_or_path": "gisec/datasets/ecc_query_dataset.py",
+    "notes": "Verified on disk."
+  },
+  {
+    "category": "source_file",
+    "planned_reference": "gisec/train/train_active.py",
+    "exists": true,
+    "actual_name_or_path": "gisec/train/train_active.py",
+    "notes": "Verified on disk."
+  },
+  {
+    "category": "source_file",
+    "planned_reference": "gisec/models/graph_utils.py",
+    "exists": true,
+    "actual_name_or_path": "gisec/models/graph_utils.py",
+    "notes": "Verified on disk."
+  },
+  {
+    "category": "source_file",
+    "planned_reference": "gisec/engine/runtime.py",
+    "exists": true,
+    "actual_name_or_path": "gisec/engine/runtime.py",
+    "notes": "Verified on disk."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_train_cli.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_train_cli.py",
+    "notes": "Verified on disk and covered by the current validation matrix."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_eval_cli.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_eval_cli.py",
+    "notes": "Verified on disk and covered by the current validation matrix."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_uq_minibatch.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_uq_minibatch.py",
+    "notes": "Verified on disk and covered by the current validation matrix."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_targets.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_targets.py",
+    "notes": "Verified on disk and covered by the current validation matrix."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_supervision_targets.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_supervision_targets.py",
+    "notes": "Verified on disk and covered by the current validation matrix."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_runtime.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_runtime.py",
+    "notes": "Verified on disk and covered by the current validation matrix."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_active_local_training.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_active_local_training.py",
+    "notes": "Verified on disk and covered by the current validation matrix."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_active_graph_training.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_active_graph_training.py",
+    "notes": "Verified on disk and covered by the current validation matrix."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_active_cli_minibatch.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_active_cli_minibatch.py",
+    "notes": "Verified on disk and covered by the current validation matrix."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_graph_builder_legacy.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_graph_builder_legacy.py",
+    "notes": "Verified on disk and covered by the current validation matrix."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_graph_batch_regression.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_graph_batch_regression.py",
+    "notes": "Verified on disk and covered by the current validation matrix."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_prototype_cache_source.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_prototype_cache_source.py",
+    "notes": "Verified on disk and covered by the current validation matrix."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_train_gisec_minibatch.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_train_gisec_minibatch.py",
+    "notes": "Verified on disk and covered by the current validation matrix."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_legacy_throughput.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_legacy_throughput.py",
+    "notes": "Verified on disk and covered by the current validation matrix."
+  },
+  {
+    "category": "helper_script",
+    "planned_reference": "scripts/audit/active_step_breakdown.py",
+    "exists": true,
+    "actual_name_or_path": "scripts/audit/active_step_breakdown.py",
+    "notes": "Verified on disk; the audit scripts also passed a basic runnability check."
+  },
+  {
+    "category": "helper_script",
+    "planned_reference": "scripts/audit/legacy_postproc_breakdown.py",
+    "exists": true,
+    "actual_name_or_path": "scripts/audit/legacy_postproc_breakdown.py",
+    "notes": "Verified on disk; the audit scripts also passed a basic runnability check."
+  },
+  {
+    "category": "helper_script",
+    "planned_reference": "scripts/audit/query_postproc_breakdown.py",
+    "exists": true,
+    "actual_name_or_path": "scripts/audit/query_postproc_breakdown.py",
+    "notes": "Verified on disk; the audit scripts also passed a basic runnability check."
+  },
+  {
+    "category": "helper_script",
+    "planned_reference": "scripts/experiments/launch_tmux_queue.sh",
+    "exists": true,
+    "actual_name_or_path": "scripts/experiments/launch_tmux_queue.sh",
+    "notes": "Verified on disk; the audit scripts also passed a basic runnability check."
+  },
+  {
+    "category": "artifact",
+    "planned_reference": "output/audit/2026-04-14-performance/execution_log.txt",
+    "exists": true,
+    "actual_name_or_path": "output/audit/2026-04-14-performance/execution_log.txt",
+    "notes": "Verified audit artifact path."
+  },
+  {
+    "category": "artifact",
+    "planned_reference": "output/audit/2026-04-14-performance/honest_status_report.md",
+    "exists": true,
+    "actual_name_or_path": "output/audit/2026-04-14-performance/honest_status_report.md",
+    "notes": "Verified audit artifact path."
+  },
+  {
+    "category": "artifact",
+    "planned_reference": "docs/results/2026-04-14-training-performance-audit.md",
+    "exists": true,
+    "actual_name_or_path": "docs/results/2026-04-14-training-performance-audit.md",
+    "notes": "Verified audit artifact path."
+  },
+  {
+    "category": "artifact",
+    "planned_reference": "output/audit/2026-04-14-performance/queue/launcher.command.txt",
+    "exists": true,
+    "actual_name_or_path": "output/audit/2026-04-14-performance/queue/launcher.command.txt",
+    "notes": "Verified audit artifact path."
+  },
+  {
+    "category": "artifact",
+    "planned_reference": "output/audit/2026-04-14-performance/queue/gpu_monitor.jsonl",
+    "exists": true,
+    "actual_name_or_path": "output/audit/2026-04-14-performance/queue/gpu_monitor.jsonl",
+    "notes": "Verified audit artifact path."
+  },
+  {
+    "category": "artifact",
+    "planned_reference": "output/audit/2026-04-14-performance/queue_active_rescue_breakdown/launcher.command.txt",
+    "exists": true,
+    "actual_name_or_path": "output/audit/2026-04-14-performance/queue_active_rescue_breakdown/launcher.command.txt",
+    "notes": "Verified audit artifact path."
+  },
+  {
+    "category": "artifact",
+    "planned_reference": "output/audit/2026-04-14-performance/queue_active_rescue_breakdown/gpu_monitor.jsonl",
+    "exists": true,
+    "actual_name_or_path": "output/audit/2026-04-14-performance/queue_active_rescue_breakdown/gpu_monitor.jsonl",
+    "notes": "Verified audit artifact path."
+  },
+  {
+    "category": "artifact",
+    "planned_reference": "output/audit/2026-04-14-performance/queue_active_rescue_breakdown_fast/launcher.command.txt",
+    "exists": true,
+    "actual_name_or_path": "output/audit/2026-04-14-performance/queue_active_rescue_breakdown_fast/launcher.command.txt",
+    "notes": "Verified audit artifact path."
+  },
+  {
+    "category": "artifact",
+    "planned_reference": "output/audit/2026-04-14-performance/queue_active_rescue_breakdown_fast/gpu_monitor.jsonl",
+    "exists": true,
+    "actual_name_or_path": "output/audit/2026-04-14-performance/queue_active_rescue_breakdown_fast/gpu_monitor.jsonl",
+    "notes": "Verified audit artifact path."
+  },
+  {
+    "category": "artifact",
+    "planned_reference": "output/audit/2026-04-14-performance/queue_active_stage1_breakdown/launcher.command.txt",
+    "exists": true,
+    "actual_name_or_path": "output/audit/2026-04-14-performance/queue_active_stage1_breakdown/launcher.command.txt",
+    "notes": "Verified audit artifact path."
+  },
+  {
+    "category": "artifact",
+    "planned_reference": "output/audit/2026-04-14-performance/queue_active_stage1_breakdown/gpu_monitor.jsonl",
+    "exists": true,
+    "actual_name_or_path": "output/audit/2026-04-14-performance/queue_active_stage1_breakdown/gpu_monitor.jsonl",
+    "notes": "Verified audit artifact path."
+  },
+  {
+    "category": "artifact",
+    "planned_reference": "output/audit/2026-04-14-performance/queue_resume1/launcher.command.txt",
+    "exists": true,
+    "actual_name_or_path": "output/audit/2026-04-14-performance/queue_resume1/launcher.command.txt",
+    "notes": "Verified audit artifact path."
+  },
+  {
+    "category": "artifact",
+    "planned_reference": "output/audit/2026-04-14-performance/queue_resume1/gpu_monitor.jsonl",
+    "exists": true,
+    "actual_name_or_path": "output/audit/2026-04-14-performance/queue_resume1/gpu_monitor.jsonl",
+    "notes": "Verified audit artifact path."
+  },
+  {
+    "category": "function_name",
+    "planned_reference": "gisec/datasets/ecc_query_dataset.py::build_core_heatmap_target",
+    "exists": false,
+    "actual_name_or_path": "gisec/train/query_targets.py::build_core_heatmap_target",
+    "notes": "The function is used from the dataset file but is defined in query_targets.py."
+  },
+  {
+    "category": "function_name",
+    "planned_reference": "gisec/datasets/ecc_query_dataset.py::_core_point",
+    "exists": false,
+    "actual_name_or_path": "gisec/train/query_targets.py::_core_point",
+    "notes": "The helper lives in query_targets.py, not in the dataset file."
+  },
+  {
+    "category": "function_name",
+    "planned_reference": "gisec/datasets/ecc_query_dataset.py::core_target",
+    "exists": true,
+    "actual_name_or_path": "QuerySample.core_target / batch key core_target",
+    "notes": "The sample field and batched key both exist."
+  },
+  {
+    "category": "function_name",
+    "planned_reference": "gisec/datasets/ecc_query_dataset.py::query_ownership_target",
+    "exists": true,
+    "actual_name_or_path": "QuerySample.query_ownership_target / batch key query_ownership_target",
+    "notes": "The sample field and batched key both exist."
+  },
+  {
+    "category": "function_name",
+    "planned_reference": "gisec/datasets/ecc_query_dataset.py::instance_map",
+    "exists": true,
+    "actual_name_or_path": "QuerySample.instance_map / batch key instance_maps",
+    "notes": "The per-sample field exists; the batched form is instance_maps."
+  },
+  {
+    "category": "function_name",
+    "planned_reference": "gisec/datasets/ecc_query_dataset.py::boundary",
+    "exists": true,
+    "actual_name_or_path": "boundary local variable / batch key boundary_target",
+    "notes": "The dataset builds boundary and batches it as boundary_target."
+  },
+  {
+    "category": "function_name",
+    "planned_reference": "gisec/train/train_active.py::_apply_local_rescue",
+    "exists": true,
+    "actual_name_or_path": "gisec/train/train_active.py::_apply_local_rescue",
+    "notes": "Verified on disk."
+  },
+  {
+    "category": "function_name",
+    "planned_reference": "gisec/train/train_active.py::_train_local_modules_with_metrics",
+    "exists": true,
+    "actual_name_or_path": "gisec/train/train_active.py::_train_local_modules_with_metrics",
+    "notes": "Verified on disk."
+  },
+  {
+    "category": "function_name",
+    "planned_reference": "gisec/train/train_active.py::_build_local_graph_inputs",
+    "exists": true,
+    "actual_name_or_path": "gisec/train/train_active.py::_build_local_graph_inputs",
+    "notes": "Verified on disk."
+  },
+  {
+    "category": "function_name",
+    "planned_reference": "gisec/train/train_active.py::_graph_rescue_edge_targets",
+    "exists": true,
+    "actual_name_or_path": "gisec/train/train_active.py::_graph_rescue_edge_targets",
+    "notes": "Verified on disk."
+  },
+  {
+    "category": "function_name",
+    "planned_reference": "gisec/models/graph_utils.py::_ownership_seed_centers_tensor",
+    "exists": true,
+    "actual_name_or_path": "gisec/models/graph_utils.py::_ownership_seed_centers_tensor",
+    "notes": "Verified on disk."
+  },
+  {
+    "category": "function_name",
+    "planned_reference": "gisec/models/graph_utils.py::_split_fragments_by_ownership_tensor",
+    "exists": true,
+    "actual_name_or_path": "gisec/models/graph_utils.py::_split_fragments_by_ownership_tensor",
+    "notes": "Verified on disk."
+  },
+  {
+    "category": "function_name",
+    "planned_reference": "gisec/engine/runtime.py::PrototypeCacheSource._resolve_bank",
+    "exists": true,
+    "actual_name_or_path": "gisec/engine/runtime.py::PrototypeCacheSource._resolve_bank",
+    "notes": "Verified on disk."
+  },
+  {
+    "category": "function_name",
+    "planned_reference": "gisec/engine/runtime.py::build_prototype_cache",
+    "exists": false,
+    "actual_name_or_path": "gisec/models/prototype_unet.py::build_prototype_cache and gisec/models/gisec_model.py::build_prototype_cache",
+    "notes": "The runtime module calls model methods; the concrete builders live on model classes."
+  },
+  {
+    "category": "function_name",
+    "planned_reference": "gisec/train/train_query.py::batch[\"query_ownership_target\"] used for graph loss",
+    "exists": true,
+    "actual_name_or_path": "batch[\"query_ownership_target\"] / ownership-loss path",
+    "notes": "The key exists, but graph loss uses graph_batch.edge_targets."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/conftest.py",
+    "exists": true,
+    "actual_name_or_path": "tests/conftest.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/query/__init__.py",
+    "exists": true,
+    "actual_name_or_path": "tests/query/__init__.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_active_backbone_inputs.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_active_backbone_inputs.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_active_checkpoint_loading.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_active_checkpoint_loading.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_active_cli_minibatch.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_active_cli_minibatch.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_active_cli_routing.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_active_cli_routing.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_active_decode_contract.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_active_decode_contract.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_active_depth_mode.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_active_depth_mode.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_active_failure_metrics.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_active_failure_metrics.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_active_graph_training.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_active_graph_training.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_active_local_training.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_active_local_training.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_active_model_builder.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_active_model_builder.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_active_pilot_summary.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_active_pilot_summary.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_active_reference_depth.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_active_reference_depth.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_active_reference_inputs.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_active_reference_inputs.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_active_refine_ranking.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_active_refine_ranking.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_active_run_state.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_active_run_state.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_active_runner_dry_run.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_active_runner_dry_run.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_active_stage_init.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_active_stage_init.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_active_stage_order.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_active_stage_order.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_active_train_cli.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_active_train_cli.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_active_variant_surface.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_active_variant_surface.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_analysis_scripts.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_analysis_scripts.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_baseline_config_dry_run.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_baseline_config_dry_run.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_baseline_contracts.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_baseline_contracts.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_baseline_dataset.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_baseline_dataset.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_baseline_dataset_collate.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_baseline_dataset_collate.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_baseline_decode_fastpath.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_baseline_decode_fastpath.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_baseline_instance_cache_script.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_baseline_instance_cache_script.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_baseline_instance_graph_cache.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_baseline_instance_graph_cache.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_baseline_mask2former_smoke.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_baseline_mask2former_smoke.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_baseline_mask_rcnn_smoke.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_baseline_mask_rcnn_smoke.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_baseline_peak_points_fast.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_baseline_peak_points_fast.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_baseline_reset_ladder_scripts.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_baseline_reset_ladder_scripts.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_baseline_rgbd_unet.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_baseline_rgbd_unet.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_baseline_runner_dry_run.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_baseline_runner_dry_run.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_baseline_split_decode.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_baseline_split_decode.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_baseline_split_targets.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_baseline_split_targets.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_baseline_summary_diagnostics.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_baseline_summary_diagnostics.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_baseline_unet_family.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_baseline_unet_family.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_baseline_unet_smoke.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_baseline_unet_smoke.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_baseline_yolo_smoke.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_baseline_yolo_smoke.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_bridge_adapter.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_bridge_adapter.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_config_io.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_config_io.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_distributed_launch.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_distributed_launch.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_distributed_train_config.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_distributed_train_config.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_eval_contracts.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_eval_contracts.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_eval_infer_gisec_minibatch.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_eval_infer_gisec_minibatch.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_fragment_cache_export.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_fragment_cache_export.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_fragment_generator_cache.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_fragment_generator_cache.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_fragment_generator_eval.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_fragment_generator_eval.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_fragment_generator_foundation.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_fragment_generator_foundation.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_fragment_generator_losses.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_fragment_generator_losses.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_fragment_generator_train.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_fragment_generator_train.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_fragment_graph_cache.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_fragment_graph_cache.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_fragment_quality.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_fragment_quality.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_gisec_model_forward.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_gisec_model_forward.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_graph_batch_and_merge.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_graph_batch_and_merge.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_graph_batch_regression.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_graph_batch_regression.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_graph_builder_gpu.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_graph_builder_gpu.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_graph_builder_legacy.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_graph_builder_legacy.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_graph_cache_prerequisites_summary.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_graph_cache_prerequisites_summary.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_instance_fragment_cache.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_instance_fragment_cache.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_instance_fragment_dataset.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_instance_fragment_dataset.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_instance_fragment_eval.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_instance_fragment_eval.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_instance_fragment_losses.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_instance_fragment_losses.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_instance_fragment_metrics.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_instance_fragment_metrics.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_instance_fragment_model.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_instance_fragment_model.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_instance_fragment_oracle.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_instance_fragment_oracle.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_instance_fragment_train.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_instance_fragment_train.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_legacy_reference_mode.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_legacy_reference_mode.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_legacy_throughput.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_legacy_throughput.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_local_merger_eval.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_local_merger_eval.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_local_merger_foundation.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_local_merger_foundation.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_local_merger_train.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_local_merger_train.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_merged_blob_pathology.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_merged_blob_pathology.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_no_reference_ablations.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_no_reference_ablations.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_overlay_diagnostics.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_overlay_diagnostics.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_ownership_supervision.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_ownership_supervision.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_ownership_targets.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_ownership_targets.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_project_metadata.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_project_metadata.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_prototype_bank_loader.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_prototype_bank_loader.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_prototype_cache_source.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_prototype_cache_source.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_prototype_reference_routing.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_prototype_reference_routing.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_prototype_routing.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_prototype_routing.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_prune_output_artifacts.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_prune_output_artifacts.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_alpha_runner.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_alpha_runner.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_alpha_summary.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_alpha_summary.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_boundary_contract.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_boundary_contract.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_cli_boundaries.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_cli_boundaries.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_coarse_objects.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_coarse_objects.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_depth_geometry.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_depth_geometry.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_eval_cli.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_eval_cli.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_experiment_docs.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_experiment_docs.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_factory.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_factory.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_full_run_entry_doc.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_full_run_entry_doc.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_gates_doc.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_gates_doc.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_graph_variant_mapping.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_graph_variant_mapping.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_metrics_doc.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_metrics_doc.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_object_split.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_object_split.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_reentry_boundaries.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_reentry_boundaries.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_reentry_contracts.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_reentry_contracts.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_runner_dry_run.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_runner_dry_run.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_runtime.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_runtime.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_short_run_doc.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_short_run_doc.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_supervision_targets.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_supervision_targets.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_targets.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_targets.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_train_cli.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_train_cli.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_uq_backbone.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_uq_backbone.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_query_uq_minibatch.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_query_uq_minibatch.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_reference_ablation_modes.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_reference_ablation_modes.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_reference_graph_eval.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_reference_graph_eval.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_reference_graph_merge.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_reference_graph_merge.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_reference_split_cache.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_reference_split_cache.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_reference_splitter_foundation.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_reference_splitter_foundation.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_reference_splitter_train.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_reference_splitter_train.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_repo_hygiene_script.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_repo_hygiene_script.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_rgb_phase1_summary.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_rgb_phase1_summary.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_rgb_phase23_fragment_reset_summary.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_rgb_phase23_fragment_reset_summary.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_rgb_phase23_instance_local_reset_summary.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_rgb_phase23_instance_local_reset_summary.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_rgb_phase23_instance_local_stage2_summary.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_rgb_phase23_instance_local_stage2_summary.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_runner_all_script.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_runner_all_script.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_runner_dry_run.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_runner_dry_run.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_runner_eval_infer_dry_run.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_runner_eval_infer_dry_run.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_runtime_export.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_runtime_export.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_train_gisec_minibatch.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_train_gisec_minibatch.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_train_losses.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_train_losses.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_training_artifacts.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_training_artifacts.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_variant_spec.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_variant_spec.py",
+    "notes": "Discovered in the full tests/ inventory."
+  },
+  {
+    "category": "test_file",
+    "planned_reference": "tests/test_weekend_rgb_pipeline_script.py",
+    "exists": true,
+    "actual_name_or_path": "tests/test_weekend_rgb_pipeline_script.py",
+    "notes": "Discovered in the full tests/ inventory."
+  }
+]
