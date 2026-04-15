@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 import torch
 
+import gisec.train.train_query as train_query_module
 from gisec.datasets.ecc_query_dataset import build_ownership_target as build_legacy_ownership_target
 from gisec.models.graph_head import GraphEdgeScorer
 from gisec.models.graph_utils import GraphBatch
@@ -18,6 +19,7 @@ from gisec.train.train_query import (
     _build_alpha_targets_from_instance_maps,
     _classify_failure,
     _compute_alpha_losses,
+    _compute_query_graph_step,
     _reduce_alpha_losses,
     run_uq_minibatch,
     run_uq_eval,
@@ -309,6 +311,71 @@ def test_query_graph_edge_scoring_uses_a_learned_head_instead_of_heuristics() ->
     edge_logits = score_query_graph_edges(model, graph_batch)
 
     assert edge_logits.shape == (2,)
+
+
+def test_query_graph_step_reuses_each_graph_batch_and_edge_logits_once(monkeypatch) -> None:
+    outputs = {
+        "feature_map": torch.zeros((1, 4, 8, 8), dtype=torch.float32, requires_grad=True),
+        "fg_logits": torch.zeros((1, 1, 8, 8), dtype=torch.float32, requires_grad=True),
+        "boundary_logits": torch.zeros((1, 1, 8, 8), dtype=torch.float32, requires_grad=True),
+        "core_heatmap": torch.zeros((1, 1, 8, 8), dtype=torch.float32, requires_grad=True),
+        "ownership_offsets": torch.zeros((1, 2, 8, 8), dtype=torch.float32, requires_grad=True),
+    }
+    depths = torch.zeros((1, 1, 8, 8), dtype=torch.float32)
+    instance_maps = torch.zeros((1, 8, 8), dtype=torch.long)
+    instance_maps[0, 2:6, 2:6] = 1
+    graph_batch = GraphBatch(
+        node_features=torch.zeros((2, 4), dtype=torch.float32),
+        edge_index=torch.tensor([[0], [1]], dtype=torch.long),
+        edge_features=torch.zeros((1, 10), dtype=torch.float32),
+        edge_targets=torch.tensor([1.0], dtype=torch.float32),
+        fragments=torch.tensor([[1, 1], [0, 2]], dtype=torch.int32),
+        diagnostics={"num_fragments": 2, "num_edges": 1, "num_contact_edges": 1, "num_bridge_edges": 0, "num_ignored_edges": 0, "num_merged": 0},
+        edge_type=torch.tensor([0], dtype=torch.long),
+        edge_ignore_mask=torch.tensor([False]),
+    )
+    edge_logits = torch.tensor([0.75], dtype=torch.float32, requires_grad=True)
+    call_counts = {"build": 0, "score": 0, "merge": 0}
+
+    def fake_build_query_graph_batch(**kwargs):
+        call_counts["build"] += 1
+        return graph_batch
+
+    def fake_score_query_graph_edges(model, batch):
+        call_counts["score"] += 1
+        assert batch is graph_batch
+        return edge_logits
+
+    def fake_merge_query_graph_instances(*, graph_batch, edge_logits, threshold, merge_order="score", random_seed=1337):
+        call_counts["merge"] += 1
+        assert graph_batch is graph_batch_local
+        assert edge_logits is edge_logits_local
+        assert threshold == 0.5
+        return torch.ones((8, 8), dtype=torch.long)
+
+    graph_batch_local = graph_batch
+    edge_logits_local = edge_logits
+    monkeypatch.setattr(train_query_module, "build_query_graph_batch", fake_build_query_graph_batch)
+    monkeypatch.setattr(train_query_module, "score_query_graph_edges", fake_score_query_graph_edges)
+    monkeypatch.setattr(train_query_module, "merge_query_graph_instances", fake_merge_query_graph_instances)
+
+    graph_loss, graph_edge_count, graph_valid_edge_count, graph_positive_edge_targets, object_count, split_count, avg_cores_per_object = _compute_query_graph_step(
+        model=torch.nn.Linear(1, 1),
+        model_id="query_graph_resnet18",
+        outputs=outputs,
+        depths=depths,
+        instance_maps=instance_maps,
+        min_area=8,
+    )
+
+    assert call_counts == {"build": 1, "score": 1, "merge": 1}
+    assert graph_loss.requires_grad
+    assert graph_edge_count == 1
+    assert graph_valid_edge_count == 1
+    assert graph_positive_edge_targets == 1
+    assert object_count == 1.0
+    assert split_count == 0.0
+    assert avg_cores_per_object == 1.0
 
 
 def test_query_alpha_loss_reduction_uses_ownership_warmup_and_weighted_terms() -> None:

@@ -325,6 +325,89 @@ def _graph_loss_weight(step_index: int, *, graph_loss_weight: float, graph_warmu
     return float(graph_loss_weight)
 
 
+def _compute_query_graph_step(
+    *,
+    model: torch.nn.Module,
+    model_id: str,
+    outputs: dict[str, torch.Tensor],
+    depths: torch.Tensor,
+    instance_maps: torch.Tensor,
+    min_area: int,
+) -> tuple[torch.Tensor, int, int, int, float, float, float]:
+    graph_variant = _graph_variant_enabled(model_id)
+    graph_loss_rows: list[torch.Tensor] = []
+    graph_edge_count = 0
+    graph_valid_edge_count = 0
+    graph_positive_edge_targets = 0
+    object_count = 0.0
+    split_count = 0.0
+    avg_cores_per_object = 0.0
+
+    if not graph_variant:
+        return (
+            outputs["fg_logits"].new_zeros(()),
+            0,
+            0,
+            0,
+            object_count,
+            split_count,
+            avg_cores_per_object,
+        )
+
+    for batch_idx in range(int(outputs["fg_logits"].shape[0])):
+        sample_outputs = {key: value[batch_idx:batch_idx + 1] for key, value in outputs.items()}
+        graph_batch = build_query_graph_batch(
+            outputs=sample_outputs,
+            depth_map=depths[batch_idx:batch_idx + 1],
+            instance_map=instance_maps[batch_idx:batch_idx + 1],
+            prototype_cache=None,
+            variant=model_id,
+            fragment_fg_threshold=0.5,
+            fragment_boundary_threshold=0.5,
+            min_area=min_area,
+        )
+        if graph_batch.edge_targets is None or graph_batch.edge_targets.numel() == 0:
+            continue
+        edge_logits = score_query_graph_edges(model, graph_batch)
+        valid_mask = torch.ones_like(graph_batch.edge_targets, dtype=torch.bool)
+        if graph_batch.edge_ignore_mask is not None:
+            valid_mask = ~graph_batch.edge_ignore_mask.to(dtype=torch.bool)
+        if not bool(valid_mask.any()):
+            continue
+        graph_edge_count += int(graph_batch.edge_targets.numel())
+        graph_valid_edge_count += int(valid_mask.sum().item())
+        graph_positive_edge_targets += int(graph_batch.edge_targets[valid_mask].sum().item())
+        graph_loss_rows.append(
+            F.binary_cross_entropy_with_logits(
+                edge_logits[valid_mask],
+                graph_batch.edge_targets[valid_mask],
+            )
+        )
+        pred_map = merge_query_graph_instances(
+            graph_batch=graph_batch,
+            edge_logits=edge_logits,
+            threshold=0.5,
+        )
+        pred_count = len([int(x) for x in torch.unique(pred_map).tolist() if int(x) > 0])
+        gt_count = len([int(x) for x in torch.unique(instance_maps[batch_idx]).tolist() if int(x) > 0])
+        object_count += float(pred_count)
+        split_count += float(max(pred_count - gt_count, 0))
+        avg_cores_per_object += float(graph_batch.diagnostics.get("num_edges", 0)) / float(max(pred_count, 1))
+
+    graph_loss = outputs["fg_logits"].new_zeros(())
+    if graph_loss_rows:
+        graph_loss = torch.stack(graph_loss_rows).mean()
+    return (
+        graph_loss,
+        graph_edge_count,
+        graph_valid_edge_count,
+        graph_positive_edge_targets,
+        object_count,
+        split_count,
+        avg_cores_per_object,
+    )
+
+
 def _predicted_masks_from_instance_map(instance_map: torch.Tensor) -> list[torch.Tensor]:
     labels = [int(x) for x in torch.unique(instance_map).tolist() if int(x) > 0]
     return [(instance_map == int(label)).to(torch.uint8) for label in labels]
@@ -627,6 +710,7 @@ def run_uq_minibatch(
 
     train_steps = 0
     model.train()
+    graph_variant = _graph_variant_enabled(model_id)
     for batch in train_loader:
         images = batch["images"].to(device_obj)
         depths = batch["depths"].to(device_obj)
@@ -652,46 +736,33 @@ def run_uq_minibatch(
         graph_edge_count = 0
         graph_valid_edge_count = 0
         graph_positive_edge_targets = 0
-        graph_loss_rows: list[torch.Tensor] = []
-        if _graph_variant_enabled(model_id):
-            for batch_idx in range(images.shape[0]):
-                sample_outputs = {key: value[batch_idx:batch_idx + 1] for key, value in outputs.items()}
-                graph_batch = build_query_graph_batch(
-                    outputs=sample_outputs,
-                    depth_map=depths[batch_idx:batch_idx + 1],
-                    instance_map=batch["instance_maps"][batch_idx:batch_idx + 1],
-                    prototype_cache=None,
-                    variant=model_id,
-                    fragment_fg_threshold=0.5,
-                    fragment_boundary_threshold=0.5,
-                    min_area=min_area,
-                )
-                if graph_batch.edge_targets is None or graph_batch.edge_targets.numel() == 0:
-                    continue
-                edge_logits = score_query_graph_edges(model, graph_batch)
-                valid_mask = torch.ones_like(graph_batch.edge_targets, dtype=torch.bool)
-                if graph_batch.edge_ignore_mask is not None:
-                    valid_mask = ~graph_batch.edge_ignore_mask.to(dtype=torch.bool)
-                if not bool(valid_mask.any()):
-                    continue
-                graph_edge_count += int(graph_batch.edge_targets.numel())
-                graph_valid_edge_count += int(valid_mask.sum().item())
-                graph_positive_edge_targets += int(graph_batch.edge_targets[valid_mask].sum().item())
-                graph_loss_rows.append(
-                    F.binary_cross_entropy_with_logits(
-                        edge_logits[valid_mask],
-                        graph_batch.edge_targets[valid_mask],
-                    )
-                )
-        if graph_loss_rows:
-            graph_loss = torch.stack(graph_loss_rows).mean()
+        object_count = 0.0
+        split_count = 0.0
+        avg_cores_per_object = 0.0
+        if graph_variant:
+            (
+                graph_loss,
+                graph_edge_count,
+                graph_valid_edge_count,
+                graph_positive_edge_targets,
+                object_count,
+                split_count,
+                avg_cores_per_object,
+            ) = _compute_query_graph_step(
+                model=model,
+                model_id=model_id,
+                outputs=outputs,
+                depths=depths,
+                instance_maps=batch["instance_maps"],
+                min_area=min_area,
+            )
         loss = _reduce_alpha_losses(
             losses,
             step_index=train_steps + 1,
             ownership_warmup_steps=ownership_warmup_steps,
             loss_weights=loss_weights,
         )
-        if _graph_variant_enabled(model_id):
+        if graph_variant:
             loss = loss + _graph_loss_weight(
                 train_steps + 1,
                 graph_loss_weight=graph_loss_weight,
@@ -701,35 +772,8 @@ def run_uq_minibatch(
         loss.backward()
         optimizer.step()
 
-        object_count = 0.0
-        split_count = 0.0
-        avg_cores_per_object = 0.0
-        for batch_idx in range(images.shape[0]):
-            if _graph_variant_enabled(model_id):
-                sample_outputs = {key: value[batch_idx:batch_idx + 1] for key, value in outputs.items()}
-                graph_batch = build_query_graph_batch(
-                    outputs=sample_outputs,
-                    depth_map=depths[batch_idx:batch_idx + 1],
-                    instance_map=batch["instance_maps"][batch_idx:batch_idx + 1],
-                    prototype_cache=None,
-                    variant=model_id,
-                    fragment_fg_threshold=0.5,
-                    fragment_boundary_threshold=0.5,
-                    min_area=min_area,
-                )
-                if graph_batch.edge_targets is None or graph_batch.edge_targets.numel() == 0:
-                    continue
-                pred_map = merge_query_graph_instances(
-                    graph_batch=graph_batch,
-                    edge_logits=score_query_graph_edges(model, graph_batch),
-                    threshold=0.5,
-                )
-                pred_count = len([int(x) for x in torch.unique(pred_map).tolist() if int(x) > 0])
-                gt_count = len([int(x) for x in torch.unique(batch["instance_maps"][batch_idx]).tolist() if int(x) > 0])
-                object_count += float(pred_count)
-                split_count += float(max(pred_count - gt_count, 0))
-                avg_cores_per_object += float(graph_batch.diagnostics.get("num_edges", 0)) / float(max(pred_count, 1))
-            else:
+        if not graph_variant:
+            for batch_idx in range(images.shape[0]):
                 pred_map, stats = predict_instance_map(
                     fg_logits=outputs["fg_logits"][batch_idx, 0].detach().cpu(),
                     boundary_logits=outputs["boundary_logits"][batch_idx, 0].detach().cpu(),
