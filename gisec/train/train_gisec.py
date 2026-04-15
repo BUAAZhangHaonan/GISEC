@@ -50,6 +50,10 @@ MODEL_CONFIG_DEFAULTS = {
     "reference_skip_margin": 0.0,
 }
 
+LEGACY_VARIANT_ALIASES = {
+    "G5": "legacy_rgbd_prototype_ownership_graph_cues",
+}
+
 REFERENCE_CONDITIONING_ALIASES = {
     "false": "off",
     "off": "off",
@@ -138,7 +142,7 @@ def _common_parser() -> argparse.ArgumentParser:
     parser.add_argument("--prototype-root")
     parser.add_argument("--output-dir")
     parser.add_argument(
-        "--variant", choices=list(variant_names()), default="G5")
+        "--variant", choices=list(variant_names()) + list(LEGACY_VARIANT_ALIASES), default="G5")
     parser.add_argument("--image-size", type=int, default=1024)
     parser.add_argument("--batch", type=int, default=4)
     parser.add_argument("--num-workers", type=int, default=None)
@@ -353,6 +357,7 @@ def _summarize_step_profiles(
 
 
 def _normalize_args_in_place(args: argparse.Namespace) -> argparse.Namespace:
+    args.variant = LEGACY_VARIANT_ALIASES.get(str(getattr(args, "variant", "")), getattr(args, "variant", ""))
     args.reference_conditioning_mode = normalize_reference_conditioning_mode(
         getattr(args, "reference_conditioning_mode", "full")
     )
@@ -612,7 +617,13 @@ def forward_with_reference_routing(
     group_order: list[str] = []
     resolve_meta_rows: list[dict[str, Any]] = []
     for batch_index, file_name in enumerate(file_names):
-        prototype_cache, bank, resolve_meta = prototype_source.resolve_for_query_with_stats(file_name)
+        resolve_with_stats = getattr(prototype_source, "resolve_for_query_with_stats", None)
+        if callable(resolve_with_stats):
+            prototype_cache, bank, resolve_meta = resolve_with_stats(file_name)
+        else:
+            prototype_cache, bank = prototype_source.resolve_for_query(file_name)
+            last_resolve_meta = getattr(prototype_source, "last_resolve_meta", None)
+            resolve_meta = dict(last_resolve_meta()) if callable(last_resolve_meta) else {}
         cache_key = str(bank.root)
         if cache_key not in group_indices:
             group_indices[cache_key] = []
