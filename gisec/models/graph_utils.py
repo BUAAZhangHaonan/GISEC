@@ -196,9 +196,13 @@ def _ownership_seed_centers_tensor(
     component_mask: torch.Tensor,
     ownership_offsets: torch.Tensor,
     min_area: int,
+    component_coords: Tuple[torch.Tensor, torch.Tensor] | None = None,
 ) -> torch.Tensor:
     with _graph_phase("ownership_split_sec"):
-        ys, xs = torch.nonzero(component_mask, as_tuple=True)
+        if component_coords is None:
+            ys, xs = torch.nonzero(component_mask, as_tuple=True)
+        else:
+            ys, xs = component_coords
         if xs.numel() < max(int(min_area) * 2, 8):
             return ownership_offsets.new_zeros((0, 2))
 
@@ -217,7 +221,8 @@ def _ownership_seed_centers_tensor(
         landing_flat = landing_y * int(width) + landing_x
         vote_flat.index_add_(0, landing_flat, torch.ones_like(landing_flat, dtype=torch.float32))
         vote_map = vote_flat.view(height, width)
-        if float(vote_map.max().item()) < 2.0:
+        max_vote = float(vote_map.max().item())
+        if max_vote < 2.0:
             return ownership_offsets.new_zeros((0, 2))
 
         kernel = _gaussian_kernel_2d(sigma=0.8, device=vote_map.device, dtype=vote_map.dtype)
@@ -247,10 +252,11 @@ def _ownership_seed_centers_tensor(
             if region_xs.numel() == 0:
                 continue
             weight = vote_map[region]
-            weight_sum = float(weight.sum().item())
-            if weight_sum > 0.0:
-                center_x = torch.sum(region_xs.to(dtype=torch.float32) * weight) / weight.sum()
-                center_y = torch.sum(region_ys.to(dtype=torch.float32) * weight) / weight.sum()
+            weight_sum = weight.sum()
+            weight_sum_value = float(weight_sum.item())
+            if weight_sum_value > 0.0:
+                center_x = torch.sum(region_xs.to(dtype=torch.float32) * weight) / weight_sum
+                center_y = torch.sum(region_ys.to(dtype=torch.float32) * weight) / weight_sum
             else:
                 center_x = region_xs.to(dtype=torch.float32).mean()
                 center_y = region_ys.to(dtype=torch.float32).mean()
@@ -282,19 +288,25 @@ def _split_fragments_by_ownership_tensor(
         split = torch.zeros_like(fragments, dtype=torch.int32)
         for label in [int(x) for x in labels.tolist()]:
             component_mask = fragments == int(label)
-            component_area = int(component_mask.sum().item())
+            component_coords = torch.nonzero(component_mask, as_tuple=True)
+            component_area = int(component_coords[0].numel())
             if component_area < max(int(min_area) * 4, 32):
                 split[component_mask] = int(next_label)
                 next_label += 1
                 continue
 
-            centers = _ownership_seed_centers_tensor(component_mask, ownership_offsets, min_area)
+            centers = _ownership_seed_centers_tensor(
+                component_mask,
+                ownership_offsets,
+                min_area,
+                component_coords=component_coords,
+            )
             if int(centers.shape[0]) <= 1:
                 split[component_mask] = int(next_label)
                 next_label += 1
                 continue
 
-            ys, xs = torch.nonzero(component_mask, as_tuple=True)
+            ys, xs = component_coords
             landing = torch.stack(
                 [
                     torch.clamp(
@@ -953,27 +965,26 @@ def _contact_edge_support_torch(
 
     height, width = fragments.shape
     padded = F.pad(fragments.to(dtype=torch.long), (1, 1, 1, 1), value=0)
-    boundary_indices = torch.nonzero(boundary_mask.reshape(-1), as_tuple=False).reshape(-1)
+    boundary_y, boundary_x = torch.nonzero(boundary_mask, as_tuple=True)
+    boundary_flat = (boundary_y.to(dtype=torch.long) * int(width) + boundary_x.to(dtype=torch.long)).to(dtype=torch.long)
     pair_pixel_codes: List[torch.Tensor] = []
 
     def accumulate(offset_a: Tuple[int, int], offset_b: Tuple[int, int]) -> None:
-        a_view = padded[
-            1 + int(offset_a[0]):1 + int(offset_a[0]) + int(height),
-            1 + int(offset_a[1]):1 + int(offset_a[1]) + int(width),
+        a = padded[
+            boundary_y + 1 + int(offset_a[0]),
+            boundary_x + 1 + int(offset_a[1]),
         ]
-        b_view = padded[
-            1 + int(offset_b[0]):1 + int(offset_b[0]) + int(height),
-            1 + int(offset_b[1]):1 + int(offset_b[1]) + int(width),
+        b = padded[
+            boundary_y + 1 + int(offset_b[0]),
+            boundary_x + 1 + int(offset_b[1]),
         ]
-        a = a_view[boundary_mask]
-        b = b_view[boundary_mask]
         valid = (a > 0) & (b > 0) & (a != b)
         if not bool(valid.any()):
             return
-        pair_a = torch.minimum(a[valid], b[valid])
-        pair_b = torch.maximum(a[valid], b[valid])
-        code = (pair_a * int(pair_base) + pair_b) * int(total_pixels) + boundary_indices[valid]
-        pair_pixel_codes.append(code.to(dtype=torch.long))
+        pair_a = torch.minimum(a[valid], b[valid]).to(dtype=torch.long)
+        pair_b = torch.maximum(a[valid], b[valid]).to(dtype=torch.long)
+        code = (pair_a * int(pair_base) + pair_b) * int(total_pixels) + boundary_flat[valid]
+        pair_pixel_codes.append(code)
 
     vertical_offsets = [(-1, -1), (0, -1), (1, -1)]
     horizontal_offsets = [(-1, 1), (0, 1), (1, 1)]
@@ -1124,15 +1135,21 @@ def _bridge_edge_support_torch(
     candidate_scores: Dict[int, List[Tuple[float, Tuple[int, int], torch.Tensor, float, float, float, float]]] = {
         int(label): [] for label in range(1, num_fragments + 1)
     }
-    for pair_pos in torch.nonzero(candidate_mask, as_tuple=False).reshape(-1).tolist():
-        src = int(src_idx[pair_pos].item())
-        dst = int(dst_idx[pair_pos].item())
+    candidate_positions = torch.nonzero(candidate_mask, as_tuple=False).reshape(-1)
+    candidate_src = src_idx[candidate_positions]
+    candidate_dst = dst_idx[candidate_positions]
+    candidate_gap = bbox_gap[candidate_positions]
+    candidate_depth_delta = torch.abs(depth_mean[candidate_src] - depth_mean[candidate_dst])
+    corridor_shape = (int(fragments.shape[0]), int(fragments.shape[1]))
+    for candidate_idx in range(int(candidate_positions.numel())):
+        src = int(candidate_src[candidate_idx].item())
+        dst = int(candidate_dst[candidate_idx].item())
         label_a = int(src + 1)
         label_b = int(dst + 1)
         corridor_indices = _corridor_flat_indices_torch(
             centroid_xy[src],
             centroid_xy[dst],
-            (int(fragments.shape[0]), int(fragments.shape[1])),
+            corridor_shape,
             thickness=1,
         )
         if int(corridor_indices.numel()) == 0:
@@ -1142,11 +1159,11 @@ def _bridge_edge_support_torch(
         if int(corridor_indices.numel()) == 0:
             continue
         boundary_mean = float(boundary_flat[corridor_indices].mean().item())
-        depth_delta = float(torch.abs(depth_mean[src] - depth_mean[dst]).item())
+        depth_delta = float(candidate_depth_delta[candidate_idx].item())
         ownership_mean = float(ownership_flat[corridor_indices].mean().item()) if ownership_flat is not None else 0.0
         if boundary_mean > 0.55 or depth_delta > 0.3:
             continue
-        gap_value = float(bbox_gap[pair_pos].item())
+        gap_value = float(candidate_gap[candidate_idx].item())
         if gap_value <= 1.0 and boundary_mean < 0.05 and ownership_mean < 0.05:
             continue
         affinity_mean = float(affinity_flat[:, corridor_indices].mean().item()) if affinity_flat is not None else 0.0
