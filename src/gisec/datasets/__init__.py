@@ -3,7 +3,6 @@
 from gisec.datasets.baseline_instance_dataset import BaselineInstanceDataset
 from gisec.datasets.reference_bank import (
     ReferenceBank,
-    ReferenceBankContractError,
     ReferenceBankManifest,
     ReferenceBankSource,
     extract_reference_part_key,
@@ -13,7 +12,6 @@ from gisec.datasets.reference_bank import (
 __all__ = [
     "BaselineInstanceDataset",
     "ReferenceBank",
-    "ReferenceBankContractError",
     "ReferenceBankManifest",
     "ReferenceBankSource",
     "extract_reference_part_key",

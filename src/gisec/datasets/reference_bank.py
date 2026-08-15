@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import json
-import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterator, List
+from typing import Any, Dict, List
 
 import cv2
 import numpy as np
@@ -48,15 +47,6 @@ def _quantile_stats(values: list[float], prefix: str) -> dict[str, float]:
         f"{prefix}_q50": float(np.quantile(array, 0.50)),
         f"{prefix}_q90": float(np.quantile(array, 0.90)),
     }
-
-
-class ReferenceBankContractError(ValueError):
-    def __init__(self, root: Path, missing_items: list[str]):
-        self.root = root
-        self.missing_items = tuple(missing_items)
-        joined = ", ".join(self.missing_items)
-        super().__init__(
-            f"Reference bank contract check failed under {root}: missing {joined}")
 
 
 @dataclass(frozen=True)
@@ -130,29 +120,6 @@ class ReferenceBank:
     @property
     def masks(self) -> torch.Tensor:
         return self.materialize_tensors()[2]
-
-    def iter_views(self, batch_size: int = 0) -> Iterator[tuple[torch.Tensor, torch.Tensor, torch.Tensor, list[str]]]:
-        resolved_batch_size = int(batch_size)
-        if resolved_batch_size <= 0 or resolved_batch_size >= len(self.view_records):
-            images, depths, masks = self.materialize_tensors()
-            yield images, depths, masks, list(self.view_ids)
-            return
-        for start in range(0, len(self.view_records), resolved_batch_size):
-            batch_records = self.view_records[start:start + resolved_batch_size]
-            batch_images, batch_depths, batch_masks = [], [], []
-            batch_ids: list[str] = []
-            for record in batch_records:
-                image, depth, mask = self._load_record(record)
-                batch_images.append(image)
-                batch_depths.append(depth)
-                batch_masks.append(mask)
-                batch_ids.append(record.view_id)
-            yield (
-                torch.stack(batch_images, dim=0),
-                torch.stack(batch_depths, dim=0),
-                torch.stack(batch_masks, dim=0),
-                batch_ids,
-            )
 
 
 @dataclass(frozen=True)
@@ -235,19 +202,6 @@ def _read_json(path: Path) -> Dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _manifest_num_views(meta: Dict[str, Any]) -> int | None:
-    if "num_views" in meta and meta["num_views"] is not None:
-        return int(meta["num_views"])
-    if "views" in meta and meta["views"] is not None:
-        warnings.warn(
-            "Reference bank manifest field 'views' is deprecated; use 'num_views' instead.",
-            DeprecationWarning,
-            stacklevel=3,
-        )
-        return int(meta["views"])
-    return None
-
-
 def _is_bank_root(root: Path) -> bool:
     return all((root / name).exists() for name in ["rgb", "depth", "mask"])
 
@@ -259,7 +213,7 @@ def extract_reference_part_key(file_name: str, available_parts: list[str]) -> st
     raise KeyError(f"Could not resolve part key from reference file name: {file_name}")
 
 
-def _validate_contract(root: Path, contract_mode: str) -> ReferenceBankManifest:
+def _validate_contract(root: Path) -> ReferenceBankManifest:
     rgb_dir = root / "rgb"
     depth_dir = root / "depth"
     mask_dir = root / "mask"
@@ -274,15 +228,9 @@ def _validate_contract(root: Path, contract_mode: str) -> ReferenceBankManifest:
     for path in [rgb_dir, depth_dir, mask_dir]:
         if not path.exists():
             missing.append(path.relative_to(root).as_posix())
-    if contract_mode == "strict":
-        for path in [camera_dir, meta_dir, manifest_path, qa_report_path, shape_stats_path, preview_path]:
-            if not path.exists():
-                missing.append(path.relative_to(root).as_posix())
     if missing:
-        if contract_mode == "compat":
-            raise FileNotFoundError(
-                f"Reference directory not found: {missing[0]}")
-        raise ReferenceBankContractError(root, missing)
+        raise FileNotFoundError(
+            f"Reference directory not found: {missing[0]}")
 
     qa_payload = _read_json(qa_report_path) if qa_report_path.exists() else {}
     qa_errors = tuple(str(item) for item in qa_payload.get("errors", []))
@@ -290,7 +238,7 @@ def _validate_contract(root: Path, contract_mode: str) -> ReferenceBankManifest:
 
     return ReferenceBankManifest(
         root=root,
-        contract_mode=contract_mode,
+        contract_mode="compat",
         view_count=0,
         has_camera=camera_dir.exists(),
         has_manifest=manifest_path.exists(),
@@ -310,13 +258,13 @@ def load_reference_bank(
     max_views: int = 0,
     view_sampler: str = "all",
 ) -> ReferenceBank:
-    if contract_mode not in {"compat", "strict"}:
+    if contract_mode != "compat":
         raise ValueError(f"Unsupported contract_mode: {contract_mode}")
     if view_sampler not in {"all", "uniform", "pose_farthest"}:
         raise ValueError(f"Unsupported view_sampler: {view_sampler}")
 
     root = Path(reference_root).resolve()
-    manifest = _validate_contract(root, contract_mode)
+    manifest = _validate_contract(root)
     rgb_dir = root / "rgb"
     depth_dir = root / "depth"
     mask_dir = root / "mask"
@@ -382,38 +330,6 @@ def load_reference_bank(
     manifest_path = meta_dir / "manifest.json"
     if manifest_path.exists():
         meta = _read_json(manifest_path)
-    manifest_views = _manifest_num_views(meta) if meta else None
-
-    missing = list(manifest.missing_items)
-    if contract_mode == "strict":
-        rgb_stems = set(rgb_files)
-        depth_stems = set(depth_files)
-        mask_stems = set(mask_files)
-        if not (rgb_stems == depth_stems == mask_stems):
-            missing.append(
-                "rgb/depth/mask stem mismatch "
-                f"rgb_only={sorted(rgb_stems - depth_stems - mask_stems)} "
-                f"depth_only={sorted(depth_stems - rgb_stems - mask_stems)} "
-                f"mask_only={sorted(mask_stems - rgb_stems - depth_stems)}"
-            )
-        if manifest_views is not None and int(manifest_views) != len(view_ids):
-            missing.append(
-                f"meta/manifest.json num_views={manifest_views} expected={len(view_ids)}")
-        if not manifest.qa_passed:
-            missing.append("meta/qa_report.json qa_passed=false")
-        if manifest.qa_errors:
-            missing.append("meta/qa_report.json errors_present")
-        if not shape_stats_path.exists():
-            missing.append("meta/shape_stats.json")
-        if not (meta_dir / "preview_contact_sheet.png").exists():
-            missing.append("meta/preview_contact_sheet.png")
-        missing.extend(
-            f"camera/{view_id}.json"
-            for view_id in view_ids
-            if not (camera_dir / f"{view_id}.json").exists()
-        )
-        if missing:
-            raise ReferenceBankContractError(root, sorted(set(missing)))
 
     manifest = ReferenceBankManifest(
         root=root,
@@ -427,7 +343,7 @@ def load_reference_bank(
             meta_dir / "preview_contact_sheet.png").exists(),
         qa_passed=manifest.qa_passed,
         qa_errors=manifest.qa_errors,
-        missing_items=tuple(sorted(set(missing))),
+        missing_items=manifest.missing_items,
     )
 
     return ReferenceBank(
