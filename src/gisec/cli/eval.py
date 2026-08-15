@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 
-from gisec.train.train_gisec import eval_gisec, parse_eval_args
+from gisec.train import eval_gisec, parse_eval_args
 
 
 def main(argv: list[str] | None = None) -> None:

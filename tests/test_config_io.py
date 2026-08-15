@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from gisec.train.train_gisec import parse_eval_args, parse_infer_args, parse_train_args
+from gisec.train.args import parse_eval_args, parse_infer_args, parse_train_args
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:

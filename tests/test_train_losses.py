@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from gisec.train.train_gisec import _graph_rescue_training_loss
+from gisec.train.graph import _graph_rescue_training_loss
 
 
 class _ZeroGraphHead(torch.nn.Module):
