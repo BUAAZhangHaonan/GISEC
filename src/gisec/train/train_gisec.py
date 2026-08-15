@@ -273,6 +273,7 @@ def _common_parser(*, mode: str, argv: list[str] | None) -> argparse.ArgumentPar
     parser.add_argument("--allow-partial-checkpoint-load", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     if mode == "train":
+        parser.add_argument("--seed", type=int, default=42)
         parser.add_argument("--epochs", type=int, default=20)
         parser.add_argument("--learning-rate", type=float, default=1.0e-4)
         parser.add_argument("--weight-decay", type=float, default=1.0e-4)
@@ -397,6 +398,7 @@ def _model_payload(args: argparse.Namespace) -> dict[str, Any]:
         "eval_every_epochs": int(getattr(args, "eval_every_epochs", 1)),
         "allow_partial_checkpoint_load": bool(getattr(args, "allow_partial_checkpoint_load", False)),
         "resume_save_every_epochs": int(getattr(args, "resume_save_every_epochs", MODEL_DEFAULTS["resume_save_every_epochs"])),
+        "seed": int(getattr(args, "seed", 42)),
     }
 
 
@@ -1755,6 +1757,10 @@ def train_gisec(args: argparse.Namespace) -> None:
         print(json.dumps(payload, ensure_ascii=False))
         return
     variant_spec = get_gisec_variant_spec(args.variant)
+    seed = int(getattr(args, "seed", 42))
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
     device = build_device(str(args.device))
     output_dir = Path(args.output_dir).resolve()
     output_dir.parent.mkdir(parents=True, exist_ok=True)
