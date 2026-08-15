@@ -16,15 +16,6 @@ DEPTH_MODE="${GISEC_DEPTH_MODE:-}"
 PYTHON_CMD=()
 runner_python_cmd_array PYTHON_CMD
 
-GISEC_CONFIGS=(
-  "base_rgb_1024"
-  "base_rgb_1024_refine"
-  "base_rgbd_1024"
-  "base_rgbd_1024_refine"
-  "base_rgbd_1024_refine_ref"
-  "base_rgbd_1024_refine_ref_graph"
-)
-
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --group) GROUP="$2"; shift 2 ;;
@@ -43,6 +34,16 @@ done
 
 if [[ "$COMMAND" != "train" && "$COMMAND" != "eval" ]]; then
   echo "Unsupported command: ${COMMAND}" >&2
+  exit 1
+fi
+
+# Variant list comes straight from the Python registry so --group all always
+# covers every registered variant.
+mapfile -t GISEC_CONFIGS < <(
+  "${PYTHON_CMD[@]}" -c 'from gisec.config.variants import gisec_variant_names; print("\n".join(gisec_variant_names()))'
+)
+if [[ ${#GISEC_CONFIGS[@]} -eq 0 ]]; then
+  echo "Failed to list GISEC variants from the registry" >&2
   exit 1
 fi
 
@@ -77,7 +78,7 @@ for config_stem in "${CONFIGS[@]}"; do
     "--output-dir" "${output_dir}"
     "--device" "cuda"
   )
-  if [[ -n "${REFERENCE_ROOT}" && "${config_stem}" == *_ref* ]]; then
+  if [[ -n "${REFERENCE_ROOT}" ]]; then
     args+=("--reference-root" "${REFERENCE_ROOT}")
   fi
   if [[ -n "${INIT_CHECKPOINT}" ]]; then
