@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import sys
 
-from gisec.train import infer_gisec, parse_infer_args
+from gisec.train import infer_gisec, parse_eval_args
 
 
 def main(argv: list[str] | None = None) -> None:
-    infer_gisec(parse_infer_args(sys.argv[1:] if argv is None else argv))
+    infer_gisec(parse_eval_args(sys.argv[1:] if argv is None else argv))
 
 
 if __name__ == "__main__":

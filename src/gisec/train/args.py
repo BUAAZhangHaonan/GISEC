@@ -13,97 +13,63 @@ _DEFAULT_VARIANT = "base_rgb_1024"
 _DEFAULT_PRETRAINED_MODEL = "facebook/mask2former-swin-tiny-coco-instance"
 
 
-def _existing(path_str: str | None) -> Path | None:
-    if path_str in (None, ""):
-        return None
-    path = Path(str(path_str)).resolve()
-    return path if path.exists() else None
-
-
-def _summary_variant(path: Path | None) -> str | None:
-    if path is None or not path.exists():
-        return None
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-    variant = payload.get("variant")
-    return None if variant in {None, ""} else str(variant)
-
-
-def _flag_values(argv: list[str], flag: str) -> list[str]:
-    values: list[str] = []
-    prefix = f"{flag}="
+def _flag_value(argv: list[str], flag: str) -> str | None:
+    """Last value of a repeated CLI flag, accepting ``--flag value`` and ``--flag=value``."""
+    value = None
     for index, token in enumerate(argv):
         if token == flag and index + 1 < len(argv):
-            values.append(argv[index + 1])
-        elif token.startswith(prefix):
-            values.append(token[len(prefix) :])
-    return values
+            value = argv[index + 1]
+        elif token.startswith(f"{flag}="):
+            value = token[len(flag) + 1 :]
+    return None if value in (None, "") else str(value)
 
 
-def explicit_cli_variant(argv: list[str]) -> str | None:
-    variant = None
-    for value in _flag_values(argv, "--variant"):
-        variant = value
-    return None if variant in {None, ""} else str(variant)
-
-
-def resolve_run_directory_variant(argv: list[str]) -> str | None:
-    checkpoint_path = None
-    output_dir = None
-    checkpoint_values = _flag_values(argv, "--checkpoint")
-    output_dir_values = _flag_values(argv, "--output-dir")
-    if checkpoint_values:
-        checkpoint_path = checkpoint_values[-1]
-    if output_dir_values:
-        output_dir = output_dir_values[-1]
-    checkpoint = _existing(checkpoint_path)
-    output_root = _existing(output_dir)
-    candidate_roots = []
+def _run_metadata_variant(argv: list[str]) -> str | None:
+    """Variant recorded in the run_summary.json next to --checkpoint / --output-dir."""
+    candidate_roots: list[Path] = []
+    checkpoint = _flag_value(argv, "--checkpoint")
     if checkpoint is not None:
-        candidate_roots.append(checkpoint.parent)
-    if output_root is not None:
-        candidate_roots.append(output_root)
+        candidate_roots.append(Path(checkpoint).resolve().parent)
+    output_dir = _flag_value(argv, "--output-dir")
+    if output_dir is not None:
+        candidate_roots.append(Path(output_dir).resolve())
     for root in candidate_roots:
-        summary_variant = _summary_variant(root / "run_summary.json")
-        if summary_variant in set(gisec_variant_names()):
-            return summary_variant
+        summary = root / "run_summary.json"
+        if not summary.exists():
+            continue
+        try:
+            variant = json.loads(summary.read_text(encoding="utf-8")).get("variant")
+        except Exception:
+            continue
+        if variant in gisec_variant_names():
+            return str(variant)
     return None
 
 
-def _resolved_gisec_variant_default(argv: list[str] | None) -> str:
-    cli_variant = explicit_cli_variant(list(argv or []))
-    if cli_variant in set(gisec_variant_names()):
+def _resolved_variant_default(argv: list[str]) -> str:
+    """Variant comes from --variant, else from the run directory, else the default."""
+    cli_variant = _flag_value(argv, "--variant")
+    if cli_variant in gisec_variant_names():
         return str(cli_variant)
-    run_variant = resolve_run_directory_variant(list(argv or []))
-    if run_variant in set(gisec_variant_names()):
-        return str(run_variant)
+    run_variant = _run_metadata_variant(argv)
+    if run_variant is not None:
+        return run_variant
     return _DEFAULT_VARIANT
 
 
-def _validate_variant_source_consistency(
+def _check_variant_consistency(
     parser: argparse.ArgumentParser,
     args: argparse.Namespace,
-    argv: list[str] | None,
+    argv: list[str],
 ) -> None:
-    cli_variant = explicit_cli_variant(list(argv or []))
-    run_variant = resolve_run_directory_variant(list(argv or []))
-    if run_variant in {None, ""}:
+    run_variant = _run_metadata_variant(argv)
+    if run_variant is None:
         return
-    if cli_variant not in {None, ""} and str(cli_variant) != str(run_variant):
-        parser.error(
-            f"--variant {cli_variant} conflicts with run metadata variant {run_variant}"
-        )
+    setattr(args, "_run_metadata_variant", run_variant)
     if str(args.variant) != str(run_variant):
         parser.error(
-            f"parsed GISEC variant {args.variant} does not match run metadata variant {run_variant}"
+            f"--variant {args.variant} conflicts with run metadata variant {run_variant}"
         )
-
-
-def _annotate_variant_sources(args: argparse.Namespace, argv: list[str] | None) -> None:
-    setattr(args, "_explicit_variant", explicit_cli_variant(list(argv or [])))
-    setattr(args, "_run_metadata_variant", resolve_run_directory_variant(list(argv or [])))
 
 
 def _common_parser(*, mode: str, argv: list[str] | None) -> argparse.ArgumentParser:
@@ -116,7 +82,7 @@ def _common_parser(*, mode: str, argv: list[str] | None) -> argparse.ArgumentPar
     parser.add_argument(
         "--variant",
         choices=list(gisec_variant_names()),
-        default=_resolved_gisec_variant_default(argv),
+        default=_resolved_variant_default(list(argv or [])),
     )
     parser.add_argument("--depth-mode", choices=list(GISEC_DEPTH_MODES), default="")
     parser.add_argument("--image-size", type=int, default=1024)
@@ -189,8 +155,7 @@ def _validate_variant_requirements(parser: argparse.ArgumentParser, args: argpar
 def parse_train_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = _common_parser(mode="train", argv=argv)
     args = parser.parse_args(argv)
-    _annotate_variant_sources(args, argv)
-    _validate_variant_source_consistency(parser, args, argv)
+    _check_variant_consistency(parser, args, list(argv or []))
     _validate_required_args(parser, args, ["dataset_root", "output_dir"])
     _validate_variant_requirements(parser, args, is_eval=False)
     return args
@@ -200,19 +165,7 @@ def parse_eval_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = _common_parser(mode="eval", argv=argv)
     parser.add_argument("--checkpoint-dir", type=str, default="")
     args = parser.parse_args(argv)
-    _annotate_variant_sources(args, argv)
-    _validate_variant_source_consistency(parser, args, argv)
-    _validate_required_args(parser, args, ["dataset_root", "output_dir"])
-    _validate_variant_requirements(parser, args, is_eval=True)
-    return args
-
-
-def parse_infer_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = _common_parser(mode="infer", argv=argv)
-    parser.add_argument("--checkpoint-dir", type=str, default="")
-    args = parser.parse_args(argv)
-    _annotate_variant_sources(args, argv)
-    _validate_variant_source_consistency(parser, args, argv)
+    _check_variant_consistency(parser, args, list(argv or []))
     _validate_required_args(parser, args, ["dataset_root", "output_dir"])
     _validate_variant_requirements(parser, args, is_eval=True)
     return args
