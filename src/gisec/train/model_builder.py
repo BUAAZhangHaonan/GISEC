@@ -33,25 +33,11 @@ def extract_state_dict(payload: dict[str, Any], *, prefix_backbone: bool = False
     return state_dict
 
 
-def _filter_compatible_state_dict(source_state: dict[str, Any], target_state: dict[str, Any]) -> dict[str, Any]:
-    filtered: dict[str, Any] = {}
-    for key, value in source_state.items():
-        if key not in target_state:
-            continue
-        target_value = target_state[key]
-        if hasattr(value, "shape") and hasattr(target_value, "shape"):
-            if tuple(value.shape) != tuple(target_value.shape):
-                continue
-        filtered[key] = value
-    return filtered
-
-
 def _checkpoint_variant(payload: Any) -> str | None:
     if not isinstance(payload, dict):
         return None
     candidates = [
         payload.get("variant"),
-        payload.get("config", {}).get("variant") if isinstance(payload.get("config"), dict) else None,
         payload.get("model", {}).get("variant") if isinstance(payload.get("model"), dict) else None,
     ]
     for candidate in candidates:
@@ -60,22 +46,26 @@ def _checkpoint_variant(payload: Any) -> str | None:
     return None
 
 
-def _state_dict_mismatch_report(
+def _partition_state_dict(
     source_state: dict[str, Any],
     target_state: dict[str, Any],
-) -> tuple[list[str], list[str], list[str]]:
+) -> tuple[dict[str, Any], list[str], list[str], list[str]]:
+    compatible: dict[str, Any] = {}
+    shape_mismatches: list[str] = []
+    for key, value in source_state.items():
+        if key not in target_state:
+            continue
+        target_value = target_state[key]
+        if hasattr(value, "shape") and hasattr(target_value, "shape"):
+            if tuple(value.shape) != tuple(target_value.shape):
+                shape_mismatches.append(
+                    f"{key}: checkpoint {tuple(value.shape)} != model {tuple(target_value.shape)}"
+                )
+                continue
+        compatible[key] = value
     missing_keys = sorted(key for key in target_state if key not in source_state)
     unexpected_keys = sorted(key for key in source_state if key not in target_state)
-    shape_mismatches: list[str] = []
-    for key in sorted(set(source_state).intersection(target_state)):
-        source_value = source_state[key]
-        target_value = target_state[key]
-        if hasattr(source_value, "shape") and hasattr(target_value, "shape"):
-            if tuple(source_value.shape) != tuple(target_value.shape):
-                shape_mismatches.append(
-                    f"{key}: checkpoint {tuple(source_value.shape)} != model {tuple(target_value.shape)}"
-                )
-    return missing_keys, unexpected_keys, shape_mismatches
+    return compatible, missing_keys, unexpected_keys, shape_mismatches
 
 
 def load_module_state_dict(
@@ -86,7 +76,7 @@ def load_module_state_dict(
     context: str,
 ) -> None:
     target_state = module.state_dict()
-    missing_keys, unexpected_keys, shape_mismatches = _state_dict_mismatch_report(
+    compatible, missing_keys, unexpected_keys, shape_mismatches = _partition_state_dict(
         source_state,
         target_state,
     )
@@ -97,13 +87,7 @@ def load_module_state_dict(
             f"unexpected_keys={unexpected_keys}; "
             f"shape_mismatches={shape_mismatches}"
         )
-    if allow_partial:
-        module.load_state_dict(
-            _filter_compatible_state_dict(source_state, target_state),
-            strict=False,
-        )
-        return
-    module.load_state_dict(source_state, strict=True)
+    module.load_state_dict(compatible if allow_partial else source_state, strict=not allow_partial)
 
 
 def _backbone_state_dict(source_state: dict[str, Any]) -> dict[str, Any]:

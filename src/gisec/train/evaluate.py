@@ -19,7 +19,7 @@ from gisec.eval.coco_export import masks_to_coco_results
 from gisec.eval.export import build_run_summary_payload
 from gisec.metrics import compute_split_merge_counts
 from gisec.models.gisec_model import GISECModel, prepare_gisec_input_batch
-from gisec.train.data import build_loader
+from gisec.train.data import build_loader, build_reference_source
 from gisec.train.decode import apply_local_rescue, query_instances_from_outputs
 from gisec.train.model_builder import (
     build_gisec_model,
@@ -34,13 +34,14 @@ from gisec.train.args import model_payload
 
 
 def gisec_benchmark_payload(variant_name: str, depth_mode: str) -> dict[str, Any]:
+    variant_spec = get_gisec_variant_spec(variant_name)
     refine_mode = "none"
-    if variant_name.endswith("_refine"):
+    if variant_spec.use_local_refine:
         refine_mode = "local_refine"
-    elif variant_name.endswith("_refine_ref"):
-        refine_mode = "local_refine_ref"
-    elif variant_name.endswith("_refine_ref_graph"):
-        refine_mode = "local_refine_ref_graph"
+        if variant_spec.use_reference_rescue:
+            refine_mode += "_ref"
+            if variant_spec.use_graph_rescue:
+                refine_mode += "_graph"
     return {
         "model_family": "mask2former",
         "backbone_name": "swin_t",
@@ -48,7 +49,6 @@ def gisec_benchmark_payload(variant_name: str, depth_mode: str) -> dict[str, Any
         "input_mode": str(depth_mode),
         "fusion_mode": str(depth_mode),
         "refine_mode": refine_mode,
-        "inference_defaults_locked": True,
     }
 
 
@@ -225,14 +225,7 @@ def _run_checkpoint_inference(args: argparse.Namespace, *, save_raw: bool) -> No
         allow_partial=bool(getattr(args, "allow_partial_checkpoint_load", False)),
         context=f"checkpoint {checkpoint_path}",
     )
-    reference_source = None
-    if variant_spec.requires_reference_root:
-        reference_source = ReferenceBankSource(
-            root=Path(str(args.reference_root)).resolve(),
-            image_size=int(args.crop_size),
-            max_views=int(args.reference_max_views),
-            view_sampler=str(args.reference_view_sampler),
-        )
+    reference_source = build_reference_source(args)
     loader = build_loader(
         dataset_root=str(args.dataset_root),
         split=str(args.split),

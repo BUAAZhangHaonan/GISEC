@@ -12,13 +12,12 @@ import numpy as np
 import torch
 from torch.amp import GradScaler, autocast
 
-from gisec.datasets.reference_bank import ReferenceBankSource
 from gisec.config.variants import get_gisec_variant_spec
 from gisec.engine.runtime import build_device, write_json
 from gisec.eval.export import build_run_summary_payload
 from gisec.models.gisec_model import prepare_gisec_input_batch
 from gisec.train.args import model_payload
-from gisec.train.data import build_label_targets, build_loader
+from gisec.train.data import build_label_targets, build_loader, build_reference_source
 from gisec.train.evaluate import evaluate_gisec, gisec_benchmark_payload
 from gisec.train.losses import train_local_modules_with_metrics
 from gisec.train.model_builder import (
@@ -39,50 +38,10 @@ def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:
 
 
 def _gisec_log_line(payload: dict[str, Any]) -> str:
-    ordered_keys = [
-        "mode",
-        "epoch",
-        "global_step",
-        "epoch_step",
-        "epoch_steps_total",
-        "loss_total",
-        "loss_backbone_total",
-        "loss_local_total",
-        "lr",
-        "step_time_sec",
-        "step_time_running_avg_sec",
-        "elapsed_sec",
-        "eta_sec",
-        "local_refine_sec",
-        "local_reference_sec",
-        "local_graph_sec",
-        "epoch_train_sec",
-        "eval_sec",
-        "best_updated",
-        "checkpoint_path",
-        "reason",
-        "metric",
-        "best_metric",
-        "wall_time_sec",
-        "final_checkpoint_path",
-        "best_checkpoint_path",
+    parts = [
+        f"{key}={value:.6f}" if isinstance(value, float) else f"{key}={value}"
+        for key, value in payload.items()
     ]
-    parts: list[str] = []
-    for key in ordered_keys:
-        if key not in payload:
-            continue
-        value = payload[key]
-        if isinstance(value, float):
-            parts.append(f"{key}={value:.6f}")
-        else:
-            parts.append(f"{key}={value}")
-    for key, value in payload.items():
-        if key in ordered_keys:
-            continue
-        if isinstance(value, float):
-            parts.append(f"{key}={value:.6f}")
-        else:
-            parts.append(f"{key}={value}")
     return "[gisec-train] " + " ".join(parts)
 
 
@@ -144,14 +103,7 @@ def train_gisec(args: argparse.Namespace) -> None:
     component_class_index = int(train_loader.dataset.component_category_id)
     model = build_gisec_model(args).to(device)
     configure_model_for_stage(model, args)
-    reference_source = None
-    if variant_spec.requires_reference_root:
-        reference_source = ReferenceBankSource(
-            root=Path(str(args.reference_root)).resolve(),
-            image_size=int(args.crop_size),
-            max_views=int(args.reference_max_views),
-            view_sampler=str(args.reference_view_sampler),
-        )
+    reference_source = build_reference_source(args)
     trainable_params = [param for param in model.parameters() if param.requires_grad]
     optimizer = torch.optim.AdamW(trainable_params, lr=float(args.learning_rate), weight_decay=float(args.weight_decay))
     scaler = GradScaler(enabled=bool(device.type == "cuda"))
@@ -199,6 +151,55 @@ def train_gisec(args: argparse.Namespace) -> None:
                 "best_metric": None if not math.isfinite(best_ap) else float(best_ap),
             },
         )
+
+    def run_epoch_eval(epoch: int, best_ap_in: float) -> tuple[float, dict[str, Any], dict[str, Any]]:
+        eval_start = time.perf_counter()
+        metrics, speed = evaluate_gisec(
+            model=model,
+            loader=val_loader,
+            device=device,
+            variant_name=variant_spec.name,
+            reference_source=reference_source,
+            ann_file=ann_file,
+            output_dir=output_dir,
+            score_threshold=float(args.score_threshold),
+            mask_threshold=float(args.mask_threshold),
+            crop_size=int(args.crop_size),
+            crop_pad=int(args.crop_pad),
+            boundary_band_width=int(args.boundary_band_width),
+            max_images=int(args.max_val_images),
+            save_raw=False,
+            depth_mode=str(args.depth_mode),
+            component_class_index=component_class_index,
+        )
+        eval_sec = float(time.perf_counter() - eval_start)
+        segm_ap = float(metrics.get("segm/AP", 0.0))
+        best_updated = bool(segm_ap >= best_ap_in)
+        if best_updated:
+            best_ap_in = segm_ap
+            save_torch_payload(best_ckpt, checkpoint_payload(model, args))
+            _emit_gisec_log(
+                metrics_log_path,
+                {
+                    "mode": "checkpoint",
+                    "epoch": int(epoch),
+                    "checkpoint_path": str(best_ckpt.resolve()),
+                    "reason": "best",
+                    "metric": segm_ap,
+                },
+            )
+        eval_row = {
+            "mode": "epoch_eval",
+            "epoch": int(epoch),
+            "eval_sec": eval_sec,
+            "best_updated": best_updated,
+            "metric": segm_ap,
+            "best_metric": float(best_ap_in),
+        }
+        eval_row.update(metrics)
+        _emit_gisec_log(metrics_log_path, eval_row)
+        return best_ap_in, metrics, speed
+
     last_epoch = int(completed_epoch)
     for epoch_index in range(int(completed_epoch), int(args.epochs)):
         model.train()
@@ -315,52 +316,7 @@ def train_gisec(args: argparse.Namespace) -> None:
                 and (epoch_index + 1) < int(args.epochs)
             )
         if should_eval:
-            eval_start = time.perf_counter()
-            metrics, speed = evaluate_gisec(
-                model=model,
-                loader=val_loader,
-                device=device,
-                variant_name=variant_spec.name,
-                reference_source=reference_source,
-                ann_file=ann_file,
-                output_dir=output_dir,
-                score_threshold=float(args.score_threshold),
-                mask_threshold=float(args.mask_threshold),
-                crop_size=int(args.crop_size),
-                crop_pad=int(args.crop_pad),
-                boundary_band_width=int(args.boundary_band_width),
-                max_images=int(args.max_val_images),
-                save_raw=False,
-                depth_mode=str(args.depth_mode),
-                component_class_index=component_class_index,
-            )
-            eval_sec = float(time.perf_counter() - eval_start)
-            segm_ap = float(metrics.get("segm/AP", 0.0))
-            best_updated = bool(segm_ap >= best_ap)
-            if best_updated:
-                best_ap = segm_ap
-                best_payload = checkpoint_payload(model, args)
-                save_torch_payload(best_ckpt, best_payload)
-                _emit_gisec_log(
-                    metrics_log_path,
-                    {
-                        "mode": "checkpoint",
-                        "epoch": int(epoch_index + 1),
-                        "checkpoint_path": str(best_ckpt.resolve()),
-                        "reason": "best",
-                        "metric": segm_ap,
-                    },
-                )
-            eval_row = {
-                "mode": "epoch_eval",
-                "epoch": int(epoch_index + 1),
-                "eval_sec": eval_sec,
-                "best_updated": best_updated,
-                "metric": segm_ap,
-                "best_metric": float(best_ap),
-            }
-            eval_row.update(metrics)
-            _emit_gisec_log(metrics_log_path, eval_row)
+            best_ap, _, _ = run_epoch_eval(int(epoch_index + 1), best_ap)
         if stopping_early:
             break
     final_ckpt = output_dir / "model_final.pth"
@@ -375,52 +331,7 @@ def train_gisec(args: argparse.Namespace) -> None:
             "reason": "final",
         },
     )
-    final_eval_start = time.perf_counter()
-    metrics, speed = evaluate_gisec(
-        model=model,
-        loader=val_loader,
-        device=device,
-        variant_name=variant_spec.name,
-        reference_source=reference_source,
-        ann_file=ann_file,
-        output_dir=output_dir,
-        score_threshold=float(args.score_threshold),
-        mask_threshold=float(args.mask_threshold),
-        crop_size=int(args.crop_size),
-        crop_pad=int(args.crop_pad),
-        boundary_band_width=int(args.boundary_band_width),
-        max_images=int(args.max_val_images),
-        save_raw=False,
-        depth_mode=str(args.depth_mode),
-        component_class_index=component_class_index,
-    )
-    final_eval_sec = float(time.perf_counter() - final_eval_start)
-    final_ap = float(metrics.get("segm/AP", 0.0))
-    final_best_updated = bool(final_ap >= best_ap)
-    if final_best_updated:
-        best_ap = final_ap
-        best_payload = checkpoint_payload(model, args)
-        save_torch_payload(best_ckpt, best_payload)
-        _emit_gisec_log(
-            metrics_log_path,
-            {
-                "mode": "checkpoint",
-                "epoch": int(last_epoch),
-                "checkpoint_path": str(best_ckpt.resolve()),
-                "reason": "best",
-                "metric": final_ap,
-            },
-        )
-    final_eval_row = {
-        "mode": "epoch_eval",
-        "epoch": int(last_epoch),
-        "eval_sec": final_eval_sec,
-        "best_updated": final_best_updated,
-        "metric": final_ap,
-        "best_metric": float(best_ap),
-    }
-    final_eval_row.update(metrics)
-    _emit_gisec_log(metrics_log_path, final_eval_row)
+    best_ap, metrics, speed = run_epoch_eval(int(last_epoch), best_ap)
     peak_memory_mb = 0.0
     if device.type == "cuda" and torch.cuda.is_available():
         peak_memory_mb = float(torch.cuda.max_memory_allocated(device) / (1024.0 * 1024.0))

@@ -80,22 +80,6 @@ def _reference_match_examples(
     return examples
 
 
-def _expand_reference_batch(
-    reference_tensors: tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None],
-    *,
-    batch_size: int,
-) -> tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]:
-    rgb, depth, mask = reference_tensors
-    if rgb is None or depth is None or mask is None:
-        return None, None, None
-    reference_batch_size = int(rgb.shape[0])
-    if reference_batch_size not in {1, int(batch_size)}:
-        raise ValueError(
-            f"Reference batch size must be 1 or match query batch size, got {reference_batch_size} vs {int(batch_size)}"
-        )
-    return rgb, depth, mask
-
-
 def train_local_modules_with_metrics(
     *,
     model: GISECModel,
@@ -213,10 +197,7 @@ def train_local_modules_with_metrics(
             [boundary_target_from_mask(gt_crop) for gt_crop in gt_crop_batch],
             dim=0,
         )
-        reference_rgb, reference_depth, reference_mask = _expand_reference_batch(
-            positive_reference,
-            batch_size=batch_size,
-        )
+        reference_rgb, reference_depth, reference_mask = positive_reference
         refine_start = time.perf_counter()
         refined = run_local_refiner_float32(
             model=model,
@@ -243,10 +224,7 @@ def train_local_modules_with_metrics(
                 refined["reference_match_logits"],
                 positive_target,
             )
-            negative_rgb, negative_depth, negative_mask = _expand_reference_batch(
-                reference_examples[1][0],
-                batch_size=batch_size,
-            )
+            negative_rgb, negative_depth, negative_mask = reference_examples[1][0]
             negative_refined = run_local_refiner_float32(
                 model=model,
                 query_crop=query_crop_batch,

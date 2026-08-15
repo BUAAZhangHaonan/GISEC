@@ -1,11 +1,27 @@
 from __future__ import annotations
 
+import argparse
+from pathlib import Path
 from typing import Any
 
 import torch
 from torch.utils.data import DataLoader
 
+from gisec.config.variants import get_gisec_variant_spec
 from gisec.datasets.baseline_instance_dataset import BaselineInstanceDataset
+from gisec.datasets.reference_bank import ReferenceBankSource
+
+
+def build_reference_source(args: argparse.Namespace) -> ReferenceBankSource | None:
+    variant_spec = get_gisec_variant_spec(args.variant)
+    if not variant_spec.requires_reference_root:
+        return None
+    return ReferenceBankSource(
+        root=Path(str(args.reference_root)).resolve(),
+        image_size=int(args.crop_size),
+        max_views=int(args.reference_max_views),
+        view_sampler=str(args.reference_view_sampler),
+    )
 
 
 def build_loader(
