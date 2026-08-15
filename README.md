@@ -6,8 +6,8 @@ GISEC is a staged Mask2Former pipeline for electronic-component instance segment
 
 Mask2Former Swin-T with RGB-D early concat, trained on the 32254-image dataset (`datasets/20260318_1K_32254`), reaches **segm AP 90.6** on val:
 
-- AP 90.63, AP50 96.02, AP75 93.97, APm 90.40, APl 98.61 (best checkpoint `model_0264999.pth`, iteration 264979 of a 300K-iteration schedule, stopped at 275K)
-- Trained 2026-07-15 with the detectron2/Mask2Former stack in the magformer workspace on server 4028: `~/magformer/output/experiments/baselines_v2/m2f_swin_t_rgbd_concat/`. The checkpoints and logs live there; they are not archived in this repo.
+- AP 90.63, AP50 96.02, AP75 93.97, APs 33.05, APm 90.40, APl 98.61 (best checkpoint `model_0264999.pth`, iteration 264979 of a 300K-iteration schedule, stopped at 275K)
+- Trained for 275K iterations (batch 2, base LR 5e-5, 1024 resolution) on 2026-07-15 with the detectron2/Mask2Former stack in the magformer workspace on server 4028: `~/magformer/output/experiments/baselines_v2/m2f_swin_t_rgbd_concat/`. The checkpoints and logs live there; they are not archived in this repo.
 
 ## Results
 
@@ -19,19 +19,38 @@ Mask2Former Swin-T with RGB-D early concat, trained on the 32254-image dataset (
 | Mask R-CNN R50 baseline (phase A) | `20260318_1K_1566` | 0.5151 | 0.4890 | 0.1434 | `output/experiments/baselines/mask_rcnn_r50_1024_phasea_full` |
 | U-Net dense + connected components | `20260318_1K_1566` | ~0 | – | – | failed route, artifacts deleted |
 
-The U-Net dense-prediction-plus-connected-components route produced near-zero instance AP and its outputs were removed.
+The U-Net dense-prediction-plus-connected-components route produced near-zero instance AP and its outputs were removed. The best-epoch-19 numbers of the rerun come from its `metrics_log.jsonl`; the `run_summary.json` in that directory records the final epoch instead (segm AP 0.6115).
 
-Historical refine-stage numbers (`base_rgb_1024_refine` ladder, best 0.5761) are recorded in [`docs/experiment-results.md`](docs/experiment-results.md); those checkpoints were not preserved.
+### Historical Ladder (checkpoints not preserved)
+
+The staged RGB ladder on the 1566-scene dataset, measured before the repo split:
+
+| Stage | segm/AP | bbox/AP | boundary/IoU |
+| --- | ---: | ---: | ---: |
+| `base_rgb_1024` | 0.5496 | 0.5140 | 0.1939 |
+| `base_rgb_1024_refine` | 0.5761 | 0.5156 | 0.2512 |
+| `base_rgb_1024_refine_ref` | 0.5747 | 0.5142 | 0.2501 |
+| `base_rgb_1024_refine_ref_graph` | 0.5746 | 0.5153 | 0.2488 |
+
+The ladder weights were lost during cleanup. The numbers say the refine stage improved boundary IoU (0.19 to 0.25) but the reference and graph rescue stages added nothing on top. Combined with the U-Net route collapsing to near-zero instance AP, the conclusion is that on this data the wins come from the backbone, input modality, and dataset scale, not from the rescue modules.
+
+### History
+
+- 2026-03/04: staged Mask2Former line on the 1566-scene dataset; refine stage best at 0.5761, rescue stages no gain.
+- 2026-04-06: phase A baselines (Mask2Former Swin-T 0.5381, Mask R-CNN R50 0.5151) on the 1566-scene dataset.
+- 2026-04-13: full rerun of `base_rgb_1024` on `0831_1K`; best epoch 19 reaches segm AP 0.6267.
+- 2026-07-15: Mask2Former Swin-T RGB-D concat reaches segm AP 90.6 on the 32254-scene dataset (server 4028); current project benchmark.
+- 2026-08-15: repository refactor; only the rerun best and phase A baseline checkpoints kept on disk.
 
 ## Install
 
 ```bash
-conda env create -f environment.yml
+conda create -n gisec python=3.12 -y
 conda activate gisec
-python -m pip install -e .
+pip install -e . --index-url https://download.pytorch.org/whl/cu128 --extra-index-url https://pypi.org/simple
 ```
 
-Tested local stack: Python 3.12, CUDA cu128, PyTorch 2.7.0, torchvision 0.22.0. A CUDA-capable GPU is required for training.
+`pyproject.toml` is the single dependency declaration. Tested local stack: Python 3.12, CUDA cu128, PyTorch 2.7.0, torchvision 0.22.0. A CUDA-capable GPU is required for training.
 
 ## Data
 
@@ -136,9 +155,21 @@ Variants are registered in `src/gisec/config/variants.py` and selected with `--v
 1. The Mask2Former backbone predicts coarse instance masks from RGB or RGB-D input.
 2. The local refinement stage crops each candidate instance, mixes the coarse mask with local features, and predicts a cleaner mask and boundary.
 3. The reference rescue stage matches candidate views against the reference bank and injects the closest match into the refinement path.
-4. The graph rescue stage scores component-to-component edges (connected components via OpenCV) and merges fragments into final instances.
+4. The graph rescue stage scores component-to-component edges (connected components via OpenCV, `src/gisec/train/graph.py`) and merges fragments into final instances.
 
-For details see [`docs/architecture.md`](docs/architecture.md). For the result ladder see [`docs/experiment-results.md`](docs/experiment-results.md).
+End-to-end data flow:
+
+1. `BaselineInstanceDataset` loads images, annotations, and optional depth maps from the dataset root.
+2. The training loop converts each batch into Mask2Former inputs.
+3. The backbone predicts coarse masks and class scores.
+4. The refine stage optionally reprocesses each predicted instance crop.
+5. The reference stage optionally looks up matching reference views.
+6. The graph stage optionally merges component fragments through the connected-components helper and graph head.
+7. Evaluation exports COCO results, speed stats, and a run summary into the output directory.
+
+### Reference Bank Contract
+
+Reference rescue expects a prepared bank root that contains one directory per part, each with `rgb/`, `depth/`, and `mask/` subdirectories, plus an optional `camera/` directory of per-view JSON poses used for pose-farthest view sampling. The loader checks that the `rgb/`, `depth/`, and `mask/` directories exist before the bank is used, so a missing bank directory fails early instead of producing a silent fallback.
 
 ## What Is Not Included
 
