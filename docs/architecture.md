@@ -68,11 +68,6 @@ The dataset contract expects:
 - `annotations/instances_<split>.json`
 - optional `depth/<split>/` or `depth/depth_npy/<split>/`
 
-The cache helpers write into:
-
-- `preprocessed/gisec_instance_targets/...`
-- `preprocessed/baseline_depth_features/...`
-
 ## Configuration System
 
 Configuration is layered YAML.

@@ -38,11 +38,6 @@ If a variant uses reference rescue, the reference bank root must contain:
 - `mask/`
 - the bank metadata and QA files that the reference loader checks
 
-The code writes caches under `preprocessed/` automatically when needed:
-
-- `preprocessed/gisec_instance_targets/...`
-- `preprocessed/baseline_depth_features/...`
-
 The existing config files in this repo already point at the current dataset roots:
 
 - `configs/data/ecc_20260318_1k_1566.yaml`
@@ -150,7 +145,6 @@ The graph rescue path uses OpenCV connected components and the graph helper code
 Training and evaluation both flow through the same dataset contract:
 
 - images and annotations come from `BaselineInstanceDataset`
-- optional depth and target caches are loaded from `preprocessed/`
 - outputs are exported as COCO results and run summaries in the output directory
 
 ## Best Published Result

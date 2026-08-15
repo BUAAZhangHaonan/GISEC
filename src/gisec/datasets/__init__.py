@@ -1,6 +1,6 @@
 """Dataset and reference-bank helpers for the standalone GISEC package."""
 
-from gisec.datasets.baseline_instance_dataset import BaselineInstanceDataset, collate_baseline_batch
+from gisec.datasets.baseline_instance_dataset import BaselineInstanceDataset
 from gisec.datasets.reference_bank import (
     ReferenceBank,
     ReferenceBankContractError,
@@ -16,7 +16,6 @@ __all__ = [
     "ReferenceBankContractError",
     "ReferenceBankManifest",
     "ReferenceBankSource",
-    "collate_baseline_batch",
     "extract_reference_part_key",
     "load_reference_bank",
 ]
