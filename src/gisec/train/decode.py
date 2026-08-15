@@ -101,11 +101,6 @@ def _match_query_predictions_to_gt(
     return matches
 
 
-def _uses_baseline_decode(variant_name: str) -> bool:
-    variant_spec = get_gisec_variant_spec(variant_name)
-    return not bool(variant_spec.use_local_refine)
-
-
 def _scale_bbox(
     bbox: tuple[int, int, int, int],
     *,

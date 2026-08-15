@@ -20,7 +20,7 @@ from gisec.eval.export import build_run_summary_payload
 from gisec.metrics import compute_split_merge_counts
 from gisec.models.gisec_model import GISECModel, prepare_gisec_input_batch
 from gisec.train.data import _build_loader
-from gisec.train.decode import _apply_local_rescue, _query_instances_from_outputs, _uses_baseline_decode
+from gisec.train.decode import _apply_local_rescue, _query_instances_from_outputs
 from gisec.train.model_builder import (
     _build_gisec_model,
     _build_pixel_mask,
@@ -83,6 +83,7 @@ def _evaluate_gisec(
     graph_invocations = 0
     total_predictions = 0
     non_blocking = bool(device.type == "cuda")
+    uses_baseline_decode = not get_gisec_variant_spec(variant_name).use_local_refine
     with torch.no_grad():
         for batch_index, samples in enumerate(loader):
             if int(max_images) > 0 and batch_index >= int(max_images):
@@ -102,7 +103,7 @@ def _evaluate_gisec(
             latencies_ms.append((time.perf_counter() - start) * 1000.0)
             for sample_offset, sample in enumerate(samples):
                 image_shape = (int(sample["image"].shape[-2]), int(sample["image"].shape[-1]))
-                if _uses_baseline_decode(variant_name):
+                if uses_baseline_decode:
                     pred_masks, pred_scores = outputs_to_instance_masks(
                         outputs,
                         processor=processor,

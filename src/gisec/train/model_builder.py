@@ -143,8 +143,6 @@ def _resolve_input_channels(depth_mode: str) -> int:
         return 3
     if str(depth_mode) == "rgbd_concat":
         return 4
-    if str(depth_mode) == "rgbd_concat_valid_mask":
-        return 5
     raise ValueError(f"Unsupported GISEC depth_mode: {depth_mode}")
 
 
@@ -169,8 +167,7 @@ def _build_gisec_model(args: argparse.Namespace) -> GISECModel:
     return GISECModel(
         backbone=backbone,
         feature_channels=feature_channels,
-        refine_feature_channels=16,
-        query_channels=int(input_channels),
+        input_channels=int(input_channels),
         use_local_refine=variant_spec.use_local_refine,
         use_reference_rescue=variant_spec.use_reference_rescue,
         use_graph_rescue=variant_spec.use_graph_rescue,

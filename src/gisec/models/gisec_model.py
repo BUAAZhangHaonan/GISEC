@@ -54,26 +54,7 @@ def prepare_gisec_input_batch(
     normalized_depth = normalize_depth(depths.float())
     if mode == "rgbd_concat":
         return torch.cat([images.float(), normalized_depth], dim=1)
-    if mode == "rgbd_concat_valid_mask":
-        valid_mask = torch.isfinite(depths.float()).float()
-        return torch.cat([images.float(), normalized_depth, valid_mask], dim=1)
     raise ValueError(f"Unsupported depth_mode: {depth_mode}")
-
-
-def prepare_gisec_input_sample(sample: dict[str, Any], *, depth_mode: str) -> torch.Tensor:
-    image = sample["image"].float()
-    if image.ndim != 3:
-        raise ValueError(f"Expected CHW image, got {tuple(image.shape)}")
-    if str(depth_mode) == "rgb":
-        return image
-    depth = sample.get("depth")
-    if depth is None:
-        raise ValueError(f"Depth tensor is required for depth_mode={depth_mode}")
-    return prepare_gisec_input_batch(
-        images=image.unsqueeze(0),
-        depths=depth.unsqueeze(0),
-        depth_mode=str(depth_mode),
-    )[0]
 
 
 def mask_bbox(mask: torch.Tensor | np.ndarray) -> tuple[int, int, int, int]:
@@ -256,32 +237,7 @@ class LocalRefinementModule(nn.Module):
             "refined_boundary_logits": self.boundary_head(fused),
             "crop_features": fused,
             "reference_match_logits": reference_match_logits,
-            "reference_top_indices": top_indices,
-            "reference_top_weights": top_weights,
         }
-
-
-class LocalGraphRescueHead(nn.Module):
-    def __init__(self, *, node_dim: int, edge_dim: int = 4, hidden_dim: int = 64) -> None:
-        super().__init__()
-        self.scorer = GraphEdgeScorer(
-            node_dim=int(node_dim),
-            edge_dim=int(edge_dim),
-            hidden_dim=int(hidden_dim),
-        )
-
-    def forward(
-        self,
-        *,
-        node_features: torch.Tensor,
-        edge_index: torch.Tensor,
-        edge_features: torch.Tensor,
-    ) -> torch.Tensor:
-        return self.scorer(
-            node_features.float(),
-            edge_index.long(),
-            edge_features.float(),
-        )
 
 
 class GISECModel(nn.Module):
@@ -290,8 +246,7 @@ class GISECModel(nn.Module):
         *,
         backbone: nn.Module,
         feature_channels: int,
-        refine_feature_channels: int = 16,
-        query_channels: int = 3,
+        input_channels: int,
         use_local_refine: bool = False,
         use_reference_rescue: bool = False,
         use_graph_rescue: bool = False,
@@ -303,11 +258,11 @@ class GISECModel(nn.Module):
         self.use_local_refine = bool(use_local_refine)
         self.use_reference_rescue = bool(use_reference_rescue)
         self.use_graph_rescue = bool(use_graph_rescue)
-        self.feature_proj = nn.Conv2d(int(feature_channels), int(refine_feature_channels), kernel_size=1)
+        self.feature_proj = nn.Conv2d(int(feature_channels), 16, kernel_size=1)
         self.refiner = (
             LocalRefinementModule(
-                query_channels=int(query_channels),
-                feature_channels=int(refine_feature_channels),
+                query_channels=int(input_channels),
+                feature_channels=16,
                 hidden_dim=int(refiner_hidden_dim),
                 use_reference=bool(use_reference_rescue),
             )
@@ -315,7 +270,7 @@ class GISECModel(nn.Module):
             else None
         )
         self.graph_head = (
-            LocalGraphRescueHead(
+            GraphEdgeScorer(
                 node_dim=int(refiner_hidden_dim) + 4,
                 edge_dim=4,
                 hidden_dim=int(graph_hidden_dim),

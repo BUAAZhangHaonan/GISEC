@@ -8,7 +8,7 @@ from typing import Any
 from gisec.config.variants import get_gisec_variant_spec, gisec_variant_names
 
 
-GISEC_DEPTH_MODES = ("rgb", "rgbd_concat", "rgbd_concat_valid_mask")
+GISEC_DEPTH_MODES = ("rgb", "rgbd_concat")
 _DEFAULT_VARIANT = "base_rgb_1024"
 _DEFAULT_PRETRAINED_MODEL = "facebook/mask2former-swin-tiny-coco-instance"
 
@@ -141,7 +141,7 @@ def _validate_variant_requirements(parser: argparse.ArgumentParser, args: argpar
     if variant_spec.depth_mode == "rgb":
         if depth_mode != "rgb":
             parser.error(f"--depth-mode {depth_mode} is not allowed for GISEC variant {variant_spec.name}")
-    elif depth_mode not in {"rgbd_concat", "rgbd_concat_valid_mask"}:
+    elif depth_mode != "rgbd_concat":
         parser.error(f"--depth-mode {depth_mode} is not allowed for GISEC variant {variant_spec.name}")
     args.depth_mode = depth_mode
     if variant_spec.requires_reference_root and getattr(args, "reference_root", "") in ("", None):

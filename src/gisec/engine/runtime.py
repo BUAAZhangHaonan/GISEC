@@ -4,30 +4,19 @@ import json
 from pathlib import Path
 from typing import Any
 
-import cv2
 import numpy as np
 import torch
+from pycocotools import mask as mask_utils
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 
 
 def encode_binary_mask(mask: np.ndarray) -> dict[str, Any] | list[list[float]]:
-    try:
-        from pycocotools import mask as mask_utils
-
-        rle = mask_utils.encode(np.asfortranarray(mask.astype(np.uint8)))
-        counts = rle["counts"]
-        if isinstance(counts, bytes):
-            counts = counts.decode("utf-8")
-        return {"size": list(rle["size"]), "counts": counts}
-    except ImportError:  # pragma: no cover - exercised in lean envs
-        contours, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        polygons: list[list[float]] = []
-        for contour in contours:
-            if contour.shape[0] < 3:
-                continue
-            polygons.append(contour.reshape(-1, 2).astype(float).flatten().tolist())
-        return polygons or [[0.0, 0.0, 1.0, 0.0, 1.0, 1.0]]
+    rle = mask_utils.encode(np.asfortranarray(mask.astype(np.uint8)))
+    counts = rle["counts"]
+    if isinstance(counts, bytes):
+        counts = counts.decode("utf-8")
+    return {"size": list(rle["size"]), "counts": counts}
 
 
 def evaluate_json(ann_file: Path, results_json: Path) -> dict[str, Any]:
@@ -58,11 +47,9 @@ def build_benchmark_payload(latencies_ms: list[float], device: torch.device) -> 
     }
 
 
-def build_device(device_name: str, local_rank: int | None = None) -> torch.device:
+def build_device(device_name: str) -> torch.device:
     requested = str(device_name or "cpu").lower()
     if requested.startswith("cuda") and torch.cuda.is_available():
-        if local_rank is not None:
-            return torch.device("cuda", int(local_rank))
         return torch.device(requested)
     return torch.device("cpu")
 
