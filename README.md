@@ -110,7 +110,6 @@ Inference uses the same checkpoint loading path as eval and writes the raw predi
 - `src/gisec/eval/`: COCO export, metrics, and run summaries
 - `src/gisec/models/`: the GISEC model and graph head
 - `src/gisec/train/`: training, evaluation, and inference orchestration
-- `src/gisec/utils/`: logging and preview helpers
 - `configs/model/`: GISEC model variants
 - `configs/data/`: dataset roots and loader defaults
 - `configs/reference/`: reference bank settings
