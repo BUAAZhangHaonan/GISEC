@@ -7,6 +7,10 @@ import torch
 from torch import nn
 from transformers import Mask2FormerConfig, Mask2FormerForUniversalSegmentation, Mask2FormerImageProcessor
 
+# Foreground (component) plus background; the dataset validation in
+# gisec.datasets.baseline_instance_dataset checks ids against this label space.
+NUM_LABELS = 2
+
 
 def build_mask2former_processor() -> Mask2FormerImageProcessor:
     return Mask2FormerImageProcessor(
@@ -101,7 +105,7 @@ def build_mask2former_model(
     num_queries: int = 16,
     train_num_points: int = 512,
 ) -> Mask2FormerForUniversalSegmentation:
-    num_labels = 2
+    num_labels = NUM_LABELS
     if pretrained_model_name:
         model = Mask2FormerForUniversalSegmentation.from_pretrained(
             pretrained_model_name,

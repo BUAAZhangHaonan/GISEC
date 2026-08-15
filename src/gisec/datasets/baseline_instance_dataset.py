@@ -9,6 +9,7 @@ import torch
 from torch.utils.data import Dataset
 
 from gisec.datasets.coco_utils import LiteCOCO, ann_to_mask, load_depth_array
+from gisec.backbones.mask2former.adapter import NUM_LABELS
 
 
 def _mask_to_box(mask: np.ndarray) -> list[float]:
@@ -53,11 +54,10 @@ class BaselineInstanceDataset(Dataset):
                 f"Expected exactly one COCO category in {self.root}, got {len(categories)}"
             )
         category_id = int(categories[0]["id"])
-        # The Mask2Former adapter is built with num_labels == 2, so the
-        # component category id must index that label space.
-        if not 0 <= category_id < 2:
+        # The component category id must index the adapter label space.
+        if not 0 <= category_id < NUM_LABELS:
             raise ValueError(
-                f"Component category id {category_id} in {self.root} is outside the model label space [0, 2)"
+                f"Component category id {category_id} in {self.root} is outside the model label space [0, {NUM_LABELS})"
             )
         return category_id
 
