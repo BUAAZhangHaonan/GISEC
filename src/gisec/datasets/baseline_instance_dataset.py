@@ -52,7 +52,14 @@ class BaselineInstanceDataset(Dataset):
             raise ValueError(
                 f"Expected exactly one COCO category in {self.root}, got {len(categories)}"
             )
-        return int(categories[0]["id"])
+        category_id = int(categories[0]["id"])
+        # The Mask2Former adapter is built with num_labels == 2, so the
+        # component category id must index that label space.
+        if not 0 <= category_id < 2:
+            raise ValueError(
+                f"Component category id {category_id} in {self.root} is outside the model label space [0, 2)"
+            )
+        return category_id
 
     def __len__(self) -> int:
         return len(self.image_ids)
@@ -87,7 +94,7 @@ class BaselineInstanceDataset(Dataset):
                 if self.include_annotations:
                     masks.append(mask.astype(np.uint8))
                     boxes.append(_mask_to_box(mask))
-                    labels.append(int(ann.get("category_id", 1)))
+                    labels.append(int(ann["category_id"]))
                 instance_map[mask > 0] = int(next_instance_id)
 
         depth_tensor = None

@@ -12,7 +12,7 @@ def masks_to_coco_results(
     image_id: int,
     masks: list[np.ndarray],
     scores: list[float],
-    category_id: int = 1,
+    category_id: int,
 ) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for mask, score in zip(masks, scores):

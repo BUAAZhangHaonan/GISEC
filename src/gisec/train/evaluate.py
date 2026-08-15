@@ -114,7 +114,7 @@ def _evaluate_gisec(
                         {
                             "query_index": int(index),
                             "score": float(score),
-                            "category_id": 1,
+                            "category_id": int(component_class_index),
                             "binary_mask": torch.from_numpy(mask.astype(np.float32)),
                             "mask_probs": torch.from_numpy(mask.astype(np.float32)),
                         }
@@ -154,7 +154,7 @@ def _evaluate_gisec(
                         image_id=int(sample["image_id"]),
                         masks=pred_masks,
                         scores=pred_scores,
-                        category_id=1,
+                        category_id=int(component_class_index),
                     )
                 )
                 if save_raw:
