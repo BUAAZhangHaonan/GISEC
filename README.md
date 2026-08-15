@@ -64,11 +64,11 @@ For a reference or graph rescue variant, add the reference root:
 
 ```bash
 gisec train \
-  --variant base_rgb_1024_refine_ref_graph \
+  --variant base_rgbd_1024_refine_ref_graph \
   --dataset-root datasets/20260318_1K_1566 \
   --reference-root datasets/20260318_1K_13440 \
   --init-checkpoint output/gisec/base_rgb_1024/model_best.pth \
-  --output-dir output/gisec/base_rgb_1024_refine_ref_graph
+  --output-dir output/gisec/base_rgbd_1024_refine_ref_graph
 ```
 
 The variant is selected with `--variant`; the registered names are listed below. Loss weights (`--boundary-loss-weight`, `--graph-loss-weight`, `--reference-match-loss-weight`) and training schedule (`--epochs`, `--learning-rate`) are CLI parameters.
@@ -128,7 +128,7 @@ Training writes `model_best.pth`, `model_final.pth`, `resume_last.pth`, `run_sum
 
 Variants are registered in `src/gisec/config/variants.py` and selected with `--variant`. The model variants are:
 
-- `base_rgb_1024`, `base_rgb_1024_refine`, `base_rgb_1024_refine_ref`, `base_rgb_1024_refine_ref_graph`
+- `base_rgb_1024`, `base_rgb_1024_refine`
 - `base_rgbd_1024`, `base_rgbd_1024_refine`, `base_rgbd_1024_refine_ref`, `base_rgbd_1024_refine_ref_graph`
 
 ## Architecture Summary

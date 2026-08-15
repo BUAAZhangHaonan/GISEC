@@ -11,8 +11,6 @@ def test_gisec_variants_cover_all_staged_paths() -> None:
     assert gisec_variant_names() == (
         "base_rgb_1024",
         "base_rgb_1024_refine",
-        "base_rgb_1024_refine_ref",
-        "base_rgb_1024_refine_ref_graph",
         "base_rgbd_1024",
         "base_rgbd_1024_refine",
         "base_rgbd_1024_refine_ref",
@@ -23,9 +21,8 @@ def test_gisec_variants_cover_all_staged_paths() -> None:
 def test_gisec_variant_specs_expose_stage_requirements() -> None:
     base = get_gisec_variant_spec("base_rgb_1024")
     refine = get_gisec_variant_spec("base_rgb_1024_refine")
-    reference = get_gisec_variant_spec("base_rgb_1024_refine_ref")
-    graph = get_gisec_variant_spec("base_rgb_1024_refine_ref_graph")
-    rgbd = get_gisec_variant_spec("base_rgbd_1024_refine_ref_graph")
+    reference = get_gisec_variant_spec("base_rgbd_1024_refine_ref")
+    graph = get_gisec_variant_spec("base_rgbd_1024_refine_ref_graph")
 
     assert base.depth_mode == "rgb"
     assert not base.use_local_refine
@@ -47,7 +44,7 @@ def test_gisec_variant_specs_expose_stage_requirements() -> None:
     assert graph.use_graph_rescue
     assert graph.requires_reference_root
 
-    assert rgbd.depth_mode == "rgbd_concat"
+    assert graph.depth_mode == "rgbd_concat"
 
 
 def test_get_gisec_variant_spec_rejects_unknown_name() -> None:
@@ -64,7 +61,7 @@ def test_parse_train_args_requires_reference_root_for_reference_variants() -> No
                 "--output-dir",
                 "/tmp/output",
                 "--variant",
-                "base_rgb_1024_refine_ref",
+                "base_rgbd_1024_refine_ref",
                 "--init-checkpoint",
                 "/tmp/init.pth",
             ]
@@ -93,7 +90,7 @@ def test_parse_train_args_accepts_graph_variant_with_required_inputs() -> None:
             "--output-dir",
             "/tmp/output",
             "--variant",
-            "base_rgb_1024_refine_ref_graph",
+            "base_rgbd_1024_refine_ref_graph",
             "--reference-root",
             "/tmp/reference_bank",
             "--init-checkpoint",
@@ -101,10 +98,10 @@ def test_parse_train_args_accepts_graph_variant_with_required_inputs() -> None:
         ]
     )
 
-    assert args.variant == "base_rgb_1024_refine_ref_graph"
+    assert args.variant == "base_rgbd_1024_refine_ref_graph"
     assert args.reference_root == "/tmp/reference_bank"
     assert args.init_checkpoint == "/tmp/init.pth"
-    assert args.depth_mode == "rgb"
+    assert args.depth_mode == "rgbd_concat"
 
 
 def test_parse_eval_args_requires_checkpoint_for_eval() -> None:

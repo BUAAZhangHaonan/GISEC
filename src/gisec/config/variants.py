@@ -11,9 +11,6 @@ class GisecVariantSpec:
     use_reference_rescue: bool
     use_graph_rescue: bool
     requires_reference_root: bool
-    backbone_family: str = "mask2former"
-    backbone_name: str = "swin_t"
-    resolution: int = 1024
 
 
 GISEC_VARIANTS = {
@@ -32,22 +29,6 @@ GISEC_VARIANTS = {
         use_reference_rescue=False,
         use_graph_rescue=False,
         requires_reference_root=False,
-    ),
-    "base_rgb_1024_refine_ref": GisecVariantSpec(
-        name="base_rgb_1024_refine_ref",
-        depth_mode="rgb",
-        use_local_refine=True,
-        use_reference_rescue=True,
-        use_graph_rescue=False,
-        requires_reference_root=True,
-    ),
-    "base_rgb_1024_refine_ref_graph": GisecVariantSpec(
-        name="base_rgb_1024_refine_ref_graph",
-        depth_mode="rgb",
-        use_local_refine=True,
-        use_reference_rescue=True,
-        use_graph_rescue=True,
-        requires_reference_root=True,
     ),
     "base_rgbd_1024": GisecVariantSpec(
         name="base_rgbd_1024",
