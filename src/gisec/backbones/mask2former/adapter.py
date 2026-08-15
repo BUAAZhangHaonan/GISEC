@@ -32,21 +32,6 @@ def sample_to_instance_map(sample: dict[str, Any], *, ignore_index: int) -> tupl
     return instance_map, mapping
 
 
-def sample_to_mask2former_inputs(
-    sample: dict[str, Any],
-    *,
-    processor: Mask2FormerImageProcessor,
-) -> dict[str, Any]:
-    ignore_index = getattr(processor, "ignore_index", 255)
-    instance_map, mapping = sample_to_instance_map(sample, ignore_index=int(ignore_index))
-    return processor(
-        images=[sample["image"]],
-        segmentation_maps=[instance_map],
-        instance_id_to_semantic_id=[mapping],
-        return_tensors="pt",
-    )
-
-
 def batch_to_mask2former_inputs(
     samples: list[dict[str, Any]],
     *,
