@@ -93,5 +93,5 @@ for config_stem in "${CONFIGS[@]}"; do
   if [[ "${MODE}" == "dry-run" ]]; then
     args+=("--dry-run")
   fi
-  runner_exec "${MODE}" "${RUN_LOG}" "${REPO_ROOT}" "${PYTHON_CMD[@]}" -m "gisec.cli.${COMMAND}" "${args[@]}"
+  runner_exec "${MODE}" "${RUN_LOG}" "${REPO_ROOT}" "${PYTHON_CMD[@]}" -m gisec "${COMMAND}" "${args[@]}"
 done

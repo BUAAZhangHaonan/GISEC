@@ -1,11 +1,10 @@
+"""Command line entrypoints for GISEC."""
 from __future__ import annotations
 
 import argparse
 import sys
 
-from gisec.cli import eval as eval_cli
-from gisec.cli import infer as infer_cli
-from gisec.cli import train as train_cli
+from gisec.train import eval_gisec, infer_gisec, parse_eval_args, parse_train_args, train_gisec
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,13 +24,13 @@ def main(argv: list[str] | None = None) -> None:
     command = args[0]
     remainder = args[1:]
     if command == "train":
-        train_cli.main(remainder)
+        train_gisec(parse_train_args(remainder))
         return
     if command == "eval":
-        eval_cli.main(remainder)
+        eval_gisec(parse_eval_args(remainder))
         return
     if command == "infer":
-        infer_cli.main(remainder)
+        infer_gisec(parse_eval_args(remainder))
         return
     build_parser().error(f"unknown command: {command}")
 
