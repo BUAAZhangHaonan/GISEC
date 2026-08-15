@@ -2085,10 +2085,9 @@ def train_gisec(args: argparse.Namespace) -> None:
     )
 
 
-def eval_gisec(args: argparse.Namespace) -> None:
-    payload = _model_payload(args)
+def _run_checkpoint_inference(args: argparse.Namespace, *, save_raw: bool) -> None:
     if bool(args.dry_run):
-        print(json.dumps(payload, ensure_ascii=False))
+        print(json.dumps(_model_payload(args), ensure_ascii=False))
         return
     variant_spec = get_gisec_variant_spec(args.variant)
     device = build_device(str(args.device))
@@ -2106,14 +2105,14 @@ def eval_gisec(args: argparse.Namespace) -> None:
         run_variant=getattr(args, "_run_metadata_variant", None),
         checkpoint_payload=checkpoint_payload,
         checkpoint_path=str(checkpoint_path),
-        context="eval",
+        context="eval" if not save_raw else "infer",
     )
     state_dict = _extract_state_dict(checkpoint_payload, prefix_backbone=True)
     _load_module_state_dict(
         model,
         state_dict,
         allow_partial=bool(getattr(args, "allow_partial_checkpoint_load", False)),
-        context=f"eval checkpoint {checkpoint_path}",
+        context=f"checkpoint {checkpoint_path}",
     )
     reference_source = None
     if variant_spec.requires_reference_root:
@@ -2150,7 +2149,7 @@ def eval_gisec(args: argparse.Namespace) -> None:
         crop_pad=int(args.crop_pad),
         boundary_band_width=int(args.boundary_band_width),
         max_images=int(args.max_images),
-        save_raw=False,
+        save_raw=save_raw,
         depth_mode=str(args.depth_mode),
         component_class_index=component_class_index,
     )
@@ -2170,90 +2169,11 @@ def eval_gisec(args: argparse.Namespace) -> None:
         },
     )
     write_json(output_dir / "run_summary.json", summary)
+
+
+def eval_gisec(args: argparse.Namespace) -> None:
+    _run_checkpoint_inference(args, save_raw=False)
 
 
 def infer_gisec(args: argparse.Namespace) -> None:
-    payload = _model_payload(args)
-    if bool(args.dry_run):
-        print(json.dumps(payload, ensure_ascii=False))
-        return
-    variant_spec = get_gisec_variant_spec(args.variant)
-    device = build_device(str(args.device))
-    output_dir = Path(args.output_dir).resolve()
-    checkpoint_dir_arg = getattr(args, "checkpoint_dir", "")
-    checkpoint_dir = output_dir if checkpoint_dir_arg in ("", None) else Path(str(checkpoint_dir_arg)).resolve()
-    checkpoint_path = _resolve_checkpoint_path(checkpoint_dir, str(args.checkpoint))
-    if checkpoint_path.parent.resolve() == output_dir.resolve():
-        raise ValueError("eval/infer requires --checkpoint-dir to differ from --output-dir")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    model = _build_gisec_model(args).to(device)
-    checkpoint_payload = torch.load(str(checkpoint_path), map_location=device, weights_only=True)
-    _validate_runtime_checkpoint_variant(
-        requested_variant=variant_spec.name,
-        run_variant=getattr(args, "_run_metadata_variant", None),
-        checkpoint_payload=checkpoint_payload,
-        checkpoint_path=str(checkpoint_path),
-        context="infer",
-    )
-    state_dict = _extract_state_dict(checkpoint_payload, prefix_backbone=True)
-    _load_module_state_dict(
-        model,
-        state_dict,
-        allow_partial=bool(getattr(args, "allow_partial_checkpoint_load", False)),
-        context=f"infer checkpoint {args.checkpoint}",
-    )
-    reference_source = None
-    if variant_spec.requires_reference_root:
-        reference_source = ReferenceBankSource(
-            root=Path(str(args.reference_root)).resolve(),
-            image_size=int(args.crop_size),
-            contract_mode="compat",
-            max_views=int(args.reference_max_views),
-            view_sampler=str(args.reference_view_sampler),
-        )
-    loader = _build_loader(
-        dataset_root=str(args.dataset_root),
-        split=str(args.split),
-        image_size=int(args.image_size),
-        batch_size=1,
-        num_workers=int(args.num_workers),
-        include_depth=str(args.depth_mode) != "rgb",
-        train=False,
-        use_cuda=bool(device.type == "cuda"),
-    )
-    component_class_index = int(loader.dataset.component_category_id)
-    ann_file = Path(args.dataset_root).resolve() / "annotations" / f"instances_{args.split}.json"
-    metrics, speed = _evaluate_gisec(
-        model=model,
-        loader=loader,
-        device=device,
-        variant_name=variant_spec.name,
-        reference_source=reference_source,
-        ann_file=ann_file,
-        output_dir=output_dir,
-        score_threshold=float(args.score_threshold),
-        mask_threshold=float(args.mask_threshold),
-        crop_size=int(args.crop_size),
-        crop_pad=int(args.crop_pad),
-        boundary_band_width=int(args.boundary_band_width),
-        max_images=int(args.max_images),
-        save_raw=True,
-        depth_mode=str(args.depth_mode),
-        component_class_index=component_class_index,
-    )
-    summary = build_run_summary_payload(
-        model="mask2former",
-        variant=variant_spec.name,
-        modality=str(args.depth_mode),
-        artifact_root=output_dir,
-        metrics=metrics,
-        inference_speed=speed,
-        checkpoint=checkpoint_path,
-        dataset_root=str(Path(args.dataset_root).resolve()),
-        benchmark=_gisec_benchmark_payload(variant_spec.name, str(args.depth_mode)),
-        decode_config={
-            "score_threshold": float(args.score_threshold),
-            "mask_threshold": float(args.mask_threshold),
-        },
-    )
-    write_json(output_dir / "run_summary.json", summary)
+    _run_checkpoint_inference(args, save_raw=True)
