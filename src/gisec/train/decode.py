@@ -53,7 +53,6 @@ def _query_instances_from_outputs(
         score = float(fg_prob[query_index, component_class_index].item())
         if predicted_class != component_class_index or score < float(score_threshold):
             continue
-        category_id = int(component_class_index)
         binary = mask_probs[query_index] >= float(mask_threshold)
         if int(binary.sum().item()) <= 0:
             continue
@@ -61,7 +60,6 @@ def _query_instances_from_outputs(
             {
                 "query_index": int(query_index),
                 "score": score,
-                "category_id": category_id,
                 "mask_probs": mask_probs[query_index],
                 "binary_mask": binary.float(),
             }
