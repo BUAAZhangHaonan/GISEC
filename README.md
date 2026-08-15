@@ -50,7 +50,7 @@ conda activate gisec
 pip install -e . --index-url https://download.pytorch.org/whl/cu128 --extra-index-url https://pypi.org/simple
 ```
 
-`pyproject.toml` is the single dependency declaration. Tested local stack: Python 3.12, CUDA cu128, PyTorch 2.7.0, torchvision 0.22.0. A CUDA-capable GPU is required for training.
+`pyproject.toml` is the single dependency declaration. Tested local stack: Python 3.13, CUDA cu128, PyTorch 2.7.0, torchvision 0.22.0. A CUDA-capable GPU is required for training.
 
 ## Data
 
@@ -112,7 +112,7 @@ gisec eval \
   --checkpoint model_best.pth
 ```
 
-`--checkpoint-dir` must differ from `--output-dir`. The usual checkpoint file is `model_best.pth`.
+`--checkpoint-dir` must differ from `--output-dir`. The usual checkpoint file is `model_best.pth`. Pass an absolute path to `--checkpoint`; with a relative path, run_summary auto-provenance may resolve to the default variant. A mismatch is hard-rejected by the variant check embedded in the checkpoint, never silently. 
 
 ## Infer
 
