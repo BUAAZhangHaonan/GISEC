@@ -650,7 +650,7 @@ def _configure_model_for_stage(model: nn.Module, args: argparse.Namespace) -> No
     init_checkpoint = Path(str(args.init_checkpoint)).resolve()
     if not init_checkpoint.exists():
         raise FileNotFoundError(init_checkpoint)
-    checkpoint_payload = torch.load(str(init_checkpoint), map_location="cpu")
+    checkpoint_payload = torch.load(str(init_checkpoint), map_location="cpu", weights_only=True)
     state_dict = _extract_state_dict(checkpoint_payload, prefix_backbone=True)
     _load_module_state_dict(
         model.backbone,
@@ -2109,7 +2109,7 @@ def eval_gisec(args: argparse.Namespace) -> None:
         raise ValueError("eval/infer requires --checkpoint-dir to differ from --output-dir")
     output_dir.mkdir(parents=True, exist_ok=True)
     model = _build_gisec_model(args).to(device)
-    checkpoint_payload = torch.load(str(checkpoint_path), map_location=device)
+    checkpoint_payload = torch.load(str(checkpoint_path), map_location=device, weights_only=True)
     _validate_runtime_checkpoint_variant(
         requested_variant=variant_spec.name,
         run_variant=getattr(args, "_run_metadata_variant", None),
@@ -2194,7 +2194,7 @@ def infer_gisec(args: argparse.Namespace) -> None:
         raise ValueError("eval/infer requires --checkpoint-dir to differ from --output-dir")
     output_dir.mkdir(parents=True, exist_ok=True)
     model = _build_gisec_model(args).to(device)
-    checkpoint_payload = torch.load(str(checkpoint_path), map_location=device)
+    checkpoint_payload = torch.load(str(checkpoint_path), map_location=device, weights_only=True)
     _validate_runtime_checkpoint_variant(
         requested_variant=variant_spec.name,
         run_variant=getattr(args, "_run_metadata_variant", None),
