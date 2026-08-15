@@ -17,19 +17,19 @@ from gisec.config.variants import get_gisec_variant_spec
 from gisec.engine.runtime import build_device, write_json
 from gisec.eval.export import build_run_summary_payload
 from gisec.models.gisec_model import prepare_gisec_input_batch
-from gisec.train.args import _model_payload
-from gisec.train.data import _build_label_targets, _build_loader
-from gisec.train.evaluate import _evaluate_gisec, _gisec_benchmark_payload
-from gisec.train.losses import _train_local_modules_with_metrics
+from gisec.train.args import model_payload
+from gisec.train.data import build_label_targets, build_loader
+from gisec.train.evaluate import evaluate_gisec, gisec_benchmark_payload
+from gisec.train.losses import train_local_modules_with_metrics
 from gisec.train.model_builder import (
-    _build_gisec_model,
-    _build_pixel_mask,
-    _checkpoint_payload,
-    _configure_model_for_stage,
-    _load_resume_payload,
-    _resume_payload,
-    _run_backbone,
-    _save_torch_payload,
+    build_gisec_model,
+    build_pixel_mask,
+    checkpoint_payload,
+    configure_model_for_stage,
+    load_resume_payload,
+    resume_payload,
+    run_backbone,
+    save_torch_payload,
 )
 
 
@@ -108,7 +108,7 @@ def _backward_gisec_loss(
 
 
 def train_gisec(args: argparse.Namespace) -> None:
-    payload = _model_payload(args)
+    payload = model_payload(args)
     if bool(args.dry_run):
         print(json.dumps(payload, ensure_ascii=False))
         return
@@ -121,7 +121,7 @@ def train_gisec(args: argparse.Namespace) -> None:
     output_dir = Path(args.output_dir).resolve()
     output_dir.parent.mkdir(parents=True, exist_ok=True)
     include_depth = str(args.depth_mode) != "rgb"
-    train_loader = _build_loader(
+    train_loader = build_loader(
         dataset_root=str(args.dataset_root),
         split="train",
         image_size=int(args.image_size),
@@ -131,7 +131,7 @@ def train_gisec(args: argparse.Namespace) -> None:
         train=True,
         use_cuda=bool(device.type == "cuda"),
     )
-    val_loader = _build_loader(
+    val_loader = build_loader(
         dataset_root=str(args.dataset_root),
         split="val",
         image_size=int(args.image_size),
@@ -142,8 +142,8 @@ def train_gisec(args: argparse.Namespace) -> None:
         use_cuda=bool(device.type == "cuda"),
     )
     component_class_index = int(train_loader.dataset.component_category_id)
-    model = _build_gisec_model(args).to(device)
-    _configure_model_for_stage(model, args)
+    model = build_gisec_model(args).to(device)
+    configure_model_for_stage(model, args)
     reference_source = None
     if variant_spec.requires_reference_root:
         reference_source = ReferenceBankSource(
@@ -183,7 +183,7 @@ def train_gisec(args: argparse.Namespace) -> None:
     running_step_time_total = 0.0
     non_blocking = bool(device.type == "cuda")
     if str(getattr(args, "resume_checkpoint", "")).strip():
-        completed_epoch, step_count, best_ap, running_step_time_total = _load_resume_payload(
+        completed_epoch, step_count, best_ap, running_step_time_total = load_resume_payload(
             model=model,
             optimizer=optimizer,
             scaler=scaler,
@@ -214,10 +214,10 @@ def train_gisec(args: argparse.Namespace) -> None:
                     device, non_blocking=non_blocking
                 )
             pixel_values = prepare_gisec_input_batch(images=images, depths=depths, depth_mode=str(args.depth_mode))
-            pixel_mask = _build_pixel_mask(pixel_values)
-            mask_labels, class_labels = _build_label_targets(samples, device=device, non_blocking=non_blocking)
+            pixel_mask = build_pixel_mask(pixel_values)
+            mask_labels, class_labels = build_label_targets(samples, device=device, non_blocking=non_blocking)
             with autocast(device_type=device.type, enabled=bool(device.type == "cuda")):
-                outputs = _run_backbone(
+                outputs = run_backbone(
                     model=model,
                     pixel_values=pixel_values,
                     pixel_mask=pixel_mask,
@@ -227,7 +227,7 @@ def train_gisec(args: argparse.Namespace) -> None:
                 backbone_loss = outputs.loss
                 if backbone_loss is None:
                     backbone_loss = pixel_values.sum() * 0.0
-            local_loss, local_metrics = _train_local_modules_with_metrics(
+            local_loss, local_metrics = train_local_modules_with_metrics(
                 model=model,
                 samples=samples,
                 pixel_values=pixel_values,
@@ -296,7 +296,7 @@ def train_gisec(args: argparse.Namespace) -> None:
         )
         last_epoch = int(epoch_index + 1)
         if (epoch_index + 1) % resume_save_every_epochs == 0:
-            resume_payload = _resume_payload(
+            resume_state = resume_payload(
                 model=model,
                 optimizer=optimizer,
                 scaler=scaler,
@@ -306,7 +306,7 @@ def train_gisec(args: argparse.Namespace) -> None:
                 best_metric=float(best_ap),
                 running_step_time_total=float(running_step_time_total),
             )
-            _save_torch_payload(resume_last_ckpt, resume_payload)
+            save_torch_payload(resume_last_ckpt, resume_state)
         stopping_early = int(args.max_train_steps) > 0 and step_count >= int(args.max_train_steps)
         should_eval = False
         if eval_interval > 0:
@@ -316,7 +316,7 @@ def train_gisec(args: argparse.Namespace) -> None:
             )
         if should_eval:
             eval_start = time.perf_counter()
-            metrics, speed = _evaluate_gisec(
+            metrics, speed = evaluate_gisec(
                 model=model,
                 loader=val_loader,
                 device=device,
@@ -339,8 +339,8 @@ def train_gisec(args: argparse.Namespace) -> None:
             best_updated = bool(segm_ap >= best_ap)
             if best_updated:
                 best_ap = segm_ap
-                best_payload = _checkpoint_payload(model, args)
-                _save_torch_payload(best_ckpt, best_payload)
+                best_payload = checkpoint_payload(model, args)
+                save_torch_payload(best_ckpt, best_payload)
                 _emit_gisec_log(
                     metrics_log_path,
                     {
@@ -364,8 +364,8 @@ def train_gisec(args: argparse.Namespace) -> None:
         if stopping_early:
             break
     final_ckpt = output_dir / "model_final.pth"
-    final_payload = _checkpoint_payload(model, args)
-    _save_torch_payload(final_ckpt, final_payload)
+    final_payload = checkpoint_payload(model, args)
+    save_torch_payload(final_ckpt, final_payload)
     _emit_gisec_log(
         metrics_log_path,
         {
@@ -376,7 +376,7 @@ def train_gisec(args: argparse.Namespace) -> None:
         },
     )
     final_eval_start = time.perf_counter()
-    metrics, speed = _evaluate_gisec(
+    metrics, speed = evaluate_gisec(
         model=model,
         loader=val_loader,
         device=device,
@@ -399,8 +399,8 @@ def train_gisec(args: argparse.Namespace) -> None:
     final_best_updated = bool(final_ap >= best_ap)
     if final_best_updated:
         best_ap = final_ap
-        best_payload = _checkpoint_payload(model, args)
-        _save_torch_payload(best_ckpt, best_payload)
+        best_payload = checkpoint_payload(model, args)
+        save_torch_payload(best_ckpt, best_payload)
         _emit_gisec_log(
             metrics_log_path,
             {
@@ -439,7 +439,7 @@ def train_gisec(args: argparse.Namespace) -> None:
         params_trainable=params_trainable,
         training_peak_memory_mb=peak_memory_mb,
         wall_time_sec=wall_time_sec,
-        benchmark=_gisec_benchmark_payload(variant_spec.name, str(args.depth_mode)),
+        benchmark=gisec_benchmark_payload(variant_spec.name, str(args.depth_mode)),
         decode_config={
             "score_threshold": float(args.score_threshold),
             "mask_threshold": float(args.mask_threshold),

@@ -8,7 +8,13 @@ import torch
 import torch.nn.functional as F
 
 from gisec.config.variants import get_gisec_variant_spec
-from gisec.datasets.reference_bank import ReferenceBank, ReferenceBankSource, extract_reference_part_key
+from gisec.datasets.reference_bank import (
+    ReferenceBank,
+    ReferenceBankSource,
+    extract_reference_part_key,
+    prepare_reference_tensors,
+    reference_tensors_from_bank,
+)
 from gisec.models.gisec_model import (
     GISECModel,
     boundary_target_from_mask,
@@ -17,15 +23,13 @@ from gisec.models.gisec_model import (
     mask_bbox,
 )
 from gisec.train.decode import (
-    _match_query_predictions_to_gt,
-    _prepare_reference_tensors,
-    _project_local_features_float32,
-    _query_instances_from_outputs,
-    _reference_tensors_from_bank,
-    _run_local_refiner_float32,
-    _scale_bbox,
+    match_query_predictions_to_gt,
+    project_local_features_float32,
+    query_instances_from_outputs,
+    run_local_refiner_float32,
+    scale_bbox,
 )
-from gisec.train.graph import _graph_rescue_training_loss
+from gisec.train.graph import graph_rescue_training_loss
 
 
 def _reference_match_aux_examples(
@@ -60,7 +64,7 @@ def _reference_match_examples(
         return []
     positive_bank = source.load_for_query(str(sample["file_name"]))
     examples = [
-        (_reference_tensors_from_bank(bank=positive_bank, crop_size=crop_size, device=device), 1.0)
+        (reference_tensors_from_bank(bank=positive_bank, crop_size=crop_size, device=device), 1.0)
     ]
     if source.is_single_bank:
         return examples
@@ -70,7 +74,7 @@ def _reference_match_examples(
     ):
         if float(target) <= 0.0:
             examples.append(
-                (_reference_tensors_from_bank(bank=bank, crop_size=crop_size, device=device), target)
+                (reference_tensors_from_bank(bank=bank, crop_size=crop_size, device=device), target)
             )
             break
     return examples
@@ -92,7 +96,7 @@ def _expand_reference_batch(
     return rgb, depth, mask
 
 
-def _train_local_modules_with_metrics(
+def train_local_modules_with_metrics(
     *,
     model: GISECModel,
     samples: list[dict[str, Any]],
@@ -121,7 +125,7 @@ def _train_local_modules_with_metrics(
             "local_reference_sec": 0.0,
             "local_graph_sec": 0.0,
         }
-    feature_map = _project_local_features_float32(model, backbone_outputs.pixel_decoder_last_hidden_state)
+    feature_map = project_local_features_float32(model, backbone_outputs.pixel_decoder_last_hidden_state)
     loss_sum = pixel_values.sum() * 0.0
     loss_count = 0
     component_totals = {
@@ -141,7 +145,7 @@ def _train_local_modules_with_metrics(
         gt_masks = masks.float().to(pixel_values.device)
         image_shape = (int(sample["image"].shape[-2]), int(sample["image"].shape[-1]))
         feature_shape = (int(feature_map.shape[-2]), int(feature_map.shape[-1]))
-        predictions = _query_instances_from_outputs(
+        predictions = query_instances_from_outputs(
             class_logits=backbone_outputs.class_queries_logits[sample_index].detach(),
             mask_logits=backbone_outputs.masks_queries_logits[sample_index].detach(),
             image_shape=image_shape,
@@ -149,13 +153,13 @@ def _train_local_modules_with_metrics(
             mask_threshold=0.5,
             component_class_index=int(component_class_index),
         )
-        matches = _match_query_predictions_to_gt(predictions=predictions, gt_masks=gt_masks)
+        matches = match_query_predictions_to_gt(predictions=predictions, gt_masks=gt_masks)
         if not matches:
             continue
         positive_reference: tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None] = (None, None, None)
         reference_examples: list[tuple[tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None], float]] = []
         if variant_spec.use_reference_rescue:
-            positive_reference = _prepare_reference_tensors(
+            positive_reference = prepare_reference_tensors(
                 sample=sample,
                 source=reference_source,
                 crop_size=int(crop_size),
@@ -180,7 +184,7 @@ def _train_local_modules_with_metrics(
                 image_shape=image_shape,
                 pad=int(crop_pad),
             )
-            feature_bbox = _scale_bbox(bbox, source_shape=image_shape, target_shape=feature_shape)
+            feature_bbox = scale_bbox(bbox, source_shape=image_shape, target_shape=feature_shape)
             gt_crop = crop_and_resize(instance_mask.unsqueeze(0), bbox=bbox, output_size=int(crop_size), mode="nearest")[0]
             query_crop = crop_and_resize(pixel_values[sample_index], bbox=bbox, output_size=int(crop_size), mode="bilinear")
             feature_crop = crop_and_resize(feature_map[sample_index], bbox=feature_bbox, output_size=int(crop_size), mode="bilinear")
@@ -214,7 +218,7 @@ def _train_local_modules_with_metrics(
             batch_size=batch_size,
         )
         refine_start = time.perf_counter()
-        refined = _run_local_refiner_float32(
+        refined = run_local_refiner_float32(
             model=model,
             query_crop=query_crop_batch,
             coarse_mask_prob=coarse_mask_batch,
@@ -243,7 +247,7 @@ def _train_local_modules_with_metrics(
                 reference_examples[1][0],
                 batch_size=batch_size,
             )
-            negative_refined = _run_local_refiner_float32(
+            negative_refined = run_local_refiner_float32(
                 model=model,
                 query_crop=query_crop_batch,
                 coarse_mask_prob=coarse_mask_batch,
@@ -275,7 +279,7 @@ def _train_local_modules_with_metrics(
                     dim=0,
                 )
                 graph_losses.append(
-                    graph_loss_weight * _graph_rescue_training_loss(
+                    graph_loss_weight * graph_rescue_training_loss(
                         graph_head=model.graph_head,
                         crop_features=refined["crop_features"][match_index],
                         coarse_mask_prob=coarse_mask_batch[match_index, 0],

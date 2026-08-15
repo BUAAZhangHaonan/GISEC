@@ -171,7 +171,7 @@ def parse_eval_args(argv: list[str] | None = None) -> argparse.Namespace:
     return args
 
 
-def _model_payload(args: argparse.Namespace) -> dict[str, Any]:
+def model_payload(args: argparse.Namespace) -> dict[str, Any]:
     variant_spec = get_gisec_variant_spec(args.variant)
     return {
         "variant": variant_spec.name,

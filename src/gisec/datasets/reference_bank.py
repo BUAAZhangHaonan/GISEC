@@ -8,6 +8,9 @@ from typing import Any, Dict
 import cv2
 import numpy as np
 import torch
+import torch.nn.functional as F
+
+from gisec.models.gisec_model import prepare_reference_depth
 
 
 def _resize_rgb(image: np.ndarray, image_size: int) -> np.ndarray:
@@ -150,6 +153,36 @@ class ReferenceBankSource:
                 view_sampler=self.view_sampler,
             )
         return self._bank_cache[resolved_root]
+
+
+def reference_tensors_from_bank(
+    *,
+    bank: ReferenceBank,
+    crop_size: int,
+    device: torch.device,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    normalized_ref_depth = prepare_reference_depth(
+        depth=bank.depths.float(),
+        mask=bank.masks.float(),
+    )
+    return (
+        F.interpolate(bank.images.float().to(device), size=(crop_size, crop_size), mode="bilinear", align_corners=False).unsqueeze(0),
+        F.interpolate(normalized_ref_depth.to(device), size=(crop_size, crop_size), mode="bilinear", align_corners=False).unsqueeze(0),
+        F.interpolate(bank.masks.float().to(device), size=(crop_size, crop_size), mode="nearest").unsqueeze(0),
+    )
+
+
+def prepare_reference_tensors(
+    *,
+    sample: dict[str, Any],
+    source: ReferenceBankSource | None,
+    crop_size: int,
+    device: torch.device,
+) -> tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]:
+    if source is None:
+        return None, None, None
+    bank = source.load_for_query(str(sample["file_name"]))
+    return reference_tensors_from_bank(bank=bank, crop_size=crop_size, device=device)
 
 
 def _read_json(path: Path) -> Dict[str, Any]:

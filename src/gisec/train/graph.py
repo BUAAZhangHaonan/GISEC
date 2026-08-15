@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-def _connected_components(mask: np.ndarray) -> np.ndarray:
+def connected_components(mask: np.ndarray) -> np.ndarray:
     mask_u8 = (mask > 0).astype(np.uint8)
     count, labels = cv2.connectedComponents(mask_u8, connectivity=8)
     if count <= 1:
@@ -15,7 +15,7 @@ def _connected_components(mask: np.ndarray) -> np.ndarray:
     return labels.astype(np.int32)
 
 
-def _build_local_graph_inputs(
+def build_local_graph_inputs(
     *,
     component_map: np.ndarray,
     feature_crop: torch.Tensor,
@@ -103,7 +103,7 @@ def _graph_rescue_edge_targets(
     )
 
 
-def _merge_local_components(
+def merge_local_components(
     *,
     component_map: np.ndarray,
     edge_index: torch.Tensor,
@@ -142,7 +142,7 @@ def _merge_local_components(
     return remapped
 
 
-def _graph_rescue_training_loss(
+def graph_rescue_training_loss(
     *,
     graph_head: nn.Module,
     crop_features: torch.Tensor,
@@ -151,10 +151,10 @@ def _graph_rescue_training_loss(
     instance_mask_crops: torch.Tensor,
 ) -> torch.Tensor:
     coarse_prob = coarse_mask_prob.detach().float()
-    component_map = _connected_components((coarse_prob >= 0.5).cpu().numpy())
+    component_map = connected_components((coarse_prob >= 0.5).cpu().numpy())
     if int(component_map.max()) <= 1:
         return crop_features.sum() * 0.0
-    node_features, edge_index, edge_features = _build_local_graph_inputs(
+    node_features, edge_index, edge_features = build_local_graph_inputs(
         component_map=component_map,
         feature_crop=crop_features,
         mask_prob_crop=coarse_prob,

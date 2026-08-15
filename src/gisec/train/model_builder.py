@@ -12,17 +12,17 @@ from torch.amp import GradScaler
 from gisec.backbones.mask2former.adapter import build_mask2former_model
 from gisec.config.variants import get_gisec_variant_spec
 from gisec.models.gisec_model import GISECModel
-from gisec.train.args import _model_payload
+from gisec.train.args import model_payload
 
 
-def _resolve_checkpoint_path(checkpoint_dir: Path, checkpoint: str) -> Path:
+def resolve_checkpoint_path(checkpoint_dir: Path, checkpoint: str) -> Path:
     checkpoint_path = Path(checkpoint)
     if checkpoint_path.is_absolute():
         return checkpoint_path.resolve()
     return (checkpoint_dir / checkpoint_path).resolve()
 
 
-def _extract_state_dict(payload: dict[str, Any], *, prefix_backbone: bool = False) -> dict[str, Any]:
+def extract_state_dict(payload: dict[str, Any], *, prefix_backbone: bool = False) -> dict[str, Any]:
     if "state_dict" in payload and isinstance(payload["state_dict"], dict):
         state_dict = dict(payload["state_dict"])
     else:
@@ -78,7 +78,7 @@ def _state_dict_mismatch_report(
     return missing_keys, unexpected_keys, shape_mismatches
 
 
-def _load_module_state_dict(
+def load_module_state_dict(
     module: nn.Module,
     source_state: dict[str, Any],
     *,
@@ -115,7 +115,7 @@ def _backbone_state_dict(source_state: dict[str, Any]) -> dict[str, Any]:
     return backbone_state or dict(source_state)
 
 
-def _validate_runtime_checkpoint_variant(
+def validate_runtime_checkpoint_variant(
     *,
     requested_variant: str,
     run_variant: str | None,
@@ -146,7 +146,7 @@ def _resolve_input_channels(depth_mode: str) -> int:
     raise ValueError(f"Unsupported GISEC depth_mode: {depth_mode}")
 
 
-def _build_gisec_model(args: argparse.Namespace) -> GISECModel:
+def build_gisec_model(args: argparse.Namespace) -> GISECModel:
     variant_spec = get_gisec_variant_spec(args.variant)
     depth_mode = str(getattr(args, "depth_mode", "") or variant_spec.depth_mode)
     input_channels = _resolve_input_channels(depth_mode)
@@ -176,7 +176,7 @@ def _build_gisec_model(args: argparse.Namespace) -> GISECModel:
     )
 
 
-def _configure_model_for_stage(model: nn.Module, args: argparse.Namespace) -> None:
+def configure_model_for_stage(model: nn.Module, args: argparse.Namespace) -> None:
     variant_spec = get_gisec_variant_spec(args.variant)
     if not variant_spec.use_local_refine:
         return
@@ -186,8 +186,8 @@ def _configure_model_for_stage(model: nn.Module, args: argparse.Namespace) -> No
     if not init_checkpoint.exists():
         raise FileNotFoundError(init_checkpoint)
     checkpoint_payload = torch.load(str(init_checkpoint), map_location="cpu", weights_only=True)
-    state_dict = _extract_state_dict(checkpoint_payload, prefix_backbone=True)
-    _load_module_state_dict(
+    state_dict = extract_state_dict(checkpoint_payload, prefix_backbone=True)
+    load_module_state_dict(
         model.backbone,
         _backbone_state_dict(state_dict),
         allow_partial=bool(getattr(args, "allow_partial_checkpoint_load", False)),
@@ -195,16 +195,16 @@ def _configure_model_for_stage(model: nn.Module, args: argparse.Namespace) -> No
     )
 
 
-def _checkpoint_payload(model: nn.Module, args: argparse.Namespace) -> dict[str, Any]:
+def checkpoint_payload(model: nn.Module, args: argparse.Namespace) -> dict[str, Any]:
     return {
         "state_dict": model.state_dict(),
         "variant": str(args.variant),
         "depth_mode": str(args.depth_mode),
-        "model": _model_payload(args),
+        "model": model_payload(args),
     }
 
 
-def _resume_payload(
+def resume_payload(
     *,
     model: nn.Module,
     optimizer: torch.optim.Optimizer,
@@ -216,7 +216,7 @@ def _resume_payload(
     running_step_time_total: float,
 ) -> dict[str, Any]:
     return {
-        **_checkpoint_payload(model, args),
+        **checkpoint_payload(model, args),
         "optimizer_state_dict": optimizer.state_dict(),
         "scaler_state_dict": scaler.state_dict(),
         "completed_epoch": int(completed_epoch),
@@ -226,7 +226,7 @@ def _resume_payload(
     }
 
 
-def _load_resume_payload(
+def load_resume_payload(
     *,
     model: nn.Module,
     optimizer: torch.optim.Optimizer,
@@ -237,16 +237,16 @@ def _load_resume_payload(
     if not resume_checkpoint.exists():
         raise FileNotFoundError(resume_checkpoint)
     payload = torch.load(str(resume_checkpoint), map_location="cpu", weights_only=True)
-    _validate_runtime_checkpoint_variant(
+    validate_runtime_checkpoint_variant(
         requested_variant=str(args.variant),
         run_variant=None,
         checkpoint_payload=payload,
         checkpoint_path=resume_checkpoint,
         context="resume",
     )
-    _load_module_state_dict(
+    load_module_state_dict(
         model,
-        _extract_state_dict(payload),
+        extract_state_dict(payload),
         allow_partial=False,
         context=f"resume checkpoint {resume_checkpoint}",
     )
@@ -262,13 +262,13 @@ def _load_resume_payload(
     )
 
 
-def _save_torch_payload(path: Path, payload: dict[str, Any]) -> None:
+def save_torch_payload(path: Path, payload: dict[str, Any]) -> None:
     tmp_path = path.with_suffix(path.suffix + ".tmp")
     torch.save(payload, tmp_path)
     os.replace(tmp_path, path)
 
 
-def _build_pixel_mask(pixel_values: torch.Tensor) -> torch.Tensor:
+def build_pixel_mask(pixel_values: torch.Tensor) -> torch.Tensor:
     return torch.ones(
         (int(pixel_values.shape[0]), int(pixel_values.shape[-2]), int(pixel_values.shape[-1])),
         dtype=torch.long,
@@ -276,7 +276,7 @@ def _build_pixel_mask(pixel_values: torch.Tensor) -> torch.Tensor:
     )
 
 
-def _run_backbone(
+def run_backbone(
     *,
     model: GISECModel,
     pixel_values: torch.Tensor,

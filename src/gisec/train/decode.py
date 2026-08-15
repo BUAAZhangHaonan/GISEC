@@ -16,10 +16,9 @@ from gisec.models.gisec_model import (
     mask_bbox,
     paste_mask_from_crop,
 )
-from gisec.datasets.reference_bank import ReferenceBankSource
-from gisec.models.gisec_model import prepare_reference_depth
+from gisec.datasets.reference_bank import ReferenceBankSource, prepare_reference_tensors
 from gisec.runtime import select_refinement_instances
-from gisec.train.graph import _build_local_graph_inputs, _connected_components, _merge_local_components
+from gisec.train.graph import build_local_graph_inputs, connected_components, merge_local_components
 
 
 def _upscale_mask_logits(mask_logits: torch.Tensor, *, image_shape: tuple[int, int]) -> torch.Tensor:
@@ -31,7 +30,7 @@ def _upscale_mask_logits(mask_logits: torch.Tensor, *, image_shape: tuple[int, i
     )[0]
 
 
-def _query_instances_from_outputs(
+def query_instances_from_outputs(
     *,
     class_logits: torch.Tensor,
     mask_logits: torch.Tensor,
@@ -78,7 +77,7 @@ def _mask_iou(pred_mask: torch.Tensor, gt_mask: torch.Tensor) -> float:
     return intersection / union
 
 
-def _match_query_predictions_to_gt(
+def match_query_predictions_to_gt(
     *,
     predictions: list[dict[str, Any]],
     gt_masks: torch.Tensor,
@@ -101,7 +100,7 @@ def _match_query_predictions_to_gt(
     return matches
 
 
-def _scale_bbox(
+def scale_bbox(
     bbox: tuple[int, int, int, int],
     *,
     source_shape: tuple[int, int],
@@ -121,13 +120,13 @@ def _scale_bbox(
     return (tx, ty, tw, th)
 
 
-def _project_local_features_float32(model: GISECModel, feature_map: torch.Tensor) -> torch.Tensor:
+def project_local_features_float32(model: GISECModel, feature_map: torch.Tensor) -> torch.Tensor:
     with autocast(device_type=feature_map.device.type, enabled=False):
         projected = model.feature_proj(feature_map.float())
     return projected
 
 
-def _run_local_refiner_float32(
+def run_local_refiner_float32(
     *,
     model: GISECModel,
     query_crop: torch.Tensor,
@@ -149,38 +148,7 @@ def _run_local_refiner_float32(
     return refined
 
 
-def _prepare_reference_tensors(
-    *,
-    sample: dict[str, Any],
-    source: ReferenceBankSource | None,
-    crop_size: int,
-    device: torch.device,
-) -> tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]:
-    if source is None:
-        return None, None, None
-    bank = source.load_for_query(str(sample["file_name"]))
-    return _reference_tensors_from_bank(bank=bank, crop_size=crop_size, device=device)
-
-
-def _reference_tensors_from_bank(
-    *,
-    bank: Any,
-    crop_size: int,
-    device: torch.device,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    normalized_ref_depth = prepare_reference_depth(
-        depth=bank.depths.float(),
-        mask=bank.masks.float(),
-    )
-    return (
-        F.interpolate(bank.images.float().to(device), size=(crop_size, crop_size), mode="bilinear", align_corners=False).unsqueeze(0),
-        F.interpolate(normalized_ref_depth.to(device), size=(crop_size, crop_size), mode="bilinear", align_corners=False).unsqueeze(0),
-        F.interpolate(bank.masks.float().to(device), size=(crop_size, crop_size), mode="nearest").unsqueeze(0),
-    )
-
-
-
-def _apply_local_rescue(
+def apply_local_rescue(
     *,
     model: GISECModel,
     variant_name: str,
@@ -213,12 +181,12 @@ def _apply_local_rescue(
     refinement_invocations = 0
     graph_invocations = 0
     updated = list(predictions)
-    projected_feature_map = _project_local_features_float32(model, feature_map.unsqueeze(0))[0]
+    projected_feature_map = project_local_features_float32(model, feature_map.unsqueeze(0))[0]
     reference_rgb: torch.Tensor | None = None
     reference_depth: torch.Tensor | None = None
     reference_mask: torch.Tensor | None = None
     if variant_spec.use_reference_rescue:
-        reference_rgb, reference_depth, reference_mask = _prepare_reference_tensors(
+        reference_rgb, reference_depth, reference_mask = prepare_reference_tensors(
             sample=sample,
             source=reference_source,
             crop_size=int(crop_size),
@@ -231,11 +199,11 @@ def _apply_local_rescue(
             image_shape=image_shape,
             pad=int(crop_pad),
         )
-        feature_bbox = _scale_bbox(bbox, source_shape=image_shape, target_shape=feature_shape)
+        feature_bbox = scale_bbox(bbox, source_shape=image_shape, target_shape=feature_shape)
         query_crop = crop_and_resize(full_input, bbox=bbox, output_size=int(crop_size), mode="bilinear").unsqueeze(0)
         coarse_mask_crop = crop_and_resize(row["mask_probs"].unsqueeze(0), bbox=bbox, output_size=int(crop_size), mode="bilinear").unsqueeze(0)
         feature_crop = crop_and_resize(projected_feature_map, bbox=feature_bbox, output_size=int(crop_size), mode="bilinear").unsqueeze(0)
-        refined = _run_local_refiner_float32(
+        refined = run_local_refiner_float32(
             model=model,
             query_crop=query_crop,
             coarse_mask_prob=coarse_mask_crop,
@@ -248,9 +216,9 @@ def _apply_local_rescue(
         refined_binary = (refined_prob >= float(mask_threshold)).float()
         refinement_invocations += 1
         if variant_spec.use_graph_rescue and model.graph_head is not None:
-            component_map = _connected_components(refined_binary.detach().cpu().numpy())
+            component_map = connected_components(refined_binary.detach().cpu().numpy())
             if int(component_map.max()) > 1:
-                node_features, edge_index, edge_features = _build_local_graph_inputs(
+                node_features, edge_index, edge_features = build_local_graph_inputs(
                     component_map=component_map,
                     feature_crop=refined["crop_features"][0],
                     mask_prob_crop=refined_prob,
@@ -263,7 +231,7 @@ def _apply_local_rescue(
                         edge_features=edge_features,
                     )
                     edge_scores = torch.sigmoid(edge_logits.detach().cpu())
-                    merged = _merge_local_components(
+                    merged = merge_local_components(
                         component_map=component_map,
                         edge_index=edge_index.detach().cpu(),
                         edge_scores=edge_scores,

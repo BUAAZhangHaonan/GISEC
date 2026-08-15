@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 from gisec.datasets.baseline_instance_dataset import BaselineInstanceDataset
 
 
-def _build_loader(
+def build_loader(
     *,
     dataset_root: str,
     split: str,
@@ -41,7 +41,7 @@ def _build_loader(
 
 
 
-def _build_label_targets(
+def build_label_targets(
     samples: list[dict[str, Any]],
     *,
     device: torch.device,

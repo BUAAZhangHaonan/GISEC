@@ -19,21 +19,21 @@ from gisec.eval.coco_export import masks_to_coco_results
 from gisec.eval.export import build_run_summary_payload
 from gisec.metrics import compute_split_merge_counts
 from gisec.models.gisec_model import GISECModel, prepare_gisec_input_batch
-from gisec.train.data import _build_loader
-from gisec.train.decode import _apply_local_rescue, _query_instances_from_outputs
+from gisec.train.data import build_loader
+from gisec.train.decode import apply_local_rescue, query_instances_from_outputs
 from gisec.train.model_builder import (
-    _build_gisec_model,
-    _build_pixel_mask,
-    _extract_state_dict,
-    _load_module_state_dict,
-    _resolve_checkpoint_path,
-    _run_backbone,
-    _validate_runtime_checkpoint_variant,
+    build_gisec_model,
+    build_pixel_mask,
+    extract_state_dict,
+    load_module_state_dict,
+    resolve_checkpoint_path,
+    run_backbone,
+    validate_runtime_checkpoint_variant,
 )
-from gisec.train.args import _model_payload
+from gisec.train.args import model_payload
 
 
-def _gisec_benchmark_payload(variant_name: str, depth_mode: str) -> dict[str, Any]:
+def gisec_benchmark_payload(variant_name: str, depth_mode: str) -> dict[str, Any]:
     refine_mode = "none"
     if variant_name.endswith("_refine"):
         refine_mode = "local_refine"
@@ -52,7 +52,7 @@ def _gisec_benchmark_payload(variant_name: str, depth_mode: str) -> dict[str, An
     }
 
 
-def _evaluate_gisec(
+def evaluate_gisec(
     *,
     model: GISECModel,
     loader: DataLoader,
@@ -97,9 +97,9 @@ def _evaluate_gisec(
                     device, non_blocking=non_blocking
                 )
             pixel_values = prepare_gisec_input_batch(images=images, depths=depths, depth_mode=depth_mode)
-            pixel_mask = _build_pixel_mask(pixel_values)
+            pixel_mask = build_pixel_mask(pixel_values)
             start = time.perf_counter()
-            outputs = _run_backbone(model=model, pixel_values=pixel_values, pixel_mask=pixel_mask)
+            outputs = run_backbone(model=model, pixel_values=pixel_values, pixel_mask=pixel_mask)
             latencies_ms.append((time.perf_counter() - start) * 1000.0)
             for sample_offset, sample in enumerate(samples):
                 image_shape = (int(sample["image"].shape[-2]), int(sample["image"].shape[-1]))
@@ -124,7 +124,7 @@ def _evaluate_gisec(
                     refine_count = 0
                     graph_count = 0
                 else:
-                    predictions = _query_instances_from_outputs(
+                    predictions = query_instances_from_outputs(
                         class_logits=outputs.class_queries_logits[sample_offset],
                         mask_logits=outputs.masks_queries_logits[sample_offset],
                         image_shape=image_shape,
@@ -132,7 +132,7 @@ def _evaluate_gisec(
                         mask_threshold=float(mask_threshold),
                         component_class_index=int(component_class_index),
                     )
-                    predictions, refine_count, graph_count = _apply_local_rescue(
+                    predictions, refine_count, graph_count = apply_local_rescue(
                         model=model,
                         variant_name=variant_name,
                         sample=sample,
@@ -198,28 +198,28 @@ def _evaluate_gisec(
 
 def _run_checkpoint_inference(args: argparse.Namespace, *, save_raw: bool) -> None:
     if bool(args.dry_run):
-        print(json.dumps(_model_payload(args), ensure_ascii=False))
+        print(json.dumps(model_payload(args), ensure_ascii=False))
         return
     variant_spec = get_gisec_variant_spec(args.variant)
     device = build_device(str(args.device))
     output_dir = Path(args.output_dir).resolve()
     checkpoint_dir_arg = getattr(args, "checkpoint_dir", "")
     checkpoint_dir = output_dir if checkpoint_dir_arg in ("", None) else Path(str(checkpoint_dir_arg)).resolve()
-    checkpoint_path = _resolve_checkpoint_path(checkpoint_dir, str(args.checkpoint))
+    checkpoint_path = resolve_checkpoint_path(checkpoint_dir, str(args.checkpoint))
     if checkpoint_path.parent.resolve() == output_dir.resolve():
         raise ValueError("eval/infer requires --checkpoint-dir to differ from --output-dir")
     output_dir.mkdir(parents=True, exist_ok=True)
-    model = _build_gisec_model(args).to(device)
+    model = build_gisec_model(args).to(device)
     checkpoint_payload = torch.load(str(checkpoint_path), map_location=device, weights_only=True)
-    _validate_runtime_checkpoint_variant(
+    validate_runtime_checkpoint_variant(
         requested_variant=variant_spec.name,
         run_variant=getattr(args, "_run_metadata_variant", None),
         checkpoint_payload=checkpoint_payload,
         checkpoint_path=str(checkpoint_path),
         context="eval" if not save_raw else "infer",
     )
-    state_dict = _extract_state_dict(checkpoint_payload, prefix_backbone=True)
-    _load_module_state_dict(
+    state_dict = extract_state_dict(checkpoint_payload, prefix_backbone=True)
+    load_module_state_dict(
         model,
         state_dict,
         allow_partial=bool(getattr(args, "allow_partial_checkpoint_load", False)),
@@ -233,7 +233,7 @@ def _run_checkpoint_inference(args: argparse.Namespace, *, save_raw: bool) -> No
             max_views=int(args.reference_max_views),
             view_sampler=str(args.reference_view_sampler),
         )
-    loader = _build_loader(
+    loader = build_loader(
         dataset_root=str(args.dataset_root),
         split=str(args.split),
         image_size=int(args.image_size),
@@ -245,7 +245,7 @@ def _run_checkpoint_inference(args: argparse.Namespace, *, save_raw: bool) -> No
     )
     component_class_index = int(loader.dataset.component_category_id)
     ann_file = Path(args.dataset_root).resolve() / "annotations" / f"instances_{args.split}.json"
-    metrics, speed = _evaluate_gisec(
+    metrics, speed = evaluate_gisec(
         model=model,
         loader=loader,
         device=device,
@@ -272,7 +272,7 @@ def _run_checkpoint_inference(args: argparse.Namespace, *, save_raw: bool) -> No
         inference_speed=speed,
         checkpoint=checkpoint_path,
         dataset_root=str(Path(args.dataset_root).resolve()),
-        benchmark=_gisec_benchmark_payload(variant_spec.name, str(args.depth_mode)),
+        benchmark=gisec_benchmark_payload(variant_spec.name, str(args.depth_mode)),
         decode_config={
             "score_threshold": float(args.score_threshold),
             "mask_threshold": float(args.mask_threshold),
