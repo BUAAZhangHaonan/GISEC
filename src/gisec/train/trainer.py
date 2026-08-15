@@ -149,7 +149,6 @@ def train_gisec(args: argparse.Namespace) -> None:
         reference_source = ReferenceBankSource(
             root=Path(str(args.reference_root)).resolve(),
             image_size=int(args.crop_size),
-            contract_mode="compat",
             max_views=int(args.reference_max_views),
             view_sampler=str(args.reference_view_sampler),
         )

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 import cv2
 import numpy as np
@@ -25,52 +25,9 @@ def _load_depth_array(path: Path) -> np.ndarray:
     return depth
 
 
-def _mask_to_bbox_aspect(mask: np.ndarray) -> float:
-    ys, xs = np.nonzero(mask > 0)
-    if len(xs) == 0 or len(ys) == 0:
-        return 1.0
-    width = max(1, int(xs.max()) - int(xs.min()) + 1)
-    height = max(1, int(ys.max()) - int(ys.min()) + 1)
-    return float(width) / float(height)
-
-
-def _quantile_stats(values: list[float], prefix: str) -> dict[str, float]:
-    array = np.asarray(values, dtype=np.float32)
-    if array.size == 0:
-        return {
-            f"{prefix}_q10": 0.0,
-            f"{prefix}_q50": 0.0,
-            f"{prefix}_q90": 0.0,
-        }
-    return {
-        f"{prefix}_q10": float(np.quantile(array, 0.10)),
-        f"{prefix}_q50": float(np.quantile(array, 0.50)),
-        f"{prefix}_q90": float(np.quantile(array, 0.90)),
-    }
-
-
-@dataclass(frozen=True)
-class ReferenceBankManifest:
-    root: Path
-    contract_mode: str
-    view_count: int
-    has_camera: bool
-    has_manifest: bool
-    has_shape_stats: bool
-    has_qa_report: bool
-    has_preview_contact_sheet: bool
-    qa_passed: bool
-    qa_errors: tuple[str, ...]
-    missing_items: tuple[str, ...]
-
-
 @dataclass
 class ReferenceBank:
     root: Path
-    view_ids: List[str]
-    shape_stats: Dict[str, float]
-    meta: Dict[str, Any]
-    manifest: ReferenceBankManifest
     image_size: int
     view_records: list["ReferenceViewRecord"]
     _images: torch.Tensor | None = field(default=None, init=False, repr=False)
@@ -134,7 +91,6 @@ class ReferenceViewRecord:
 class ReferenceBankSource:
     root: Path
     image_size: int
-    contract_mode: str = "compat"
     max_views: int = 0
     view_sampler: str = "all"
 
@@ -179,7 +135,6 @@ class ReferenceBankSource:
             self._bank_cache[resolved_root] = load_reference_bank(
                 resolved_root,
                 image_size=self.image_size,
-                contract_mode=self.contract_mode,
                 max_views=self.max_views,
                 view_sampler=self.view_sampler,
             )
@@ -191,7 +146,6 @@ class ReferenceBankSource:
             self._bank_cache[resolved_root] = load_reference_bank(
                 resolved_root,
                 image_size=self.image_size,
-                contract_mode=self.contract_mode,
                 max_views=self.max_views,
                 view_sampler=self.view_sampler,
             )
@@ -213,63 +167,27 @@ def extract_reference_part_key(file_name: str, available_parts: list[str]) -> st
     raise KeyError(f"Could not resolve part key from reference file name: {file_name}")
 
 
-def _validate_contract(root: Path) -> ReferenceBankManifest:
-    rgb_dir = root / "rgb"
-    depth_dir = root / "depth"
-    mask_dir = root / "mask"
-    camera_dir = root / "camera"
-    meta_dir = root / "meta"
-    manifest_path = meta_dir / "manifest.json"
-    qa_report_path = meta_dir / "qa_report.json"
-    shape_stats_path = meta_dir / "shape_stats.json"
-    preview_path = meta_dir / "preview_contact_sheet.png"
-
-    missing = []
-    for path in [rgb_dir, depth_dir, mask_dir]:
-        if not path.exists():
-            missing.append(path.relative_to(root).as_posix())
-    if missing:
-        raise FileNotFoundError(
-            f"Reference directory not found: {missing[0]}")
-
-    qa_payload = _read_json(qa_report_path) if qa_report_path.exists() else {}
-    qa_errors = tuple(str(item) for item in qa_payload.get("errors", []))
-    qa_passed = bool(qa_payload.get("qa_passed", not qa_errors))
-
-    return ReferenceBankManifest(
-        root=root,
-        contract_mode="compat",
-        view_count=0,
-        has_camera=camera_dir.exists(),
-        has_manifest=manifest_path.exists(),
-        has_shape_stats=shape_stats_path.exists(),
-        has_qa_report=qa_report_path.exists(),
-        has_preview_contact_sheet=preview_path.exists(),
-        qa_passed=qa_passed,
-        qa_errors=qa_errors,
-        missing_items=tuple(missing),
-    )
-
-
 def load_reference_bank(
     reference_root: str | Path,
     image_size: int,
-    contract_mode: str = "compat",
     max_views: int = 0,
     view_sampler: str = "all",
 ) -> ReferenceBank:
-    if contract_mode != "compat":
-        raise ValueError(f"Unsupported contract_mode: {contract_mode}")
     if view_sampler not in {"all", "uniform", "pose_farthest"}:
         raise ValueError(f"Unsupported view_sampler: {view_sampler}")
 
     root = Path(reference_root).resolve()
-    manifest = _validate_contract(root)
     rgb_dir = root / "rgb"
     depth_dir = root / "depth"
     mask_dir = root / "mask"
-    meta_dir = root / "meta"
-    camera_dir = root / "camera"
+
+    missing = [
+        path.relative_to(root).as_posix()
+        for path in [rgb_dir, depth_dir, mask_dir]
+        if not path.exists()
+    ]
+    if missing:
+        raise FileNotFoundError(f"Reference directory not found: {missing[0]}")
 
     rgb_files = {p.stem: p for p in sorted(rgb_dir.glob("*")) if p.is_file()}
     depth_files = {p.stem: p for p in sorted(
@@ -287,73 +205,18 @@ def load_reference_bank(
     )
 
     view_records: list[ReferenceViewRecord] = []
-    area_ratios, aspect_ratios = [], []
     for view_id in view_ids:
-        rgb_path = rgb_files[view_id]
-        depth_path = depth_files[view_id]
-        mask_path = mask_files[view_id]
-        if not rgb_path.exists():
-            raise FileNotFoundError(rgb_path)
-        if not depth_path.exists():
-            raise FileNotFoundError(depth_path)
-        mask = cv2.imread(str(mask_files[view_id]), cv2.IMREAD_GRAYSCALE)
-        if mask is None:
-            raise FileNotFoundError(mask_files[view_id])
-        mask = (mask > 0).astype(np.uint8)
-        mask = _resize_mask(mask, image_size).astype(np.uint8)
         view_records.append(
             ReferenceViewRecord(
                 view_id=view_id,
-                rgb_path=rgb_path,
-                depth_path=depth_path,
-                mask_path=mask_path,
+                rgb_path=rgb_files[view_id],
+                depth_path=depth_files[view_id],
+                mask_path=mask_files[view_id],
             )
         )
-        area_ratios.append(float(mask.mean()))
-        aspect_ratios.append(_mask_to_bbox_aspect(mask))
-
-    shape_stats_path = meta_dir / "shape_stats.json"
-    if shape_stats_path.exists():
-        shape_stats = _read_json(shape_stats_path)
-    else:
-        shape_stats = {}
-    shape_stats.setdefault("mean_area_ratio", float(np.mean(area_ratios)))
-    shape_stats.setdefault("mean_aspect_ratio", float(np.mean(aspect_ratios)))
-    shape_stats.setdefault("mean_bbox_aspect_ratio",
-                           float(np.mean(aspect_ratios)))
-    for key, value in _quantile_stats(area_ratios, "area").items():
-        shape_stats.setdefault(key, value)
-    for key, value in _quantile_stats(aspect_ratios, "aspect").items():
-        shape_stats.setdefault(key, value)
-
-    meta: Dict[str, Any] = {}
-    manifest_path = meta_dir / "manifest.json"
-    if manifest_path.exists():
-        meta = _read_json(manifest_path)
-
-    manifest = ReferenceBankManifest(
-        root=root,
-        contract_mode=contract_mode,
-        view_count=len(view_ids),
-        has_camera=camera_dir.exists(),
-        has_manifest=manifest_path.exists(),
-        has_shape_stats=shape_stats_path.exists(),
-        has_qa_report=(meta_dir / "qa_report.json").exists(),
-        has_preview_contact_sheet=(
-            meta_dir / "preview_contact_sheet.png").exists(),
-        qa_passed=manifest.qa_passed,
-        qa_errors=manifest.qa_errors,
-        missing_items=manifest.missing_items,
-    )
 
     return ReferenceBank(
         root=root,
-        view_ids=view_ids,
-        shape_stats={
-            key: float(value) for key, value in shape_stats.items() if isinstance(value, (int, float))
-        },
-        meta=meta,
-        manifest=manifest,
         image_size=int(image_size),
         view_records=view_records,
     )

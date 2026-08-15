@@ -97,7 +97,7 @@ Evaluation and inference reuse the same checkpoint loading path and produce:
 
 ## Reference Bank Contract
 
-Reference rescue expects a prepared bank root that contains one directory per part, each with `rgb/`, `depth/`, `mask/`, `camera/`, and `meta/` subdirectories, plus a `manifest.json` at the root. The loader checks the bank metadata before it allows the bank to be used, so a missing bank file fails early instead of producing a silent fallback.
+Reference rescue expects a prepared bank root that contains one directory per part, each with `rgb/`, `depth/`, and `mask/` subdirectories, plus an optional `camera/` directory of per-view JSON poses used for pose-farthest view sampling. The loader checks that the `rgb/`, `depth/`, and `mask/` directories exist before it allows the bank to be used, so a missing bank directory fails early instead of producing a silent fallback.
 
 ## Connected Components
 
