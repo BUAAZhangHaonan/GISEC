@@ -17,7 +17,7 @@ from gisec.config.variants import get_gisec_variant_spec
 from gisec.engine.runtime import build_device, write_json
 from gisec.eval.export import build_run_summary_payload
 from gisec.models.gisec_model import prepare_gisec_input_batch
-from gisec.train.args import MODEL_DEFAULTS, _model_payload
+from gisec.train.args import _model_payload
 from gisec.train.data import _build_label_targets, _build_loader
 from gisec.train.evaluate import _evaluate_gisec, _gisec_benchmark_payload
 from gisec.train.losses import _train_local_modules_with_metrics
@@ -173,10 +173,10 @@ def train_gisec(args: argparse.Namespace) -> None:
     completed_epoch = 0
     eval_interval = max(int(getattr(args, "eval_every_epochs", 1)), 0)
     resume_save_every_epochs = max(
-        int(getattr(args, "resume_save_every_epochs", MODEL_DEFAULTS["resume_save_every_epochs"])),
+        int(getattr(args, "resume_save_every_epochs", 1)),
         1,
     )
-    log_every_steps = max(int(getattr(args, "log_every_steps", MODEL_DEFAULTS["log_every_steps"])), 1)
+    log_every_steps = max(int(getattr(args, "log_every_steps", 50)), 1)
     epoch_steps_total = len(train_loader)
     planned_total_steps = int(epoch_steps_total * int(args.epochs))
     if int(args.max_train_steps) > 0:

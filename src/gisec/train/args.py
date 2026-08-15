@@ -5,91 +5,12 @@ import json
 from pathlib import Path
 from typing import Any
 
-from gisec.config.io import extract_argparse_defaults, load_yaml_config, merge_config_dicts
 from gisec.config.variants import get_gisec_variant_spec, gisec_variant_names
 
 
-MODEL_DEFAULTS = {
-    "variant": "base_rgb_1024",
-    "image_size": 1024,
-    "batch": 1,
-    "num_workers": 4,
-    "device": "cuda",
-    "epochs": 20,
-    "learning_rate": 1.0e-4,
-    "weight_decay": 1.0e-4,
-    "score_threshold": 0.5,
-    "mask_threshold": 0.5,
-    "pretrained_model_name": "facebook/mask2former-swin-tiny-coco-instance",
-    "hidden_dim": 64,
-    "feature_size": 64,
-    "mask_feature_size": 64,
-    "encoder_layers": 2,
-    "decoder_layers": 2,
-    "num_attention_heads": 4,
-    "num_queries": 16,
-    "train_num_points": 512,
-    "refiner_hidden_dim": 32,
-    "graph_hidden_dim": 64,
-    "crop_size": 256,
-    "crop_pad": 16,
-    "boundary_band_width": 4,
-    "max_train_steps": 0,
-    "max_val_images": 0,
-    "eval_every_epochs": 1,
-    "log_every_steps": 50,
-    "reference_max_views": 16,
-    "reference_view_sampler": "pose_farthest",
-    "reference_root": "",
-    "init_checkpoint": "",
-    "resume_checkpoint": "",
-    "checkpoint": "",
-    "split": "val",
-    "dry_run": False,
-    "resume_save_every_epochs": 1,
-}
-
 GISEC_DEPTH_MODES = ("rgb", "rgbd_concat", "rgbd_concat_valid_mask")
-
-def _config_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--config", action="append", default=[])
-    return parser
-
-
-def _load_parser_defaults(argv: list[str] | None, *, mode: str) -> dict[str, Any]:
-    config_args, _ = _config_parser().parse_known_args(argv)
-    config_paths = list(getattr(config_args, "config", []) or [])
-    if not config_paths:
-        return {}
-    config = merge_config_dicts(load_yaml_config(path) for path in config_paths)
-    defaults = extract_argparse_defaults(config, mode=mode)
-    for key in [
-        "variant",
-        "score_threshold",
-        "mask_threshold",
-        "pretrained_model_name",
-        "hidden_dim",
-        "feature_size",
-        "mask_feature_size",
-        "encoder_layers",
-        "decoder_layers",
-        "num_attention_heads",
-        "num_queries",
-        "train_num_points",
-        "depth_mode",
-        "refiner_hidden_dim",
-        "graph_hidden_dim",
-        "crop_size",
-        "crop_pad",
-        "boundary_band_width",
-        "reference_max_views",
-        "reference_view_sampler",
-    ]:
-        model_key = f"model_{key}"
-        if model_key in defaults and key not in defaults:
-            defaults[key] = defaults[model_key]
-    return defaults
+_DEFAULT_VARIANT = "base_rgb_1024"
+_DEFAULT_PRETRAINED_MODEL = "facebook/mask2former-swin-tiny-coco-instance"
 
 
 def _existing(path_str: str | None) -> Path | None:
@@ -128,15 +49,6 @@ def explicit_cli_variant(argv: list[str]) -> str | None:
     return None if variant in {None, ""} else str(variant)
 
 
-def _config_variant(argv: list[str]) -> str | None:
-    config_paths = _flag_values(argv, "--config")
-    if not config_paths:
-        return None
-    merged = merge_config_dicts(load_yaml_config(Path(path)) for path in config_paths)
-    config_variant = merged.get("model", {}).get("variant", "")
-    return None if config_variant in {None, ""} else str(config_variant)
-
-
 def resolve_run_directory_variant(argv: list[str]) -> str | None:
     checkpoint_path = None
     output_dir = None
@@ -164,13 +76,10 @@ def _resolved_gisec_variant_default(argv: list[str] | None) -> str:
     cli_variant = explicit_cli_variant(list(argv or []))
     if cli_variant in set(gisec_variant_names()):
         return str(cli_variant)
-    config_variant = _config_variant(list(argv or []))
-    if config_variant in set(gisec_variant_names()):
-        return str(config_variant)
     run_variant = resolve_run_directory_variant(list(argv or []))
     if run_variant in set(gisec_variant_names()):
         return str(run_variant)
-    return str(MODEL_DEFAULTS["variant"])
+    return _DEFAULT_VARIANT
 
 
 def _validate_variant_source_consistency(
@@ -198,8 +107,7 @@ def _annotate_variant_sources(args: argparse.Namespace, argv: list[str] | None) 
 
 
 def _common_parser(*, mode: str, argv: list[str] | None) -> argparse.ArgumentParser:
-    defaults = _load_parser_defaults(argv, mode=mode)
-    parser = argparse.ArgumentParser(parents=[_config_parser()])
+    parser = argparse.ArgumentParser()
     parser.add_argument("--dataset-root")
     parser.add_argument("--output-dir")
     parser.add_argument("--reference-root", default="")
@@ -217,7 +125,7 @@ def _common_parser(*, mode: str, argv: list[str] | None) -> argparse.ArgumentPar
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--score-threshold", type=float, default=0.5)
     parser.add_argument("--mask-threshold", type=float, default=0.5)
-    parser.add_argument("--pretrained-model-name", type=str, default=MODEL_DEFAULTS["pretrained_model_name"])
+    parser.add_argument("--pretrained-model-name", type=str, default=_DEFAULT_PRETRAINED_MODEL)
     parser.add_argument("--hidden-dim", type=int, default=64)
     parser.add_argument("--feature-size", type=int, default=64)
     parser.add_argument("--mask-feature-size", type=int, default=64)
@@ -246,13 +154,12 @@ def _common_parser(*, mode: str, argv: list[str] | None) -> argparse.ArgumentPar
         parser.add_argument("--max-train-steps", type=int, default=0)
         parser.add_argument("--max-val-images", type=int, default=0)
         parser.add_argument("--eval-every-epochs", type=int, default=1)
-        parser.add_argument("--log-every-steps", type=int, default=int(MODEL_DEFAULTS["log_every_steps"]))
-        parser.add_argument("--resume-save-every-epochs", type=int, default=int(MODEL_DEFAULTS["resume_save_every_epochs"]))
+        parser.add_argument("--log-every-steps", type=int, default=50)
+        parser.add_argument("--resume-save-every-epochs", type=int, default=1)
     else:
         parser.add_argument("--checkpoint", type=str, default="")
         parser.add_argument("--split", choices=["train", "val"], default="val")
         parser.add_argument("--max-images", type=int, default=0)
-    parser.set_defaults(**defaults)
     return parser
 
 
@@ -351,12 +258,11 @@ def _model_payload(args: argparse.Namespace) -> dict[str, Any]:
         "max_val_images": int(getattr(args, "max_val_images", 0)),
         "max_images": int(getattr(args, "max_images", 0)),
         "epochs": int(getattr(args, "epochs", 0)),
-        "log_every_steps": int(getattr(args, "log_every_steps", MODEL_DEFAULTS["log_every_steps"])),
+        "log_every_steps": int(getattr(args, "log_every_steps", 50)),
         "learning_rate": float(getattr(args, "learning_rate", 0.0)),
         "weight_decay": float(getattr(args, "weight_decay", 0.0)),
         "eval_every_epochs": int(getattr(args, "eval_every_epochs", 1)),
         "allow_partial_checkpoint_load": bool(getattr(args, "allow_partial_checkpoint_load", False)),
-        "resume_save_every_epochs": int(getattr(args, "resume_save_every_epochs", MODEL_DEFAULTS["resume_save_every_epochs"])),
+        "resume_save_every_epochs": int(getattr(args, "resume_save_every_epochs", 1)),
         "seed": int(getattr(args, "seed", 42)),
     }
-

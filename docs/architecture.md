@@ -75,13 +75,7 @@ The dataset contract expects:
 
 ## Configuration System
 
-Configuration is layered YAML.
-
-- `configs/data/*.yaml` holds the dataset root and common loader settings (`ecc_20260318_1k_1566.yaml` for the small set, `ecc_20260318_1k_32254.yaml` for the main set).
-- `configs/model/*.yaml` holds the staged model variants and their model-specific switches.
-- `configs/reference/reference_20260318_1k_13440.yaml` holds the reference bank root and reference loader settings.
-
-The CLI accepts repeated `--config` arguments. Later config files override earlier ones, and explicit CLI flags override both. Loss weights and the training schedule are CLI parameters.
+All configuration is CLI flags. The model variant is selected with `--variant` from the registry in `src/gisec/config/variants.py`; dataset and reference bank locations come from `--dataset-root` and `--reference-root`. Loss weights and the training schedule are CLI parameters.
 
 ## Runtime Artifacts
 

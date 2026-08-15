@@ -63,11 +63,6 @@ runner_log "${MODE}" "${RUN_LOG}" "[gisec] init_checkpoint=${INIT_CHECKPOINT}"
 runner_log "${MODE}" "${RUN_LOG}" "[gisec] depth_mode=${DEPTH_MODE}"
 
 for config_stem in "${CONFIGS[@]}"; do
-  config_path="${REPO_ROOT}/configs/model/${config_stem}.yaml"
-  if [[ ! -f "${config_path}" ]]; then
-    echo "Config not found: ${config_path}" >&2
-    exit 1
-  fi
   train_output_dir="${OUTPUT_ROOT}/train/${config_stem}"
   eval_output_dir="${OUTPUT_ROOT}/eval/${config_stem}"
   output_dir="${train_output_dir}"
@@ -75,10 +70,10 @@ for config_stem in "${CONFIGS[@]}"; do
     output_dir="${eval_output_dir}"
   fi
   mkdir -p "${output_dir}"
-  runner_log "${MODE}" "${RUN_LOG}" "[gisec] config=${config_stem}"
+  runner_log "${MODE}" "${RUN_LOG}" "[gisec] variant=${config_stem}"
   args=(
     "--dataset-root" "${DATASET_ROOT}"
-    "--config" "${config_path}"
+    "--variant" "${config_stem}"
     "--output-dir" "${output_dir}"
     "--device" "cuda"
   )

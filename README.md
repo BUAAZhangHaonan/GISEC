@@ -49,35 +49,29 @@ Datasets in this repo (all 1024x1024 rendered scenes):
 | `datasets/20260318_1K_1566` | small debugging dataset, 1566 scenes | 1261 train / 149 val / rest test |
 | `datasets/20260318_1K_13440` | reference bank, 48 part directories with `rgb/`, `depth/`, `mask/`, `camera/`, `meta/` views | used by the rescue stages |
 
-Config files pointing at these roots:
-
-- `configs/data/ecc_20260318_1k_32254.yaml`
-- `configs/data/ecc_20260318_1k_1566.yaml`
-- `configs/reference/reference_20260318_1k_13440.yaml`
-
 ## Train
 
 The `gisec` command is the public entrypoint:
 
 ```bash
 gisec train \
-  --config configs/data/ecc_20260318_1k_32254.yaml \
-  --config configs/model/base_rgb_1024.yaml \
+  --variant base_rgb_1024 \
+  --dataset-root datasets/20260318_1K_32254 \
   --output-dir output/gisec/base_rgb_1024
 ```
 
-For a reference or graph rescue variant, add the reference config and root:
+For a reference or graph rescue variant, add the reference root:
 
 ```bash
 gisec train \
-  --config configs/data/ecc_20260318_1k_1566.yaml \
-  --config configs/reference/reference_20260318_1k_13440.yaml \
-  --config configs/model/base_rgb_1024_refine_ref_graph.yaml \
+  --variant base_rgb_1024_refine_ref_graph \
+  --dataset-root datasets/20260318_1K_1566 \
   --reference-root datasets/20260318_1K_13440 \
+  --init-checkpoint output/gisec/base_rgb_1024/model_best.pth \
   --output-dir output/gisec/base_rgb_1024_refine_ref_graph
 ```
 
-CLI flags override YAML values. Multiple `--config` files are allowed; later files win on conflicts. Loss weights (`--boundary-loss-weight`, `--graph-loss-weight`, `--reference-match-loss-weight`) and training schedule (`--epochs`, `--learning-rate`) are CLI parameters.
+The variant is selected with `--variant`; the registered names are listed below. Loss weights (`--boundary-loss-weight`, `--graph-loss-weight`, `--reference-match-loss-weight`) and training schedule (`--epochs`, `--learning-rate`) are CLI parameters.
 
 To run a whole stage group with the shared runner:
 
@@ -92,8 +86,8 @@ The runner defaults to `datasets/20260318_1K_32254` for training data and `datas
 
 ```bash
 gisec eval \
-  --config configs/data/ecc_20260318_1k_1566.yaml \
-  --config configs/model/base_rgb_1024.yaml \
+  --variant base_rgb_1024 \
+  --dataset-root datasets/20260318_1K_1566 \
   --output-dir output/gisec/base_rgb_1024_eval \
   --checkpoint-dir output/gisec/base_rgb_1024 \
   --checkpoint model_best.pth
@@ -105,8 +99,8 @@ gisec eval \
 
 ```bash
 gisec infer \
-  --config configs/data/ecc_20260318_1k_1566.yaml \
-  --config configs/model/base_rgb_1024.yaml \
+  --variant base_rgb_1024 \
+  --dataset-root datasets/20260318_1K_1566 \
   --output-dir output/gisec/base_rgb_1024_infer \
   --checkpoint-dir output/gisec/base_rgb_1024 \
   --checkpoint model_best.pth
@@ -117,7 +111,7 @@ Inference uses the same checkpoint loading path as eval and writes raw predictio
 ## Project Structure
 
 - `src/gisec/cli/`: `gisec train` / `gisec eval` / `gisec infer` entrypoints
-- `src/gisec/config/`: config loading and variant definitions
+- `src/gisec/config/`: variant definitions
 - `src/gisec/datasets/`: `BaselineInstanceDataset`, COCO utilities, reference bank loader
 - `src/gisec/backbones/`: Mask2Former adapter
 - `src/gisec/models/`: the GISEC model and graph head
@@ -126,20 +120,13 @@ Inference uses the same checkpoint loading path as eval and writes raw predictio
 - `src/gisec/metrics.py`: split/merge instance-count metrics
 - `src/gisec/train/`: training orchestration, split into single-responsibility modules (`args`, `data`, `model_builder`, `graph`, `decode`, `losses`, `evaluate`, `trainer`)
 - `src/gisec/eval/`: COCO export, boundary metrics, run summaries
-- `configs/model/`, `configs/data/`, `configs/reference/`: YAML configs
 - `scripts/experiments/run_gisec.sh`: stage-group runner
 
 Training writes `model_best.pth`, `model_final.pth`, `resume_last.pth`, `run_summary.json`, `metrics_log.jsonl`, `wall_time_sec.txt`, `peak_memory_mb.txt`, and `params_trainable.txt` into the output directory. Eval and infer write `coco_instances_results.json`, `metrics.cocoeval.json`, `inference_speed.json`, and `run_summary.json`.
 
-## Config Reference
+## Model Variants
 
-| File group | What it controls |
-| --- | --- |
-| `configs/model/*.yaml` | Model variant, depth mode, refinement stage, reference rescue, graph rescue |
-| `configs/data/*.yaml` | Dataset root and common loader settings |
-| `configs/reference/reference_20260318_1k_13440.yaml` | Reference bank root and reference loader contract |
-
-The model variants are:
+Variants are registered in `src/gisec/config/variants.py` and selected with `--variant`. The model variants are:
 
 - `base_rgb_1024`, `base_rgb_1024_refine`, `base_rgb_1024_refine_ref`, `base_rgb_1024_refine_ref_graph`
 - `base_rgbd_1024`, `base_rgbd_1024_refine`, `base_rgbd_1024_refine_ref`, `base_rgbd_1024_refine_ref_graph`
