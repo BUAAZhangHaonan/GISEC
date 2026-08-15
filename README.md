@@ -108,7 +108,6 @@ Inference uses the same checkpoint loading path as eval and writes the raw predi
 - `configs/model/`: GISEC model variants
 - `configs/data/`: dataset roots and loader defaults
 - `configs/reference/`: reference bank settings
-- `docs/reference/`: background PDFs kept for reading
 
 ## Config Reference
 
