@@ -5,7 +5,6 @@ These YAML files only cover the standalone GISEC pipeline.
 - `configs/data/` stores dataset roots and annotation defaults.
 - `configs/model/` stores the named GISEC variants and their model settings.
 - `configs/reference/` stores reference-bank defaults for variants that need them.
-- `configs/baseline/` stores the Mask2Former smoke baseline config used by the GISEC code path.
 
 Later `--config` files override earlier ones, and direct CLI flags still win over YAML values.
 

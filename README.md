@@ -108,7 +108,6 @@ Inference uses the same checkpoint loading path as eval and writes the raw predi
 - `configs/model/`: GISEC model variants
 - `configs/data/`: dataset roots and loader defaults
 - `configs/reference/`: reference bank settings
-- `configs/baseline/`: smoke and baseline checks
 - `docs/reference/`: background PDFs kept for reading
 
 ## Config Reference
@@ -118,7 +117,6 @@ Inference uses the same checkpoint loading path as eval and writes the raw predi
 | `configs/model/*.yaml` | Model variant, depth mode, refinement stage, and whether reference rescue or graph rescue are enabled |
 | `configs/data/ecc_20260318_1k_1566.yaml` | Dataset root and common loader settings for the main ECC split |
 | `configs/reference/reference_20260318_1k_13440.yaml` | Reference bank root and reference loader contract settings |
-| `configs/baseline/mask2former_rgb_smoke.yaml` | Small smoke settings for a quick package check |
 
 The main model variants are:
 

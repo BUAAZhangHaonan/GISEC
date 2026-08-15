@@ -75,7 +75,6 @@ Configuration is layered YAML.
 - `configs/data/ecc_20260318_1k_1566.yaml` holds the dataset root and common loader settings.
 - `configs/model/*.yaml` holds the staged model variants and their model-specific switches.
 - `configs/reference/reference_20260318_1k_13440.yaml` holds the reference bank root and reference loader settings.
-- `configs/baseline/mask2former_rgb_smoke.yaml` is a compact smoke config for quick checks.
 
 The CLI accepts repeated `--config` arguments. Later config files override earlier ones, and explicit CLI flags override both.
 

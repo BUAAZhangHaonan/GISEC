@@ -1,5 +1,5 @@
 common:
-  reference_root: /home/k100/zhn/electronic-components-grasp-and-segment/gisec/datasets/20260318_1K_13440
+  reference_root: datasets/20260318_1K_13440
   contract_mode: compat
   reference_max_views: 16
   reference_view_sampler: pose_farthest
