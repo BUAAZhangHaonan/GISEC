@@ -281,7 +281,6 @@ def _common_parser(*, mode: str, argv: list[str] | None) -> argparse.ArgumentPar
         parser.add_argument("--eval-every-epochs", type=int, default=1)
         parser.add_argument("--log-every-steps", type=int, default=int(MODEL_DEFAULTS["log_every_steps"]))
         parser.add_argument("--resume-save-every-epochs", type=int, default=int(MODEL_DEFAULTS["resume_save_every_epochs"]))
-        parser.add_argument("--allow-unsafe-resume", action="store_true")
     else:
         parser.add_argument("--checkpoint", type=str, default="")
         parser.add_argument("--split", choices=["train", "val"], default="val")
@@ -410,87 +409,6 @@ def _checkpoint_payload(model: nn.Module, args: argparse.Namespace) -> dict[str,
     }
 
 
-def _serialize_train_args(args: argparse.Namespace) -> dict[str, Any]:
-    payload: dict[str, Any] = {}
-    for key, value in vars(args).items():
-        if str(key).startswith("_"):
-            continue
-        if isinstance(value, (str, int, float, bool)) or value is None:
-            payload[str(key)] = value
-        else:
-            payload[str(key)] = str(value)
-    return payload
-
-
-def _capture_rng_state() -> dict[str, Any]:
-    python_state = random.getstate()
-    numpy_state = np.random.get_state()
-    payload: dict[str, Any] = {
-        "python": [
-            int(python_state[0]),
-            [int(value) for value in python_state[1]],
-            python_state[2],
-        ],
-        "numpy": [
-            str(numpy_state[0]),
-            [int(value) for value in numpy_state[1].tolist()],
-            int(numpy_state[2]),
-            int(numpy_state[3]),
-            float(numpy_state[4]),
-        ],
-        "torch_cpu": [int(value) for value in torch.get_rng_state().tolist()],
-    }
-    if torch.cuda.is_available():
-        payload["torch_cuda"] = [
-            [int(value) for value in state.cpu().tolist()]
-            for state in torch.cuda.get_rng_state_all()
-        ]
-    return payload
-
-
-def _restore_rng_state(payload: dict[str, Any] | None) -> None:
-    if not isinstance(payload, dict):
-        return
-    python_state = payload.get("python")
-    if python_state is not None:
-        if isinstance(python_state, tuple):
-            random.setstate(python_state)
-        elif isinstance(python_state, list) and len(python_state) == 3:
-            random.setstate(
-                (
-                    int(python_state[0]),
-                    tuple(int(value) for value in python_state[1]),
-                    python_state[2],
-                )
-            )
-    numpy_state = payload.get("numpy")
-    if numpy_state is not None:
-        if isinstance(numpy_state, tuple):
-            np.random.set_state(numpy_state)
-        elif isinstance(numpy_state, list) and len(numpy_state) == 5:
-            np.random.set_state(
-                (
-                    str(numpy_state[0]),
-                    np.array(numpy_state[1], dtype=np.uint32),
-                    int(numpy_state[2]),
-                    int(numpy_state[3]),
-                    float(numpy_state[4]),
-                )
-            )
-    torch_cpu_state = payload.get("torch_cpu")
-    if torch_cpu_state is not None:
-        if isinstance(torch_cpu_state, torch.Tensor):
-            torch.set_rng_state(torch_cpu_state)
-        else:
-            torch.set_rng_state(torch.tensor(torch_cpu_state, dtype=torch.uint8))
-    torch_cuda_state = payload.get("torch_cuda")
-    if torch_cuda_state is not None and torch.cuda.is_available():
-        if torch_cuda_state and isinstance(torch_cuda_state[0], torch.Tensor):
-            torch.cuda.set_rng_state_all(torch_cuda_state)
-        else:
-            torch.cuda.set_rng_state_all(
-                [torch.tensor(state, dtype=torch.uint8) for state in torch_cuda_state]
-            )
 
 
 def _resume_payload(
@@ -512,14 +430,9 @@ def _resume_payload(
         "global_step": int(global_step),
         "best_metric": float(best_metric),
         "running_step_time_total": float(running_step_time_total),
-        "train_args": _serialize_train_args(args),
     }
 
 
-def _resume_metadata_payload() -> dict[str, Any]:
-    return {
-        "rng_state": _capture_rng_state(),
-    }
 
 
 def _load_resume_payload(
@@ -528,21 +441,11 @@ def _load_resume_payload(
     optimizer: torch.optim.Optimizer,
     scaler: GradScaler,
     args: argparse.Namespace,
-    allow_unsafe_resume: bool = False,
 ) -> tuple[int, int, float, float]:
     resume_checkpoint = Path(str(args.resume_checkpoint)).resolve()
     if not resume_checkpoint.exists():
         raise FileNotFoundError(resume_checkpoint)
-    _validate_resume_checkpoint_allowed(resume_checkpoint)
-    try:
-        payload = torch.load(str(resume_checkpoint), map_location="cpu", weights_only=True)
-    except Exception as safe_exc:
-        if not bool(allow_unsafe_resume):
-            raise RuntimeError(
-                f"resume checkpoint {resume_checkpoint} is not weights-only safe; "
-                "rerun with --allow-unsafe-resume for unsafe payloads"
-            ) from safe_exc
-        payload = torch.load(str(resume_checkpoint), map_location="cpu", weights_only=False)
+    payload = torch.load(str(resume_checkpoint), map_location="cpu", weights_only=True)
     _validate_checkpoint_variant(
         expected_variant=str(args.variant),
         checkpoint_payload=payload,
@@ -558,16 +461,12 @@ def _load_resume_payload(
     scaler_state = payload.get("scaler_state_dict")
     if isinstance(scaler_state, dict):
         scaler.load_state_dict(scaler_state)
-    metadata_path = _resume_metadata_path(resume_checkpoint)
-    metadata = _read_json(metadata_path) if metadata_path.exists() else None
-    _restore_rng_state(
-        metadata.get("rng_state") if isinstance(metadata, dict) and metadata.get("rng_state") is not None else payload.get("rng_state")
+    return (
+        int(payload.get("completed_epoch", 0)),
+        int(payload.get("global_step", 0)),
+        float(payload.get("best_metric", float("-inf"))),
+        float(payload.get("running_step_time_total", 0.0)),
     )
-    completed_epoch = int(payload.get("completed_epoch", 0))
-    global_step = int(payload.get("global_step", 0))
-    best_metric = float(payload.get("best_metric", float("-inf")))
-    running_step_time_total = float(payload.get("running_step_time_total", 0.0))
-    return completed_epoch, global_step, best_metric, running_step_time_total
 
 
 def _extract_state_dict(payload: dict[str, Any], *, prefix_backbone: bool = False) -> dict[str, Any]:
@@ -766,146 +665,16 @@ def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:
         handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
 
-class NonFiniteGisecTrainingError(RuntimeError):
-    pass
 
 
-def _read_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _scalar_is_finite(value: object) -> bool:
-    if isinstance(value, torch.Tensor):
-        detached = value.detach()
-        return bool(torch.isfinite(detached).all().item())
-    try:
-        return math.isfinite(float(value))
-    except (TypeError, ValueError):
-        return False
 
 
-def _non_finite_scalar_names(values: dict[str, object]) -> list[str]:
-    return [name for name, value in values.items() if not _scalar_is_finite(value)]
 
 
-def _collect_non_finite_paths(value: object, *, prefix: str) -> list[str]:
-    failures: list[str] = []
-    if isinstance(value, torch.Tensor):
-        if not bool(torch.isfinite(value.detach()).all().item()):
-            failures.append(prefix)
-        return failures
-    if isinstance(value, dict):
-        for key, item in value.items():
-            failures.extend(_collect_non_finite_paths(item, prefix=f"{prefix}.{key}"))
-        return failures
-    if isinstance(value, (list, tuple)):
-        for index, item in enumerate(value):
-            failures.extend(_collect_non_finite_paths(item, prefix=f"{prefix}[{index}]"))
-        return failures
-    if isinstance(value, (float, int)):
-        if not math.isfinite(float(value)):
-            failures.append(prefix)
-    return failures
 
 
-def _assert_finite_tensor(name: str, value: torch.Tensor | None) -> None:
-    if value is None:
-        return
-    if not bool(torch.isfinite(value.detach()).all().item()):
-        raise NonFiniteGisecTrainingError(f"Non-finite tensor detected in {name}")
-
-
-def _run_state_path(output_dir: Path) -> Path:
-    return output_dir / "run_state.json"
-
-
-def _write_run_state(
-    output_dir: Path,
-    *,
-    status: str,
-    allow_resume: bool,
-    failure_reason: str | None,
-    last_finite_step: int,
-    last_finite_checkpoint: str | None,
-) -> None:
-    write_json(
-        _run_state_path(output_dir),
-        {
-            "status": str(status),
-            "allow_resume": bool(allow_resume),
-            "failure_reason": None if failure_reason in (None, "") else str(failure_reason),
-            "last_finite_step": int(last_finite_step),
-            "last_finite_checkpoint": "" if not last_finite_checkpoint else str(last_finite_checkpoint),
-            "pid": int(os.getpid()),
-            "updated_at": float(time.time()),
-        },
-    )
-
-
-def _is_process_alive(pid: int) -> bool:
-    if int(pid) <= 0:
-        return False
-    try:
-        os.kill(int(pid), 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
-def _stage_lock_path(output_dir: Path) -> Path:
-    return output_dir.with_name(f"{output_dir.name}.train.lock")
-
-
-def _acquire_stage_lock(output_dir: Path) -> Path:
-    lock_path = _stage_lock_path(output_dir)
-    payload = {
-        "pid": int(os.getpid()),
-        "created_at": float(time.time()),
-        "output_dir": str(output_dir),
-    }
-    try:
-        fd = os.open(str(lock_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL)
-    except FileExistsError as exc:
-        existing_pid = None
-        try:
-            existing = _read_json(lock_path)
-            existing_pid = int(existing.get("pid", -1))
-        except Exception:
-            existing_pid = None
-        if existing_pid is not None and _is_process_alive(existing_pid):
-            raise RuntimeError(f"Training stage lock is already held by pid={existing_pid}: {lock_path}") from exc
-        raise RuntimeError(
-            "Training stage lock already exists and must be removed manually before retrying: "
-            f"{lock_path}"
-        ) from exc
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
-    return lock_path
-
-
-def _release_stage_lock(lock_path: Path | None) -> None:
-    if lock_path is None:
-        return
-    try:
-        lock_path.unlink()
-    except FileNotFoundError:
-        pass
-
-
-def _validate_resume_checkpoint_allowed(resume_checkpoint: Path) -> dict[str, Any]:
-    run_state_path = resume_checkpoint.resolve().parent / "run_state.json"
-    if not run_state_path.exists():
-        raise RuntimeError(
-            f"resume checkpoint requires sibling run_state.json with status=running and allow_resume=true: {resume_checkpoint}"
-        )
-    payload = _read_json(run_state_path)
-    if str(payload.get("status", "")) != "running" or not bool(payload.get("allow_resume", False)):
-        raise RuntimeError(
-            f"resume checkpoint is not resumable according to run_state.json: {resume_checkpoint}"
-        )
-    return payload
 
 
 def _save_torch_payload(path: Path, payload: dict[str, Any]) -> None:
@@ -914,30 +683,8 @@ def _save_torch_payload(path: Path, payload: dict[str, Any]) -> None:
     os.replace(tmp_path, path)
 
 
-def _save_json_payload(path: Path, payload: dict[str, Any]) -> None:
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    tmp_path.write_text(json.dumps(payload, ensure_ascii=False) + "\n", encoding="utf-8")
-    os.replace(tmp_path, path)
 
 
-def _resume_metadata_path(resume_checkpoint: Path) -> Path:
-    return resume_checkpoint.with_suffix(".meta.json")
-
-
-def _validate_resume_payload_finite(payload: dict[str, Any]) -> None:
-    failures = _collect_non_finite_paths(payload.get("state_dict", {}), prefix="state_dict")
-    failures.extend(_collect_non_finite_paths(payload.get("optimizer_state_dict", {}), prefix="optimizer_state_dict"))
-    failures.extend(_collect_non_finite_paths(payload.get("scaler_state_dict", {}), prefix="scaler_state_dict"))
-    if failures:
-        preview = ", ".join(failures[:8])
-        raise NonFiniteGisecTrainingError(f"Refusing to save non-finite resume payload: {preview}")
-
-
-def _validate_checkpoint_payload_finite(payload: dict[str, Any]) -> None:
-    failures = _collect_non_finite_paths(payload.get("state_dict", {}), prefix="state_dict")
-    if failures:
-        preview = ", ".join(failures[:8])
-        raise NonFiniteGisecTrainingError(f"Refusing to save non-finite checkpoint payload: {preview}")
 
 
 def _gisec_log_line(payload: dict[str, Any]) -> str:
@@ -995,7 +742,6 @@ def _emit_gisec_log(metrics_log_path: Path, payload: dict[str, Any]) -> None:
 
 def _backward_gisec_loss(
     *,
-    model: nn.Module | None = None,
     optimizer: torch.optim.Optimizer,
     scaler: GradScaler,
     loss: torch.Tensor,
@@ -1006,23 +752,8 @@ def _backward_gisec_loss(
     scaler.scale(loss).backward()
     if scaler.is_enabled():
         scaler.unscale_(optimizer)
-    if model is not None:
-        grad_failures = []
-        for name, param in model.named_parameters():
-            if param.grad is None:
-                continue
-            if not bool(torch.isfinite(param.grad.detach()).all().item()):
-                grad_failures.append(name)
-        if grad_failures and not scaler.is_enabled():
-            preview = ", ".join(grad_failures[:8])
-            raise NonFiniteGisecTrainingError(f"Non-finite gradients detected after backward: {preview}")
     scaler.step(optimizer)
     scaler.update()
-    optimizer_failures = _collect_non_finite_paths(optimizer.state_dict(), prefix="optimizer_state_dict")
-    scaler_failures = _collect_non_finite_paths(scaler.state_dict(), prefix="scaler_state_dict")
-    if optimizer_failures or scaler_failures:
-        preview = ", ".join((optimizer_failures + scaler_failures)[:8])
-        raise NonFiniteGisecTrainingError(f"Non-finite optimizer or scaler state detected after step: {preview}")
     return True
 
 
@@ -1182,43 +913,6 @@ def _mask_iou_matrix(pred_masks: torch.Tensor, gt_masks: torch.Tensor, *, mask_t
     unions = (pred_area + gt_area - intersections).clamp_min(1.0)
     return intersections / unions
 
-
-def _match_predicted_queries_to_instances(
-    *,
-    class_logits: torch.Tensor,
-    mask_logits: torch.Tensor,
-    gt_masks: torch.Tensor,
-    image_shape: tuple[int, int],
-    mask_threshold: float = 0.5,
-) -> list[dict[str, Any]]:
-    if int(gt_masks.shape[0]) == 0:
-        return []
-    mask_probs = torch.sigmoid(_upscale_mask_logits(mask_logits, image_shape=image_shape))
-    iou = _mask_iou_matrix(mask_probs, gt_masks.float().to(mask_probs.device), mask_threshold=float(mask_threshold))
-    if iou.numel() == 0:
-        return []
-    query_indices, gt_indices = linear_sum_assignment((1.0 - iou).detach().cpu().numpy())
-    class_prob = torch.softmax(class_logits.float(), dim=-1)
-    fg_prob = class_prob[:, :-1] if int(class_prob.shape[-1]) >= 2 else class_prob
-    component_class_index = 0 if int(fg_prob.shape[-1]) <= 1 else min(1, int(fg_prob.shape[-1]) - 1)
-    query_scores = fg_prob[:, component_class_index] if fg_prob.numel() > 0 else mask_probs.new_ones((int(mask_probs.shape[0]),))
-    matches: list[dict[str, Any]] = []
-    for query_index, gt_index in zip(query_indices.tolist(), gt_indices.tolist()):
-        match_iou = float(iou[int(query_index), int(gt_index)].item())
-        if match_iou <= 0.0:
-            continue
-        matches.append(
-            {
-                "query_index": int(query_index),
-                "gt_index": int(gt_index),
-                "iou": match_iou,
-                "score": float(query_scores[int(query_index)].item()),
-                "mask_probs": mask_probs[int(query_index)],
-                "binary_mask": (mask_probs[int(query_index)] >= float(mask_threshold)).float(),
-            }
-        )
-    matches.sort(key=lambda item: item["iou"], reverse=True)
-    return matches
 
 
 def _uses_baseline_decode(variant_name: str) -> bool:
@@ -1647,7 +1341,6 @@ def _evaluate_gisec(
     save_raw: bool,
     depth_mode: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    variant_spec = get_gisec_variant_spec(variant_name)
     model.eval()
     processor = build_mask2former_processor()
     results: list[dict[str, Any]] = []
@@ -1794,7 +1487,6 @@ def _expand_reference_batch(
 def _project_local_features_float32(model: GISECModel, feature_map: torch.Tensor) -> torch.Tensor:
     with autocast(device_type=feature_map.device.type, enabled=False):
         projected = model.feature_proj(feature_map.float())
-    _assert_finite_tensor("feature_proj", projected)
     return projected
 
 
@@ -1817,11 +1509,6 @@ def _run_local_refiner_float32(
             reference_depth=None if reference_depth is None else reference_depth.float(),
             reference_mask=None if reference_mask is None else reference_mask.float(),
         )
-    _assert_finite_tensor("refined_mask_logits", refined.get("refined_mask_logits"))
-    _assert_finite_tensor("refined_boundary_logits", refined.get("refined_boundary_logits"))
-    _assert_finite_tensor("crop_features", refined.get("crop_features"))
-    _assert_finite_tensor("reference_match_logits", refined.get("reference_match_logits"))
-    _assert_finite_tensor("reference_top_weights", refined.get("reference_top_weights"))
     return refined
 
 
@@ -1954,8 +1641,6 @@ def _train_local_modules_with_metrics(
         component_totals["local_refine_sec"] += float(time.perf_counter() - refine_start)
         loss_mask = F.binary_cross_entropy_with_logits(refined["refined_mask_logits"][:, 0], gt_crop_batch)
         loss_boundary = F.binary_cross_entropy_with_logits(refined["refined_boundary_logits"][:, 0], gt_boundary_batch)
-        _assert_finite_tensor("loss_local_mask", loss_mask)
-        _assert_finite_tensor("loss_local_boundary", loss_boundary)
         batch_size_f = float(batch_size)
         loss_mask_value = float(loss_mask.detach().cpu())
         loss_boundary_value = float(loss_boundary.detach().cpu())
@@ -1969,7 +1654,6 @@ def _train_local_modules_with_metrics(
                 refined["reference_match_logits"],
                 positive_target,
             )
-            _assert_finite_tensor("loss_local_reference_positive", positive_loss)
             negative_rgb, negative_depth, negative_mask = _expand_reference_batch(
                 reference_examples[1][0],
                 batch_size=batch_size,
@@ -1988,7 +1672,6 @@ def _train_local_modules_with_metrics(
                 negative_refined["reference_match_logits"],
                 negative_target,
             )
-            _assert_finite_tensor("loss_local_reference_negative", negative_loss)
             component_totals["local_reference_sec"] += float(time.perf_counter() - reference_start)
             positive_loss_value = float(positive_loss.detach().cpu())
             negative_loss_value = float(negative_loss.detach().cpu())
@@ -2018,7 +1701,6 @@ def _train_local_modules_with_metrics(
             component_totals["local_graph_sec"] += float(time.perf_counter() - graph_start)
             if graph_losses:
                 graph_loss_sum = torch.stack(graph_losses).sum()
-                _assert_finite_tensor("loss_local_graph", graph_loss_sum)
                 sample_loss_sum = sample_loss_sum + graph_loss_sum
                 graph_loss_value = float(graph_loss_sum.detach().cpu())
                 component_totals["loss_local_graph"] += graph_loss_value
@@ -2031,7 +1713,6 @@ def _train_local_modules_with_metrics(
             **component_totals,
         }
     local_loss = loss_sum / float(loss_count)
-    _assert_finite_tensor("loss_local_total", local_loss)
     return local_loss, {
         "loss_local_total": float(local_loss.detach().cpu()),
         **{
@@ -2077,418 +1758,340 @@ def train_gisec(args: argparse.Namespace) -> None:
     device = build_device(str(args.device))
     output_dir = Path(args.output_dir).resolve()
     output_dir.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = _acquire_stage_lock(output_dir)
     include_depth = str(args.depth_mode) != "rgb"
-    last_finite_step = 0
-    last_finite_checkpoint = ""
-    try:
-        train_loader = _build_loader(
-            dataset_root=str(args.dataset_root),
-            split="train",
-            image_size=int(args.image_size),
-            batch_size=int(args.batch),
-            num_workers=int(args.num_workers),
-            include_depth=include_depth,
-            train=True,
-            use_cuda=bool(device.type == "cuda"),
+    train_loader = _build_loader(
+        dataset_root=str(args.dataset_root),
+        split="train",
+        image_size=int(args.image_size),
+        batch_size=int(args.batch),
+        num_workers=int(args.num_workers),
+        include_depth=include_depth,
+        train=True,
+        use_cuda=bool(device.type == "cuda"),
+    )
+    val_loader = _build_loader(
+        dataset_root=str(args.dataset_root),
+        split="val",
+        image_size=int(args.image_size),
+        batch_size=1,
+        num_workers=int(args.num_workers),
+        include_depth=include_depth,
+        train=False,
+        use_cuda=bool(device.type == "cuda"),
+    )
+    model = _build_gisec_model(args).to(device)
+    _configure_model_for_stage(model, args)
+    reference_source = None
+    if variant_spec.requires_reference_root:
+        reference_source = ReferenceBankSource(
+            root=Path(str(args.reference_root)).resolve(),
+            image_size=int(args.crop_size),
+            contract_mode="compat",
+            max_views=int(args.reference_max_views),
+            view_sampler=str(args.reference_view_sampler),
         )
-        val_loader = _build_loader(
-            dataset_root=str(args.dataset_root),
-            split="val",
-            image_size=int(args.image_size),
-            batch_size=1,
-            num_workers=int(args.num_workers),
-            include_depth=include_depth,
-            train=False,
-            use_cuda=bool(device.type == "cuda"),
+    trainable_params = [param for param in model.parameters() if param.requires_grad]
+    optimizer = torch.optim.AdamW(trainable_params, lr=float(args.learning_rate), weight_decay=float(args.weight_decay))
+    scaler = GradScaler(enabled=bool(device.type == "cuda"))
+    ann_file = Path(args.dataset_root).resolve() / "annotations" / "instances_val.json"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    params_trainable = sum(int(param.numel()) for param in trainable_params)
+    (output_dir / "params_trainable.txt").write_text(f"{params_trainable}\n", encoding="utf-8")
+    metrics_log_path = output_dir / "metrics_log.jsonl"
+    if metrics_log_path.exists():
+        metrics_log_path.unlink()
+    resume_last_ckpt = output_dir / "resume_last.pth"
+    best_ap = float("-inf")
+    best_ckpt = output_dir / "model_best.pth"
+    start = time.perf_counter()
+    if device.type == "cuda" and torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats(device)
+    step_count = 0
+    completed_epoch = 0
+    eval_interval = max(int(getattr(args, "eval_every_epochs", 1)), 0)
+    resume_save_every_epochs = max(
+        int(getattr(args, "resume_save_every_epochs", MODEL_DEFAULTS["resume_save_every_epochs"])),
+        1,
+    )
+    log_every_steps = max(int(getattr(args, "log_every_steps", MODEL_DEFAULTS["log_every_steps"])), 1)
+    epoch_steps_total = len(train_loader)
+    planned_total_steps = int(epoch_steps_total * int(args.epochs))
+    if int(args.max_train_steps) > 0:
+        planned_total_steps = min(planned_total_steps, int(args.max_train_steps))
+    running_step_time_total = 0.0
+    non_blocking = bool(device.type == "cuda")
+    if str(getattr(args, "resume_checkpoint", "")).strip():
+        completed_epoch, step_count, best_ap, running_step_time_total = _load_resume_payload(
+            model=model,
+            optimizer=optimizer,
+            scaler=scaler,
+            args=args,
         )
-        model = _build_gisec_model(args).to(device)
-        _configure_model_for_stage(model, args)
-        reference_source = None
-        if variant_spec.requires_reference_root:
-            reference_source = ReferenceBankSource(
-                root=Path(str(args.reference_root)).resolve(),
-                image_size=int(args.crop_size),
-                contract_mode="compat",
-                max_views=int(args.reference_max_views),
-                view_sampler=str(args.reference_view_sampler),
+        _emit_gisec_log(
+            metrics_log_path,
+            {
+                "mode": "run_resume",
+                "epoch": int(completed_epoch),
+                "global_step": int(step_count),
+                "checkpoint_path": str(Path(str(args.resume_checkpoint)).resolve()),
+                "best_metric": None if not math.isfinite(best_ap) else float(best_ap),
+            },
+        )
+    last_epoch = int(completed_epoch)
+    for epoch_index in range(int(completed_epoch), int(args.epochs)):
+        model.train()
+        epoch_train_start = time.perf_counter()
+        for epoch_step, samples in enumerate(train_loader, start=1):
+            step_start = time.perf_counter()
+            images = _move_gisec_tensor_to_device(
+                torch.stack([sample["image"].float() for sample in samples], dim=0),
+                device,
+                non_blocking=non_blocking,
             )
-        trainable_params = [param for param in model.parameters() if param.requires_grad]
-        optimizer = torch.optim.AdamW(trainable_params, lr=float(args.learning_rate), weight_decay=float(args.weight_decay))
-        scaler = GradScaler(enabled=bool(device.type == "cuda"))
-        ann_file = Path(args.dataset_root).resolve() / "annotations" / "instances_val.json"
-        output_dir.mkdir(parents=True, exist_ok=True)
-        params_trainable = sum(int(param.numel()) for param in trainable_params)
-        (output_dir / "params_trainable.txt").write_text(f"{params_trainable}\n", encoding="utf-8")
-        metrics_log_path = output_dir / "metrics_log.jsonl"
-        if metrics_log_path.exists():
-            metrics_log_path.unlink()
-        resume_last_ckpt = output_dir / "resume_last.pth"
-        best_ap = float("-inf")
-        best_ckpt = output_dir / "model_best.pth"
-        start = time.perf_counter()
-        if device.type == "cuda" and torch.cuda.is_available():
-            torch.cuda.reset_peak_memory_stats(device)
-        step_count = 0
-        completed_epoch = 0
-        eval_interval = max(int(getattr(args, "eval_every_epochs", 1)), 0)
-        resume_save_every_epochs = max(
-            int(getattr(args, "resume_save_every_epochs", MODEL_DEFAULTS["resume_save_every_epochs"])),
-            1,
+            depths = None
+            if include_depth:
+                depths = _move_gisec_tensor_to_device(
+                    torch.stack([sample["depth"].float() for sample in samples], dim=0),
+                    device,
+                    non_blocking=non_blocking,
+                )
+            pixel_values = prepare_gisec_input_batch(images=images, depths=depths, depth_mode=str(args.depth_mode))
+            pixel_mask = _build_pixel_mask(pixel_values)
+            mask_labels, class_labels = _build_label_targets(samples, device=device, non_blocking=non_blocking)
+            with autocast(device_type=device.type, enabled=bool(device.type == "cuda")):
+                outputs = _run_backbone(
+                    model=model,
+                    pixel_values=pixel_values,
+                    pixel_mask=pixel_mask,
+                    mask_labels=mask_labels,
+                    class_labels=class_labels,
+                )
+                backbone_loss = outputs.loss
+                if backbone_loss is None:
+                    backbone_loss = pixel_values.sum() * 0.0
+            local_loss, local_metrics = _train_local_modules_with_metrics(
+                model=model,
+                samples=samples,
+                pixel_values=pixel_values,
+                backbone_outputs=outputs,
+                variant_name=variant_spec.name,
+                reference_source=reference_source,
+                crop_size=int(args.crop_size),
+                crop_pad=int(args.crop_pad),
+            )
+            loss = backbone_loss + local_loss
+            loss_dict = getattr(outputs, "loss_dict", None)
+            _backward_gisec_loss(
+                optimizer=optimizer,
+                scaler=scaler,
+                loss=loss,
+            )
+            step_count += 1
+            step_time_sec = float(time.perf_counter() - step_start)
+            running_step_time_total += step_time_sec
+            running_avg_step_time_sec = float(running_step_time_total / max(step_count, 1))
+            elapsed_sec = float(time.perf_counter() - start)
+            remaining_steps = max(int(planned_total_steps) - int(step_count), 0)
+            eta_sec = float(running_avg_step_time_sec * remaining_steps)
+            if (
+                step_count == 1
+                or step_count % log_every_steps == 0
+                or step_count >= planned_total_steps
+                or (int(args.max_train_steps) > 0 and step_count >= int(args.max_train_steps))
+            ):
+                row = {
+                    "mode": "train_step",
+                    "epoch": int(epoch_index + 1),
+                    "global_step": int(step_count),
+                    "epoch_step": int(epoch_step),
+                    "epoch_steps_total": int(epoch_steps_total),
+                    "loss_total": float(loss.detach().cpu()),
+                    "loss_backbone_total": float(backbone_loss.detach().cpu()),
+                    "loss_local_total": float(local_metrics.get("loss_local_total", 0.0)),
+                    "lr": float(optimizer.param_groups[0]["lr"]),
+                    "step_time_sec": step_time_sec,
+                    "step_time_running_avg_sec": running_avg_step_time_sec,
+                    "elapsed_sec": elapsed_sec,
+                    "eta_sec": eta_sec,
+                }
+                if isinstance(loss_dict, dict):
+                    for key, value in loss_dict.items():
+                        row[f"loss_backbone_{key}"] = float(value.detach().cpu())
+                row.update(local_metrics)
+                _emit_gisec_log(metrics_log_path, row)
+            if int(args.max_train_steps) > 0 and step_count >= int(args.max_train_steps):
+                break
+        epoch_train_sec = float(time.perf_counter() - epoch_train_start)
+        _emit_gisec_log(
+            metrics_log_path,
+            {
+                "mode": "epoch_train",
+                "epoch": int(epoch_index + 1),
+                "epoch_train_sec": epoch_train_sec,
+                "global_step": int(step_count),
+                "best_metric": None if not math.isfinite(best_ap) else float(best_ap),
+            },
         )
-        log_every_steps = max(int(getattr(args, "log_every_steps", MODEL_DEFAULTS["log_every_steps"])), 1)
-        epoch_steps_total = len(train_loader)
-        planned_total_steps = int(epoch_steps_total * int(args.epochs))
-        if int(args.max_train_steps) > 0:
-            planned_total_steps = min(planned_total_steps, int(args.max_train_steps))
-        running_step_time_total = 0.0
-        non_blocking = bool(device.type == "cuda")
-        resume_guard_payload = None
-        if str(getattr(args, "resume_checkpoint", "")).strip():
-            resume_guard_payload = _validate_resume_checkpoint_allowed(Path(str(args.resume_checkpoint)).resolve())
-        _write_run_state(
-            output_dir,
-            status="running",
-            allow_resume=bool(resume_guard_payload is not None),
-            failure_reason=None,
-            last_finite_step=0,
-            last_finite_checkpoint="" if resume_guard_payload is None else str(Path(str(args.resume_checkpoint)).resolve()),
-        )
-        if str(getattr(args, "resume_checkpoint", "")).strip():
-            completed_epoch, step_count, best_ap, running_step_time_total = _load_resume_payload(
+        last_epoch = int(epoch_index + 1)
+        if (epoch_index + 1) % resume_save_every_epochs == 0:
+            resume_payload = _resume_payload(
                 model=model,
                 optimizer=optimizer,
                 scaler=scaler,
                 args=args,
-                allow_unsafe_resume=bool(getattr(args, "allow_unsafe_resume", False)),
+                completed_epoch=int(epoch_index + 1),
+                global_step=int(step_count),
+                best_metric=float(best_ap),
+                running_step_time_total=float(running_step_time_total),
             )
-            last_finite_step = int(step_count)
-            last_finite_checkpoint = str(Path(str(args.resume_checkpoint)).resolve())
-            _write_run_state(
-                output_dir,
-                status="running",
-                allow_resume=True,
-                failure_reason=None,
-                last_finite_step=last_finite_step,
-                last_finite_checkpoint=last_finite_checkpoint,
+            _save_torch_payload(resume_last_ckpt, resume_payload)
+        stopping_early = int(args.max_train_steps) > 0 and step_count >= int(args.max_train_steps)
+        should_eval = False
+        if eval_interval > 0:
+            should_eval = stopping_early or (
+                (epoch_index + 1) % eval_interval == 0
+                and (epoch_index + 1) < int(args.epochs)
             )
-            _emit_gisec_log(
-                metrics_log_path,
-                {
-                    "mode": "run_resume",
-                    "epoch": int(completed_epoch),
-                    "global_step": int(step_count),
-                    "checkpoint_path": str(Path(str(args.resume_checkpoint)).resolve()),
-                    "best_metric": None if not math.isfinite(best_ap) else float(best_ap),
-                },
+        if should_eval:
+            eval_start = time.perf_counter()
+            metrics, speed = _evaluate_gisec(
+                model=model,
+                loader=val_loader,
+                device=device,
+                variant_name=variant_spec.name,
+                reference_source=reference_source,
+                ann_file=ann_file,
+                output_dir=output_dir,
+                score_threshold=float(args.score_threshold),
+                mask_threshold=float(args.mask_threshold),
+                crop_size=int(args.crop_size),
+                crop_pad=int(args.crop_pad),
+                boundary_band_width=int(args.boundary_band_width),
+                max_images=int(args.max_val_images),
+                save_raw=False,
+                depth_mode=str(args.depth_mode),
             )
-        last_epoch = int(completed_epoch)
-        for epoch_index in range(int(completed_epoch), int(args.epochs)):
-            model.train()
-            epoch_train_start = time.perf_counter()
-            for epoch_step, samples in enumerate(train_loader, start=1):
-                step_start = time.perf_counter()
-                images = _move_gisec_tensor_to_device(
-                    torch.stack([sample["image"].float() for sample in samples], dim=0),
-                    device,
-                    non_blocking=non_blocking,
-                )
-                depths = None
-                if include_depth:
-                    depths = _move_gisec_tensor_to_device(
-                        torch.stack([sample["depth"].float() for sample in samples], dim=0),
-                        device,
-                        non_blocking=non_blocking,
-                    )
-                pixel_values = prepare_gisec_input_batch(images=images, depths=depths, depth_mode=str(args.depth_mode))
-                pixel_mask = _build_pixel_mask(pixel_values)
-                mask_labels, class_labels = _build_label_targets(samples, device=device, non_blocking=non_blocking)
-                with autocast(device_type=device.type, enabled=bool(device.type == "cuda")):
-                    outputs = _run_backbone(
-                        model=model,
-                        pixel_values=pixel_values,
-                        pixel_mask=pixel_mask,
-                        mask_labels=mask_labels,
-                        class_labels=class_labels,
-                    )
-                    backbone_loss = outputs.loss
-                    if backbone_loss is None:
-                        backbone_loss = pixel_values.sum() * 0.0
-                local_loss, local_metrics = _train_local_modules_with_metrics(
-                    model=model,
-                    samples=samples,
-                    pixel_values=pixel_values,
-                    backbone_outputs=outputs,
-                    variant_name=variant_spec.name,
-                    reference_source=reference_source,
-                    crop_size=int(args.crop_size),
-                    crop_pad=int(args.crop_pad),
-                )
-                loss = backbone_loss + local_loss
-                loss_dict = getattr(outputs, "loss_dict", None)
-                non_finite_scalars = _non_finite_scalar_names(
+            eval_sec = float(time.perf_counter() - eval_start)
+            segm_ap = float(metrics.get("segm/AP", 0.0))
+            best_updated = bool(segm_ap >= best_ap)
+            if best_updated:
+                best_ap = segm_ap
+                best_payload = _checkpoint_payload(model, args)
+                _save_torch_payload(best_ckpt, best_payload)
+                _emit_gisec_log(
+                    metrics_log_path,
                     {
-                        "loss_total": loss,
-                        "loss_backbone_total": backbone_loss,
-                        "loss_local_total": local_metrics.get("loss_local_total", 0.0),
-                        **({f"loss_backbone_{key}": value for key, value in loss_dict.items()} if isinstance(loss_dict, dict) else {}),
-                    }
-                )
-                if non_finite_scalars:
-                    raise NonFiniteGisecTrainingError(
-                        "Non-finite training scalars detected: " + ", ".join(non_finite_scalars)
-                    )
-                _backward_gisec_loss(
-                    model=model,
-                    optimizer=optimizer,
-                    scaler=scaler,
-                    loss=loss,
-                )
-                step_count += 1
-                last_finite_step = int(step_count)
-                step_time_sec = float(time.perf_counter() - step_start)
-                running_step_time_total += step_time_sec
-                running_avg_step_time_sec = float(running_step_time_total / max(step_count, 1))
-                elapsed_sec = float(time.perf_counter() - start)
-                remaining_steps = max(int(planned_total_steps) - int(step_count), 0)
-                eta_sec = float(running_avg_step_time_sec * remaining_steps)
-                if (
-                    step_count == 1
-                    or step_count % log_every_steps == 0
-                    or step_count >= planned_total_steps
-                    or (int(args.max_train_steps) > 0 and step_count >= int(args.max_train_steps))
-                ):
-                    row = {
-                        "mode": "train_step",
+                        "mode": "checkpoint",
                         "epoch": int(epoch_index + 1),
-                        "global_step": int(step_count),
-                        "epoch_step": int(epoch_step),
-                        "epoch_steps_total": int(epoch_steps_total),
-                        "loss_total": float(loss.detach().cpu()),
-                        "loss_backbone_total": float(backbone_loss.detach().cpu()),
-                        "loss_local_total": float(local_metrics.get("loss_local_total", 0.0)),
-                        "lr": float(optimizer.param_groups[0]["lr"]),
-                        "step_time_sec": step_time_sec,
-                        "step_time_running_avg_sec": running_avg_step_time_sec,
-                        "elapsed_sec": elapsed_sec,
-                        "eta_sec": eta_sec,
-                    }
-                    if isinstance(loss_dict, dict):
-                        for key, value in loss_dict.items():
-                            row[f"loss_backbone_{key}"] = float(value.detach().cpu())
-                    row.update(local_metrics)
-                    _emit_gisec_log(metrics_log_path, row)
-                if int(args.max_train_steps) > 0 and step_count >= int(args.max_train_steps):
-                    break
-            epoch_train_sec = float(time.perf_counter() - epoch_train_start)
-            _emit_gisec_log(
-                metrics_log_path,
-                {
-                    "mode": "epoch_train",
-                    "epoch": int(epoch_index + 1),
-                    "epoch_train_sec": epoch_train_sec,
-                    "global_step": int(step_count),
-                    "best_metric": None if not math.isfinite(best_ap) else float(best_ap),
-                },
-            )
-            last_epoch = int(epoch_index + 1)
-            if (epoch_index + 1) % resume_save_every_epochs == 0:
-                resume_payload = _resume_payload(
-                    model=model,
-                    optimizer=optimizer,
-                    scaler=scaler,
-                    args=args,
-                    completed_epoch=int(epoch_index + 1),
-                    global_step=int(step_count),
-                    best_metric=float(best_ap),
-                    running_step_time_total=float(running_step_time_total),
+                        "checkpoint_path": str(best_ckpt.resolve()),
+                        "reason": "best",
+                        "metric": segm_ap,
+                    },
                 )
-                _validate_resume_payload_finite(resume_payload)
-                _save_torch_payload(resume_last_ckpt, resume_payload)
-                _save_json_payload(_resume_metadata_path(resume_last_ckpt), _resume_metadata_payload())
-                last_finite_checkpoint = str(resume_last_ckpt.resolve())
-                _write_run_state(
-                    output_dir,
-                    status="running",
-                    allow_resume=True,
-                    failure_reason=None,
-                    last_finite_step=last_finite_step,
-                    last_finite_checkpoint=last_finite_checkpoint,
-                )
-            stopping_early = int(args.max_train_steps) > 0 and step_count >= int(args.max_train_steps)
-            should_eval = False
-            if eval_interval > 0:
-                should_eval = stopping_early or (
-                    (epoch_index + 1) % eval_interval == 0
-                    and (epoch_index + 1) < int(args.epochs)
-                )
-            if should_eval:
-                eval_start = time.perf_counter()
-                metrics, speed = _evaluate_gisec(
-                    model=model,
-                    loader=val_loader,
-                    device=device,
-                    variant_name=variant_spec.name,
-                    reference_source=reference_source,
-                    ann_file=ann_file,
-                    output_dir=output_dir,
-                    score_threshold=float(args.score_threshold),
-                    mask_threshold=float(args.mask_threshold),
-                    crop_size=int(args.crop_size),
-                    crop_pad=int(args.crop_pad),
-                    boundary_band_width=int(args.boundary_band_width),
-                    max_images=int(args.max_val_images),
-                    save_raw=False,
-                    depth_mode=str(args.depth_mode),
-                )
-                eval_sec = float(time.perf_counter() - eval_start)
-                segm_ap = float(metrics.get("segm/AP", 0.0))
-                best_updated = bool(segm_ap >= best_ap)
-                if best_updated:
-                    best_ap = segm_ap
-                    best_payload = _checkpoint_payload(model, args)
-                    _validate_checkpoint_payload_finite(best_payload)
-                    _save_torch_payload(best_ckpt, best_payload)
-                    _emit_gisec_log(
-                        metrics_log_path,
-                        {
-                            "mode": "checkpoint",
-                            "epoch": int(epoch_index + 1),
-                            "checkpoint_path": str(best_ckpt.resolve()),
-                            "reason": "best",
-                            "metric": segm_ap,
-                        },
-                    )
-                eval_row = {
-                    "mode": "epoch_eval",
-                    "epoch": int(epoch_index + 1),
-                    "eval_sec": eval_sec,
-                    "best_updated": best_updated,
-                    "metric": segm_ap,
-                    "best_metric": float(best_ap),
-                }
-                eval_row.update(metrics)
-                _emit_gisec_log(metrics_log_path, eval_row)
-            if stopping_early:
-                break
-        final_ckpt = output_dir / "model_final.pth"
-        final_payload = _checkpoint_payload(model, args)
-        _validate_checkpoint_payload_finite(final_payload)
-        _save_torch_payload(final_ckpt, final_payload)
-        last_finite_checkpoint = str(final_ckpt.resolve())
+            eval_row = {
+                "mode": "epoch_eval",
+                "epoch": int(epoch_index + 1),
+                "eval_sec": eval_sec,
+                "best_updated": best_updated,
+                "metric": segm_ap,
+                "best_metric": float(best_ap),
+            }
+            eval_row.update(metrics)
+            _emit_gisec_log(metrics_log_path, eval_row)
+        if stopping_early:
+            break
+    final_ckpt = output_dir / "model_final.pth"
+    final_payload = _checkpoint_payload(model, args)
+    _save_torch_payload(final_ckpt, final_payload)
+    _emit_gisec_log(
+        metrics_log_path,
+        {
+            "mode": "checkpoint",
+            "epoch": int(last_epoch),
+            "checkpoint_path": str(final_ckpt.resolve()),
+            "reason": "final",
+        },
+    )
+    final_eval_start = time.perf_counter()
+    metrics, speed = _evaluate_gisec(
+        model=model,
+        loader=val_loader,
+        device=device,
+        variant_name=variant_spec.name,
+        reference_source=reference_source,
+        ann_file=ann_file,
+        output_dir=output_dir,
+        score_threshold=float(args.score_threshold),
+        mask_threshold=float(args.mask_threshold),
+        crop_size=int(args.crop_size),
+        crop_pad=int(args.crop_pad),
+        boundary_band_width=int(args.boundary_band_width),
+        max_images=int(args.max_val_images),
+        save_raw=False,
+        depth_mode=str(args.depth_mode),
+    )
+    final_eval_sec = float(time.perf_counter() - final_eval_start)
+    final_ap = float(metrics.get("segm/AP", 0.0))
+    final_best_updated = bool(final_ap >= best_ap)
+    if final_best_updated:
+        best_ap = final_ap
+        best_payload = _checkpoint_payload(model, args)
+        _save_torch_payload(best_ckpt, best_payload)
         _emit_gisec_log(
             metrics_log_path,
             {
                 "mode": "checkpoint",
                 "epoch": int(last_epoch),
-                "checkpoint_path": str(final_ckpt.resolve()),
-                "reason": "final",
+                "checkpoint_path": str(best_ckpt.resolve()),
+                "reason": "best",
+                "metric": final_ap,
             },
         )
-        final_eval_start = time.perf_counter()
-        metrics, speed = _evaluate_gisec(
-            model=model,
-            loader=val_loader,
-            device=device,
-            variant_name=variant_spec.name,
-            reference_source=reference_source,
-            ann_file=ann_file,
-            output_dir=output_dir,
-            score_threshold=float(args.score_threshold),
-            mask_threshold=float(args.mask_threshold),
-            crop_size=int(args.crop_size),
-            crop_pad=int(args.crop_pad),
-            boundary_band_width=int(args.boundary_band_width),
-            max_images=int(args.max_val_images),
-            save_raw=False,
-            depth_mode=str(args.depth_mode),
-        )
-        final_eval_sec = float(time.perf_counter() - final_eval_start)
-        final_ap = float(metrics.get("segm/AP", 0.0))
-        final_best_updated = bool(final_ap >= best_ap)
-        if final_best_updated:
-            best_ap = final_ap
-            best_payload = _checkpoint_payload(model, args)
-            _validate_checkpoint_payload_finite(best_payload)
-            _save_torch_payload(best_ckpt, best_payload)
-            _emit_gisec_log(
-                metrics_log_path,
-                {
-                    "mode": "checkpoint",
-                    "epoch": int(last_epoch),
-                    "checkpoint_path": str(best_ckpt.resolve()),
-                    "reason": "best",
-                    "metric": final_ap,
-                },
-            )
-        final_eval_row = {
-            "mode": "epoch_eval",
-            "epoch": int(last_epoch),
-            "eval_sec": final_eval_sec,
-            "best_updated": final_best_updated,
-            "metric": final_ap,
+    final_eval_row = {
+        "mode": "epoch_eval",
+        "epoch": int(last_epoch),
+        "eval_sec": final_eval_sec,
+        "best_updated": final_best_updated,
+        "metric": final_ap,
+        "best_metric": float(best_ap),
+    }
+    final_eval_row.update(metrics)
+    _emit_gisec_log(metrics_log_path, final_eval_row)
+    peak_memory_mb = 0.0
+    if device.type == "cuda" and torch.cuda.is_available():
+        peak_memory_mb = float(torch.cuda.max_memory_allocated(device) / (1024.0 * 1024.0))
+    wall_time_sec = int(time.perf_counter() - start)
+    (output_dir / "peak_memory_mb.txt").write_text(f"{peak_memory_mb:.4f}\n", encoding="utf-8")
+    (output_dir / "wall_time_sec.txt").write_text(f"{wall_time_sec}\n", encoding="utf-8")
+    summary = build_run_summary_payload(
+        model="mask2former",
+        variant=variant_spec.name,
+        modality=str(args.depth_mode),
+        artifact_root=output_dir,
+        metrics=metrics,
+        inference_speed=speed,
+        checkpoint=final_ckpt,
+        dataset_root=str(Path(args.dataset_root).resolve()),
+        params_trainable=params_trainable,
+        training_peak_memory_mb=peak_memory_mb,
+        wall_time_sec=wall_time_sec,
+        benchmark=_gisec_benchmark_payload(variant_spec.name, str(args.depth_mode)),
+        decode_config={
+            "score_threshold": float(args.score_threshold),
+            "mask_threshold": float(args.mask_threshold),
+        },
+    )
+    write_json(output_dir / "run_summary.json", summary)
+    _emit_gisec_log(
+        metrics_log_path,
+        {
+            "mode": "run_final",
+            "wall_time_sec": float(wall_time_sec),
             "best_metric": float(best_ap),
-        }
-        final_eval_row.update(metrics)
-        _emit_gisec_log(metrics_log_path, final_eval_row)
-        peak_memory_mb = 0.0
-        if device.type == "cuda" and torch.cuda.is_available():
-            peak_memory_mb = float(torch.cuda.max_memory_allocated(device) / (1024.0 * 1024.0))
-        wall_time_sec = int(time.perf_counter() - start)
-        (output_dir / "peak_memory_mb.txt").write_text(f"{peak_memory_mb:.4f}\n", encoding="utf-8")
-        (output_dir / "wall_time_sec.txt").write_text(f"{wall_time_sec}\n", encoding="utf-8")
-        summary = build_run_summary_payload(
-            model="mask2former",
-            variant=variant_spec.name,
-            modality=str(args.depth_mode),
-            artifact_root=output_dir,
-            metrics=metrics,
-            inference_speed=speed,
-            checkpoint=final_ckpt,
-            dataset_root=str(Path(args.dataset_root).resolve()),
-            params_trainable=params_trainable,
-            training_peak_memory_mb=peak_memory_mb,
-            wall_time_sec=wall_time_sec,
-            benchmark=_gisec_benchmark_payload(variant_spec.name, str(args.depth_mode)),
-            decode_config={
-                "score_threshold": float(args.score_threshold),
-                "mask_threshold": float(args.mask_threshold),
-            },
-        )
-        write_json(output_dir / "run_summary.json", summary)
-        full_training_steps = int(epoch_steps_total * int(args.epochs))
-        completed_full_training = int(step_count) >= int(full_training_steps)
-        resumable_checkpoint = str(resume_last_ckpt.resolve()) if resume_last_ckpt.exists() else ""
-        _write_run_state(
-            output_dir,
-            status="success" if completed_full_training else "running",
-            allow_resume=bool((not completed_full_training) and resumable_checkpoint),
-            failure_reason=None,
-            last_finite_step=last_finite_step,
-            last_finite_checkpoint=last_finite_checkpoint if completed_full_training else resumable_checkpoint,
-        )
-        _emit_gisec_log(
-            metrics_log_path,
-            {
-                "mode": "run_final",
-                "wall_time_sec": float(wall_time_sec),
-                "best_metric": float(best_ap),
-                "final_checkpoint_path": str(final_ckpt.resolve()),
-                "best_checkpoint_path": str(best_ckpt.resolve()),
-            },
-        )
-    except Exception as exc:
-        _write_run_state(
-            output_dir,
-            status="failed",
-            allow_resume=False,
-            failure_reason=str(exc),
-            last_finite_step=last_finite_step,
-            last_finite_checkpoint=last_finite_checkpoint,
-        )
-        raise
-    finally:
-        _release_stage_lock(lock_path)
+            "final_checkpoint_path": str(final_ckpt.resolve()),
+            "best_checkpoint_path": str(best_ckpt.resolve()),
+        },
+    )
 
 
 def eval_gisec(args: argparse.Namespace) -> None:
