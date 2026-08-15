@@ -45,7 +45,6 @@ When a variant enables reference rescue, the model loads a prepared reference ba
 
 The reference-enabled variants are:
 
-- `base_rgb_1024_refine_ref`
 - `base_rgbd_1024_refine_ref`
 
 ### Graph rescue
@@ -54,7 +53,6 @@ When a variant enables graph rescue, the model builds component-level graph feat
 
 The graph-enabled variants are:
 
-- `base_rgb_1024_refine_ref_graph`
 - `base_rgbd_1024_refine_ref_graph`
 
 ## Data Flow
