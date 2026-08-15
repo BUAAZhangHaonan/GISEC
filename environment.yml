@@ -4,7 +4,6 @@ channels:
 dependencies:
   - python=3.12
   - pip
-  - ninja
   - pip:
       - numpy
       - pytest
@@ -12,7 +11,6 @@ dependencies:
       - pycocotools
       - PyYAML==6.0.3
       - scipy==1.15.2
-      - matplotlib==3.10.1
       - transformers
       - --index-url https://download.pytorch.org/whl/cu128
       - --extra-index-url https://pypi.org/simple
