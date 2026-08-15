@@ -14,7 +14,7 @@ Mask2Former Swin-T with RGB-D early concat, trained on the 32254-image dataset (
 | Model | Dataset | segm AP | bbox AP | boundary IoU | Artifacts |
 | --- | --- | ---: | ---: | ---: | --- |
 | Mask2Former Swin-T, RGB-D concat | `20260318_1K_32254` | 0.9063 | – | – | 4028 magformer workspace (not in repo) |
-| GISEC `base_rgb_1024` rerun, best epoch 19 | `0831_1K` | 0.6267 | 0.6155 | 0.1886 | `output/experiments/2026-04-13-rgb-full-rerun` |
+| GISEC `base_rgb_1024` rerun, best epoch 19 | `0831_1K` | 0.6267 | 0.6155 | 0.1886 | `output/experiments/2026-04-13-rgb-full-rerun/phase_c/active_rgb_official/train/base_rgb_1024/` |
 | Mask2Former Swin-T baseline (phase A) | `20260318_1K_1566` | 0.5381 | 0.5054 | 0.1904 | `output/experiments/baselines/mask2former_swin_t_1024_phasea_full` |
 | Mask R-CNN R50 baseline (phase A) | `20260318_1K_1566` | 0.5151 | 0.4890 | 0.1434 | `output/experiments/baselines/mask_rcnn_r50_1024_phasea_full` |
 | U-Net dense + connected components | `20260318_1K_1566` | ~0 | – | – | failed route, artifacts deleted |
@@ -86,7 +86,7 @@ bash scripts/experiments/run_gisec.sh --dry-run          # print commands only
 bash scripts/experiments/run_gisec.sh --run              # execute
 ```
 
-The runner defaults to `datasets/20260318_1K_32254` and iterates the staged variant group; override with `--dataset-root`, `--reference-root`, or `--group`.
+The runner defaults to `datasets/20260318_1K_32254` for training data and `datasets/20260318_1K_13440` (the reference bank dataset) for `--reference-root`; override with `--dataset-root`, `--reference-root`, or `--group`.
 
 ## Eval
 
@@ -122,6 +122,8 @@ Inference uses the same checkpoint loading path as eval and writes raw predictio
 - `src/gisec/backbones/`: Mask2Former adapter
 - `src/gisec/models/`: the GISEC model and graph head
 - `src/gisec/engine/`: shared COCO evaluation and mask encoding runtime
+- `src/gisec/runtime.py`: `select_refinement_instances` and mask-boundary helpers used by the rescue stages
+- `src/gisec/metrics.py`: split/merge instance-count metrics
 - `src/gisec/train/`: training orchestration, split into single-responsibility modules (`args`, `data`, `model_builder`, `graph`, `decode`, `losses`, `evaluate`, `trainer`)
 - `src/gisec/eval/`: COCO export, boundary metrics, run summaries
 - `configs/model/`, `configs/data/`, `configs/reference/`: YAML configs

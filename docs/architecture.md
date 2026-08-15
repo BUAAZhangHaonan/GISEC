@@ -14,6 +14,8 @@ The package is organized as a standard installable Python project:
 - `src/gisec/engine/` for the shared COCO evaluation and mask encoding runtime
 - `src/gisec/train/` for training, evaluation, and inference orchestration
 - `src/gisec/eval/` for COCO export, boundary metrics, and run summaries
+- `src/gisec/runtime.py` for `select_refinement_instances` and mask-boundary helpers
+- `src/gisec/metrics.py` for split/merge instance-count metrics
 
 `src/gisec/train/` is split into single-responsibility modules: `args` (CLI parsing), `data` (dataset and loader construction), `model_builder` (model assembly from a variant spec), `graph` (fragment graph utilities), `decode` (mask decoding), `losses` (loss terms, weights set from CLI), `evaluate` (shared eval/infer checkpoint runner), and `trainer` (the training loop).
 

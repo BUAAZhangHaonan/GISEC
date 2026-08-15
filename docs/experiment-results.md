@@ -14,11 +14,11 @@ The best run so far is a plain Mask2Former Swin-T with 4-channel RGB-D early con
 
 | Model | Dataset | segm AP | bbox AP | boundary IoU | Artifacts |
 | --- | --- | ---: | ---: | ---: | --- |
-| GISEC `base_rgb_1024` rerun, best epoch 19 | `0831_1K` | 0.6267 | 0.6155 | 0.1886 | `output/experiments/2026-04-13-rgb-full-rerun/` |
+| GISEC `base_rgb_1024` rerun, best epoch 19 | `0831_1K` | 0.6267 | 0.6155 | 0.1886 | `output/experiments/2026-04-13-rgb-full-rerun/phase_c/active_rgb_official/train/base_rgb_1024/` |
 | Mask2Former Swin-T baseline (phase A) | `20260318_1K_1566` | 0.5381 | 0.5054 | 0.1904 | `output/experiments/baselines/mask2former_swin_t_1024_phasea_full/` |
 | Mask R-CNN R50 baseline (phase A) | `20260318_1K_1566` | 0.5151 | 0.4890 | 0.1434 | `output/experiments/baselines/mask_rcnn_r50_1024_phasea_full/` |
 
-The 2026-04-13 rerun directory keeps the best checkpoint, metrics, and run summary of the last full GISEC training run; the phase A baselines keep the best Mask2Former and Mask R-CNN checkpoints trained through this package's harness on the 1566-scene dataset.
+The 2026-04-13 rerun directory keeps the best checkpoint, metrics, and run summary of the last full GISEC training run; the phase A baselines keep the best Mask2Former and Mask R-CNN checkpoints trained through this package's harness on the 1566-scene dataset. The best-epoch-19 numbers come from `metrics_log.jsonl`; `run_summary.json` in that directory records the final epoch instead (segm AP 0.6115).
 
 ## Historical Ladder (checkpoints not preserved)
 
