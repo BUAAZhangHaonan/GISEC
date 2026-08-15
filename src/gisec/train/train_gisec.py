@@ -839,12 +839,12 @@ def _query_instances_from_outputs(
     image_shape: tuple[int, int],
     score_threshold: float,
     mask_threshold: float,
+    component_class_index: int,
 ) -> list[dict[str, Any]]:
     class_prob = torch.softmax(class_logits.float(), dim=-1)
     if int(class_prob.shape[-1]) < 2:
         return []
     fg_prob = class_prob[:, :-1]
-    component_class_index = max(0, min(1, int(fg_prob.shape[1]) - 1))
     scores, class_ids = fg_prob.max(dim=-1)
     upsampled_mask_logits = _upscale_mask_logits(mask_logits, image_shape=image_shape)
     mask_probs = torch.sigmoid(upsampled_mask_logits)
@@ -1342,6 +1342,7 @@ def _evaluate_gisec(
     max_images: int,
     save_raw: bool,
     depth_mode: str,
+    component_class_index: int,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     model.eval()
     processor = build_mask2former_processor()
@@ -1405,6 +1406,7 @@ def _evaluate_gisec(
                         image_shape=image_shape,
                         score_threshold=float(score_threshold),
                         mask_threshold=float(mask_threshold),
+                        component_class_index=int(component_class_index),
                     )
                     predictions, refine_count, graph_count = _apply_local_rescue(
                         model=model,
@@ -1524,6 +1526,7 @@ def _train_local_modules_with_metrics(
     reference_source: ReferenceBankSource | None,
     crop_size: int,
     crop_pad: int,
+    component_class_index: int,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     variant_spec = get_gisec_variant_spec(variant_name)
     if not variant_spec.use_local_refine or model.refiner is None:
@@ -1565,6 +1568,7 @@ def _train_local_modules_with_metrics(
             image_shape=image_shape,
             score_threshold=0.0,
             mask_threshold=0.5,
+            component_class_index=int(component_class_index),
         )
         matches = _match_query_predictions_to_gt(predictions=predictions, gt_masks=gt_masks)
         if not matches:
@@ -1728,29 +1732,6 @@ def _train_local_modules_with_metrics(
     }
 
 
-def _train_local_modules(
-    *,
-    model: GISECModel,
-    samples: list[dict[str, Any]],
-    pixel_values: torch.Tensor,
-    backbone_outputs: Any,
-    variant_name: str,
-    reference_source: ReferenceBankSource | None,
-    crop_size: int,
-    crop_pad: int,
-) -> torch.Tensor:
-    return _train_local_modules_with_metrics(
-        model=model,
-        samples=samples,
-        pixel_values=pixel_values,
-        backbone_outputs=backbone_outputs,
-        variant_name=variant_name,
-        reference_source=reference_source,
-        crop_size=crop_size,
-        crop_pad=crop_pad,
-    )[0]
-
-
 def train_gisec(args: argparse.Namespace) -> None:
     payload = _model_payload(args)
     if bool(args.dry_run):
@@ -1785,6 +1766,7 @@ def train_gisec(args: argparse.Namespace) -> None:
         train=False,
         use_cuda=bool(device.type == "cuda"),
     )
+    component_class_index = int(train_loader.dataset.component_category_id)
     model = _build_gisec_model(args).to(device)
     _configure_model_for_stage(model, args)
     reference_source = None
@@ -1884,6 +1866,7 @@ def train_gisec(args: argparse.Namespace) -> None:
                 reference_source=reference_source,
                 crop_size=int(args.crop_size),
                 crop_pad=int(args.crop_pad),
+                component_class_index=component_class_index,
             )
             loss = backbone_loss + local_loss
             loss_dict = getattr(outputs, "loss_dict", None)
@@ -1976,6 +1959,7 @@ def train_gisec(args: argparse.Namespace) -> None:
                 max_images=int(args.max_val_images),
                 save_raw=False,
                 depth_mode=str(args.depth_mode),
+                component_class_index=component_class_index,
             )
             eval_sec = float(time.perf_counter() - eval_start)
             segm_ap = float(metrics.get("segm/AP", 0.0))
@@ -2035,6 +2019,7 @@ def train_gisec(args: argparse.Namespace) -> None:
         max_images=int(args.max_val_images),
         save_raw=False,
         depth_mode=str(args.depth_mode),
+        component_class_index=component_class_index,
     )
     final_eval_sec = float(time.perf_counter() - final_eval_start)
     final_ap = float(metrics.get("segm/AP", 0.0))
@@ -2149,6 +2134,7 @@ def eval_gisec(args: argparse.Namespace) -> None:
         train=False,
         use_cuda=bool(device.type == "cuda"),
     )
+    component_class_index = int(loader.dataset.component_category_id)
     ann_file = Path(args.dataset_root).resolve() / "annotations" / f"instances_{args.split}.json"
     metrics, speed = _evaluate_gisec(
         model=model,
@@ -2166,6 +2152,7 @@ def eval_gisec(args: argparse.Namespace) -> None:
         max_images=int(args.max_images),
         save_raw=False,
         depth_mode=str(args.depth_mode),
+        component_class_index=component_class_index,
     )
     summary = build_run_summary_payload(
         model="mask2former",
@@ -2234,6 +2221,7 @@ def infer_gisec(args: argparse.Namespace) -> None:
         train=False,
         use_cuda=bool(device.type == "cuda"),
     )
+    component_class_index = int(loader.dataset.component_category_id)
     ann_file = Path(args.dataset_root).resolve() / "annotations" / f"instances_{args.split}.json"
     metrics, speed = _evaluate_gisec(
         model=model,
@@ -2251,6 +2239,7 @@ def infer_gisec(args: argparse.Namespace) -> None:
         max_images=int(args.max_images),
         save_raw=True,
         depth_mode=str(args.depth_mode),
+        component_class_index=component_class_index,
     )
     summary = build_run_summary_payload(
         model="mask2former",

@@ -45,6 +45,15 @@ class BaselineInstanceDataset(Dataset):
         ]
         self.depth_dir = next((path for path in depth_candidates if path.exists()), None)
 
+    @property
+    def component_category_id(self) -> int:
+        categories = self.coco.categories
+        if len(categories) != 1:
+            raise ValueError(
+                f"Expected exactly one COCO category in {self.root}, got {len(categories)}"
+            )
+        return int(categories[0]["id"])
+
     def __len__(self) -> int:
         return len(self.image_ids)
 

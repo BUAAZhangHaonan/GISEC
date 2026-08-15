@@ -47,6 +47,7 @@ def load_depth_array(path: Path) -> np.ndarray:
 class LiteCOCO:
     def __init__(self, ann_path: str | Path) -> None:
         payload = json.loads(Path(ann_path).read_text(encoding="utf-8"))
+        self.categories = list(payload.get("categories", []))
         self._images = {int(item["id"]): item for item in payload.get("images", [])}
         self._annotations = {int(item["id"]): item for item in payload.get("annotations", [])}
         self._ann_ids_by_image: dict[int, list[int]] = {}
