@@ -96,16 +96,15 @@ def _backward_gisec_loss(
     optimizer: torch.optim.Optimizer,
     scaler: GradScaler,
     loss: torch.Tensor,
-) -> bool:
+) -> None:
     optimizer.zero_grad(set_to_none=True)
     if not bool(loss.requires_grad):
-        return False
+        return
     scaler.scale(loss).backward()
     if scaler.is_enabled():
         scaler.unscale_(optimizer)
     scaler.step(optimizer)
     scaler.update()
-    return True
 
 
 def train_gisec(args: argparse.Namespace) -> None:
