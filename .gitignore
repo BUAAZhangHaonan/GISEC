@@ -11,7 +11,7 @@ __pycache__/
 *.so
 build/
 dist/
-datasets/
+/datasets/
 docs/method/
 output/
 .worktree/
