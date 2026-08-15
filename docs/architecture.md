@@ -6,13 +6,16 @@ GISEC is a staged instance-segmentation pipeline for electronic components. The 
 
 The package is organized as a standard installable Python project:
 
-- `src/gisec/cli/` for the `gisec` command
+- `src/gisec/cli/` for the `gisec` command (`train`, `eval`, `infer`)
 - `src/gisec/config/` for config loading and variant metadata
-- `src/gisec/datasets/` for dataset readers and caches
-- `src/gisec/eval/` for export and result summaries
-- `src/gisec/models/` for the model and rescue modules
+- `src/gisec/datasets/` for dataset readers and the reference bank loader
+- `src/gisec/backbones/` for the Mask2Former adapter
+- `src/gisec/models/` for the GISEC model and graph head
+- `src/gisec/engine/` for the shared COCO evaluation and mask encoding runtime
 - `src/gisec/train/` for training, evaluation, and inference orchestration
-- `src/gisec/ops/` for the connected-components extension
+- `src/gisec/eval/` for COCO export, boundary metrics, and run summaries
+
+`src/gisec/train/` is split into single-responsibility modules: `args` (CLI parsing), `data` (dataset and loader construction), `model_builder` (model assembly from a variant spec), `graph` (fragment graph utilities), `decode` (mask decoding), `losses` (loss terms, weights set from CLI), `evaluate` (shared eval/infer checkpoint runner), and `trainer` (the training loop).
 
 ## Stage Structure
 
@@ -20,14 +23,14 @@ The package is organized as a standard installable Python project:
 
 The first stage is a Mask2Former-based instance segmenter. It accepts RGB input or RGB-D input, depending on the selected model variant. The backbone writes coarse instance masks and the associated scores.
 
-The staged variants are:
+The base variants are:
 
 - `base_rgb_1024`
 - `base_rgbd_1024`
 
 ### Local refinement
 
-The refinement stage crops each candidate instance, combines the coarse mask with local features, and predicts a better mask and a boundary signal. This is the stage that produces the best stored official result.
+The refinement stage crops each candidate instance, combines the coarse mask with local features, and predicts a better mask and a boundary signal.
 
 The refine variants are:
 
@@ -72,11 +75,11 @@ The dataset contract expects:
 
 Configuration is layered YAML.
 
-- `configs/data/ecc_20260318_1k_1566.yaml` holds the dataset root and common loader settings.
+- `configs/data/*.yaml` holds the dataset root and common loader settings (`ecc_20260318_1k_1566.yaml` for the small set, `ecc_20260318_1k_32254.yaml` for the main set).
 - `configs/model/*.yaml` holds the staged model variants and their model-specific switches.
 - `configs/reference/reference_20260318_1k_13440.yaml` holds the reference bank root and reference loader settings.
 
-The CLI accepts repeated `--config` arguments. Later config files override earlier ones, and explicit CLI flags override both.
+The CLI accepts repeated `--config` arguments. Later config files override earlier ones, and explicit CLI flags override both. Loss weights and the training schedule are CLI parameters.
 
 ## Runtime Artifacts
 
@@ -84,11 +87,12 @@ Training writes the following files into the chosen output directory:
 
 - `model_best.pth`
 - `model_final.pth`
+- `resume_last.pth`
 - `run_summary.json`
-- `metrics.log.jsonl`
-- `run_state.json`
+- `metrics_log.jsonl`
 - `wall_time_sec.txt`
 - `peak_memory_mb.txt`
+- `params_trainable.txt`
 
 Evaluation and inference reuse the same checkpoint loading path and produce:
 
@@ -99,13 +103,11 @@ Evaluation and inference reuse the same checkpoint loading path and produce:
 
 ## Reference Bank Contract
 
-Reference rescue expects a prepared bank root that contains `rgb/`, `depth/`, and `mask/` subdirectories. The loader also checks the bank metadata and QA files before it allows the bank to be used.
-
-The current code keeps the reference contract intentionally strict so a missing bank file fails early instead of producing a silent fallback.
+Reference rescue expects a prepared bank root that contains one directory per part, each with `rgb/`, `depth/`, `mask/`, `camera/`, and `meta/` subdirectories, plus a `manifest.json` at the root. The loader checks the bank metadata before it allows the bank to be used, so a missing bank file fails early instead of producing a silent fallback.
 
 ## Connected Components
 
-Graph rescue depends on the custom connected-components extension under `src/gisec/ops/`. That extension is used to turn pixel masks into component sets before graph scoring and merge assembly.
+Graph rescue turns pixel masks into component sets with OpenCV `cv2.connectedComponents` (see `src/gisec/train/graph.py`) before graph scoring and merge assembly.
 
 ## What This Architecture Is Not
 

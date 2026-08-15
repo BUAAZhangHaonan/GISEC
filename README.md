@@ -1,10 +1,29 @@
 # GISEC
 
-GISEC is the staged Mask2Former pipeline for electronic-component instance segmentation. It works on RGB or RGB-D input, can refine coarse masks, can rescue difficult cases with a reference bank, and can use graph-based rescue for hard overlap cases.
+GISEC is a staged Mask2Former pipeline for electronic-component instance segmentation in dense clutter. It works on RGB or RGB-D input, can refine coarse masks locally, can rescue difficult cases with a reference bank, and can merge overlapping fragments with a graph head.
+
+## Headline Result
+
+Mask2Former Swin-T with RGB-D early concat, trained on the 32254-image dataset (`datasets/20260318_1K_32254`), reaches **segm AP 90.6** on val:
+
+- AP 90.63, AP50 96.02, AP75 93.97, APm 90.40, APl 98.61 (best checkpoint `model_0264999.pth`, iteration 264979 of a 300K-iteration schedule, stopped at 275K)
+- Trained 2026-07-15 with the detectron2/Mask2Former stack in the magformer workspace on server 4028: `~/magformer/output/experiments/baselines_v2/m2f_swin_t_rgbd_concat/`. The checkpoints and logs live there; they are not archived in this repo.
+
+## Results
+
+| Model | Dataset | segm AP | bbox AP | boundary IoU | Artifacts |
+| --- | --- | ---: | ---: | ---: | --- |
+| Mask2Former Swin-T, RGB-D concat | `20260318_1K_32254` | 0.9063 | – | – | 4028 magformer workspace (not in repo) |
+| GISEC `base_rgb_1024` rerun, best epoch 19 | `0831_1K` | 0.6267 | 0.6155 | 0.1886 | `output/experiments/2026-04-13-rgb-full-rerun` |
+| Mask2Former Swin-T baseline (phase A) | `20260318_1K_1566` | 0.5381 | 0.5054 | 0.1904 | `output/experiments/baselines/mask2former_swin_t_1024_phasea_full` |
+| Mask R-CNN R50 baseline (phase A) | `20260318_1K_1566` | 0.5151 | 0.4890 | 0.1434 | `output/experiments/baselines/mask_rcnn_r50_1024_phasea_full` |
+| U-Net dense + connected components | `20260318_1K_1566` | ~0 | – | – | failed route, artifacts deleted |
+
+The U-Net dense-prediction-plus-connected-components route produced near-zero instance AP and its outputs were removed.
+
+Historical refine-stage numbers (`base_rgb_1024_refine` ladder, best 0.5761) are recorded in [`docs/experiment-results.md`](docs/experiment-results.md); those checkpoints were not preserved.
 
 ## Install
-
-GISEC is packaged as a normal Python project from `src/`.
 
 ```bash
 conda env create -f environment.yml
@@ -12,47 +31,39 @@ conda activate gisec
 python -m pip install -e .
 ```
 
-Tested local stack:
+Tested local stack: Python 3.12, CUDA cu128, PyTorch 2.7.0, torchvision 0.22.0. A CUDA-capable GPU is required for training.
 
-- Python `3.12`
-- CUDA wheel stack `cu128`
-- PyTorch `2.7.0`
-- torchvision `0.22.0`
+## Data
 
-The project also needs a CUDA-capable GPU for the graph rescue and backbone paths that use PyTorch CUDA kernels.
+The dataset root must follow the layout expected by `BaselineInstanceDataset`:
 
-## Data Prep
-
-The main dataset root must follow the layout expected by `BaselineInstanceDataset`:
-
-- `images/train/*.png|jpg`
-- `images/val/*.png|jpg`
-- `annotations/instances_train.json`
-- `annotations/instances_val.json`
+- `images/<split>/*.png|jpg`
+- `annotations/instances_<split>.json`
 - optional depth data in `depth/<split>/` or `depth/depth_npy/<split>/`
 
-If a variant uses reference rescue, the reference bank root must contain:
+Datasets in this repo (all 1024x1024 rendered scenes):
 
-- `rgb/`
-- `depth/`
-- `mask/`
-- the bank metadata and QA files that the reference loader checks
+| Root | Content | Splits |
+| --- | --- | --- |
+| `datasets/20260318_1K_32254` | main dataset, 32254 scenes | 25654 train / 3276 val / rest test |
+| `datasets/20260318_1K_1566` | small debugging dataset, 1566 scenes | 1261 train / 149 val / rest test |
+| `datasets/20260318_1K_13440` | reference bank, 48 part directories with `rgb/`, `depth/`, `mask/`, `camera/`, `meta/` views | used by the rescue stages |
 
-The existing config files in this repo already point at the current dataset roots:
+Config files pointing at these roots:
 
+- `configs/data/ecc_20260318_1k_32254.yaml`
 - `configs/data/ecc_20260318_1k_1566.yaml`
 - `configs/reference/reference_20260318_1k_13440.yaml`
 
 ## Train
 
-The `gisec` command is the public entrypoint.
+The `gisec` command is the public entrypoint:
 
 ```bash
 gisec train \
-  --config configs/data/ecc_20260318_1k_1566.yaml \
-  --config configs/model/base_rgb_1024_refine.yaml \
-  --dataset-root /path/to/dataset \
-  --output-dir output/gisec/base_rgb_1024_refine
+  --config configs/data/ecc_20260318_1k_32254.yaml \
+  --config configs/model/base_rgb_1024.yaml \
+  --output-dir output/gisec/base_rgb_1024
 ```
 
 For a reference or graph rescue variant, add the reference config and root:
@@ -62,100 +73,84 @@ gisec train \
   --config configs/data/ecc_20260318_1k_1566.yaml \
   --config configs/reference/reference_20260318_1k_13440.yaml \
   --config configs/model/base_rgb_1024_refine_ref_graph.yaml \
-  --dataset-root /path/to/dataset \
-  --reference-root /path/to/reference_bank \
+  --reference-root datasets/20260318_1K_13440 \
   --output-dir output/gisec/base_rgb_1024_refine_ref_graph
 ```
 
-CLI flags override YAML values. You can pass more than one `--config`, and later files win on conflicts.
+CLI flags override YAML values. Multiple `--config` files are allowed; later files win on conflicts. Loss weights (`--boundary-loss-weight`, `--graph-loss-weight`, `--reference-match-loss-weight`) and training schedule (`--epochs`, `--learning-rate`) are CLI parameters.
+
+To run a whole stage group with the shared runner:
+
+```bash
+bash scripts/experiments/run_gisec.sh --dry-run          # print commands only
+bash scripts/experiments/run_gisec.sh --run              # execute
+```
+
+The runner defaults to `datasets/20260318_1K_32254` and iterates the staged variant group; override with `--dataset-root`, `--reference-root`, or `--group`.
 
 ## Eval
 
 ```bash
 gisec eval \
   --config configs/data/ecc_20260318_1k_1566.yaml \
-  --config configs/model/base_rgb_1024_refine.yaml \
-  --dataset-root /path/to/dataset \
-  --output-dir output/gisec/base_rgb_1024_refine_eval \
-  --checkpoint-dir output/gisec/base_rgb_1024_refine \
+  --config configs/model/base_rgb_1024.yaml \
+  --output-dir output/gisec/base_rgb_1024_eval \
+  --checkpoint-dir output/gisec/base_rgb_1024 \
   --checkpoint model_best.pth
 ```
 
-Eval expects `--checkpoint-dir` to be different from `--output-dir`. The usual checkpoint file is `model_best.pth`.
+`--checkpoint-dir` must differ from `--output-dir`. The usual checkpoint file is `model_best.pth`.
 
 ## Infer
 
 ```bash
 gisec infer \
   --config configs/data/ecc_20260318_1k_1566.yaml \
-  --config configs/model/base_rgb_1024_refine.yaml \
-  --dataset-root /path/to/dataset \
-  --output-dir output/gisec/base_rgb_1024_refine_infer \
-  --checkpoint-dir output/gisec/base_rgb_1024_refine \
+  --config configs/model/base_rgb_1024.yaml \
+  --output-dir output/gisec/base_rgb_1024_infer \
+  --checkpoint-dir output/gisec/base_rgb_1024 \
   --checkpoint model_best.pth
 ```
 
-Inference uses the same checkpoint loading path as eval and writes the raw prediction artifacts into the output directory.
+Inference uses the same checkpoint loading path as eval and writes raw prediction artifacts into the output directory.
 
 ## Project Structure
 
-- `src/gisec/cli/`: console entrypoints for `gisec train`, `gisec eval`, and `gisec infer`
+- `src/gisec/cli/`: `gisec train` / `gisec eval` / `gisec infer` entrypoints
 - `src/gisec/config/`: config loading and variant definitions
-- `src/gisec/datasets/`: dataset readers and caches
-- `src/gisec/eval/`: COCO export, metrics, and run summaries
+- `src/gisec/datasets/`: `BaselineInstanceDataset`, COCO utilities, reference bank loader
+- `src/gisec/backbones/`: Mask2Former adapter
 - `src/gisec/models/`: the GISEC model and graph head
-- `src/gisec/train/`: training, evaluation, and inference orchestration
-- `configs/model/`: GISEC model variants
-- `configs/data/`: dataset roots and loader defaults
-- `configs/reference/`: reference bank settings
+- `src/gisec/engine/`: shared COCO evaluation and mask encoding runtime
+- `src/gisec/train/`: training orchestration, split into single-responsibility modules (`args`, `data`, `model_builder`, `graph`, `decode`, `losses`, `evaluate`, `trainer`)
+- `src/gisec/eval/`: COCO export, boundary metrics, run summaries
+- `configs/model/`, `configs/data/`, `configs/reference/`: YAML configs
+- `scripts/experiments/run_gisec.sh`: stage-group runner
+
+Training writes `model_best.pth`, `model_final.pth`, `resume_last.pth`, `run_summary.json`, `metrics_log.jsonl`, `wall_time_sec.txt`, `peak_memory_mb.txt`, and `params_trainable.txt` into the output directory. Eval and infer write `coco_instances_results.json`, `metrics.cocoeval.json`, `inference_speed.json`, and `run_summary.json`.
 
 ## Config Reference
 
 | File group | What it controls |
 | --- | --- |
-| `configs/model/*.yaml` | Model variant, depth mode, refinement stage, and whether reference rescue or graph rescue are enabled |
-| `configs/data/ecc_20260318_1k_1566.yaml` | Dataset root and common loader settings for the main ECC split |
-| `configs/reference/reference_20260318_1k_13440.yaml` | Reference bank root and reference loader contract settings |
+| `configs/model/*.yaml` | Model variant, depth mode, refinement stage, reference rescue, graph rescue |
+| `configs/data/*.yaml` | Dataset root and common loader settings |
+| `configs/reference/reference_20260318_1k_13440.yaml` | Reference bank root and reference loader contract |
 
-The main model variants are:
+The model variants are:
 
-- `base_rgb_1024`
-- `base_rgb_1024_refine`
-- `base_rgb_1024_refine_ref`
-- `base_rgb_1024_refine_ref_graph`
-- `base_rgbd_1024`
-- `base_rgbd_1024_refine`
-- `base_rgbd_1024_refine_ref`
-- `base_rgbd_1024_refine_ref_graph`
+- `base_rgb_1024`, `base_rgb_1024_refine`, `base_rgb_1024_refine_ref`, `base_rgb_1024_refine_ref_graph`
+- `base_rgbd_1024`, `base_rgbd_1024_refine`, `base_rgbd_1024_refine_ref`, `base_rgbd_1024_refine_ref_graph`
 
 ## Architecture Summary
 
-GISEC is a staged Mask2Former system:
-
-1. The backbone predicts instance masks from the input image, with either RGB or RGB-D channels.
+1. The Mask2Former backbone predicts coarse instance masks from RGB or RGB-D input.
 2. The local refinement stage crops each candidate instance, mixes the coarse mask with local features, and predicts a cleaner mask and boundary.
-3. The reference rescue stage loads a reference bank, encodes candidate views, and injects the closest match into the local refinement path.
-4. The graph rescue stage scores component-to-component edges and merges fragments into final instances.
+3. The reference rescue stage matches candidate views against the reference bank and injects the closest match into the refinement path.
+4. The graph rescue stage scores component-to-component edges (connected components via OpenCV) and merges fragments into final instances.
 
-The graph rescue path uses OpenCV connected components and the graph helper code under `src/gisec/models/`.
-
-Training and evaluation both flow through the same dataset contract:
-
-- images and annotations come from `BaselineInstanceDataset`
-- outputs are exported as COCO results and run summaries in the output directory
-
-## Best Published Result
-
-The best stored official result in this repo is the RGB refine stage:
-
-| Config | Dataset | Split | segm/AP | bbox/AP | boundary/IoU |
-| --- | --- | --- | ---: | ---: | ---: |
-| `configs/model/base_rgb_1024_refine.yaml` | `configs/data/ecc_20260318_1k_1566.yaml` | `val` | `0.5761366653940664` | `0.5155950306627068` | `0.25118819472440657` |
-
-`base_rgb_1024_refine` is the current best stored official RGB stage. The follow-up reference and graph rescue variants do not improve on it in the stored ladder summary.
+For details see [`docs/architecture.md`](docs/architecture.md). For the result ladder see [`docs/experiment-results.md`](docs/experiment-results.md).
 
 ## What Is Not Included
 
 This repository keeps only the standalone GISEC package and its supporting docs. It does not include the split-out fragment-graph or object-query codebases, process notebooks, audit notes, archive material, or generated output artifacts.
-
-The root docs are intentionally concise. For deeper architecture notes, see [`docs/architecture.md`](docs/architecture.md). For the official result ladder, see [`docs/experiment-results.md`](docs/experiment-results.md).
