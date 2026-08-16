@@ -375,18 +375,6 @@ def _run_training_loop(
             },
         )
         last_epoch = int(epoch_index + 1)
-        if (epoch_index + 1) % resume_save_every_epochs == 0:
-            resume_state = resume_payload(
-                model=run.model,
-                optimizer=run.optimizer,
-                scaler=run.scaler,
-                args=args,
-                completed_epoch=int(epoch_index + 1),
-                global_step=int(step_count),
-                best_metric=float(best_ap),
-                running_step_time_total=float(running_step_time_total),
-            )
-            save_torch_payload(run.resume_last_checkpoint, resume_state)
         stopping_early = int(args.max_train_steps) > 0 and step_count >= int(
             args.max_train_steps)
         should_eval = False
@@ -401,6 +389,21 @@ def _run_training_loop(
             if stopping_early:
                 final_metrics = epoch_metrics
                 final_speed = epoch_speed
+        if (epoch_index + 1) % resume_save_every_epochs == 0:
+            # Saved after the epoch eval so best_metric always reflects the
+            # newest eval; a crash during eval loses at most the current
+            # epoch's training progress, which the next epoch re-trains.
+            resume_state = resume_payload(
+                model=run.model,
+                optimizer=run.optimizer,
+                scaler=run.scaler,
+                args=args,
+                completed_epoch=int(epoch_index + 1),
+                global_step=int(step_count),
+                best_metric=float(best_ap),
+                running_step_time_total=float(running_step_time_total),
+            )
+            save_torch_payload(run.resume_last_checkpoint, resume_state)
         if stopping_early:
             # The loop already evaluated this exact model state; only fall
             # back to the post-loop final eval when epoch evals are disabled.
