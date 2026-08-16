@@ -265,6 +265,19 @@ def load_resume_payload(
         raise FileNotFoundError(resume_checkpoint)
     payload = torch.load(str(resume_checkpoint),
                          map_location="cpu", weights_only=True)
+    optimizer_state = payload.get("optimizer_state_dict")
+    if (
+        not isinstance(optimizer_state, dict)
+        or "param_groups" not in optimizer_state
+        or "completed_epoch" not in payload
+    ):
+        raise RuntimeError(
+            f"resume checkpoint {resume_checkpoint} carries no training state "
+            "(optimizer_state_dict / completed_epoch); weight-only payloads "
+            "such as model_best.pth or model_final.pth belong on "
+            "--init-checkpoint, while --resume-checkpoint needs the "
+            "resume_last.pth a previous run wrote."
+        )
     validate_runtime_checkpoint_variant(
         requested_variant=str(args.variant),
         run_variant=None,
@@ -279,12 +292,12 @@ def load_resume_payload(
         allow_partial=False,
         context=f"resume checkpoint {resume_checkpoint}",
     )
-    optimizer.load_state_dict(dict(payload.get("optimizer_state_dict", {})))
+    optimizer.load_state_dict(dict(optimizer_state))
     scaler_state = payload.get("scaler_state_dict")
     if isinstance(scaler_state, dict):
         scaler.load_state_dict(scaler_state)
     return (
-        int(payload.get("completed_epoch", 0)),
+        int(payload["completed_epoch"]),
         int(payload.get("global_step", 0)),
         float(payload.get("best_metric", float("-inf"))),
         float(payload.get("running_step_time_total", 0.0)),

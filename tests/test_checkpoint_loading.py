@@ -4,11 +4,13 @@ import argparse
 
 import pytest
 import torch
+from torch.amp import GradScaler
 from torch import nn
 
 from gisec.train.model_builder import (
     configure_model_for_stage,
     load_module_state_dict,
+    load_resume_payload,
     validate_checkpoint_model_args,
 )
 
@@ -117,3 +119,50 @@ def test_configure_model_for_stage_skips_init_load_when_resuming() -> None:
 
     assert all(
         not param.requires_grad for param in model.backbone.parameters())
+
+
+def _resume_args(checkpoint: object) -> argparse.Namespace:
+    return argparse.Namespace(
+        variant="base_rgb_1024",
+        resume_checkpoint=str(checkpoint),
+    )
+
+
+def _save_checkpoint(path: object, payload: dict) -> None:
+    torch.save(payload, str(path))
+
+
+def test_load_resume_payload_rejects_weight_only_checkpoint(tmp_path) -> None:
+    model = _TwoLayer()
+    checkpoint = tmp_path / "model_best.pth"
+    _save_checkpoint(checkpoint, {
+        "state_dict": model.state_dict(),
+        "variant": "base_rgb_1024",
+    })
+
+    with pytest.raises(RuntimeError, match=r"model_best\.pth.*--init-checkpoint"):
+        load_resume_payload(
+            model=model,
+            optimizer=torch.optim.AdamW(model.parameters()),
+            scaler=GradScaler(enabled=False),
+            args=_resume_args(checkpoint),
+        )
+
+
+def test_load_resume_payload_rejects_missing_completed_epoch(tmp_path) -> None:
+    model = _TwoLayer()
+    optimizer = torch.optim.AdamW(model.parameters())
+    checkpoint = tmp_path / "resume_last.pth"
+    _save_checkpoint(checkpoint, {
+        "state_dict": model.state_dict(),
+        "variant": "base_rgb_1024",
+        "optimizer_state_dict": optimizer.state_dict(),
+    })
+
+    with pytest.raises(RuntimeError, match="completed_epoch"):
+        load_resume_payload(
+            model=model,
+            optimizer=optimizer,
+            scaler=GradScaler(enabled=False),
+            args=_resume_args(checkpoint),
+        )
