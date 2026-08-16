@@ -211,6 +211,9 @@ def train_gisec(args: argparse.Namespace) -> None:
         return best_ap_in, metrics, speed
 
     last_epoch = int(completed_epoch)
+    final_metrics: dict[str, Any] | None = None
+    final_speed: dict[str, Any] | None = None
+    final_eval_pending = True
     for epoch_index in range(int(completed_epoch), int(args.epochs)):
         model.train()
         epoch_train_start = time.perf_counter()
@@ -333,8 +336,15 @@ def train_gisec(args: argparse.Namespace) -> None:
                 and (epoch_index + 1) < int(args.epochs)
             )
         if should_eval:
-            best_ap, _, _ = run_epoch_eval(int(epoch_index + 1), best_ap)
+            best_ap, epoch_metrics, epoch_speed = run_epoch_eval(
+                int(epoch_index + 1), best_ap)
+            if stopping_early:
+                final_metrics = epoch_metrics
+                final_speed = epoch_speed
         if stopping_early:
+            # The loop already evaluated this exact model state; only fall
+            # back to the post-loop final eval when epoch evals are disabled.
+            final_eval_pending = eval_interval <= 0
             break
     final_ckpt = output_dir / "model_final.pth"
     final_payload = checkpoint_payload(model, args)
@@ -348,7 +358,9 @@ def train_gisec(args: argparse.Namespace) -> None:
             "reason": "final",
         },
     )
-    best_ap, metrics, speed = run_epoch_eval(int(last_epoch), best_ap)
+    if final_eval_pending:
+        best_ap, final_metrics, final_speed = run_epoch_eval(
+            int(last_epoch), best_ap)
     peak_memory_mb = 0.0
     if device.type == "cuda" and torch.cuda.is_available():
         peak_memory_mb = float(
@@ -363,8 +375,8 @@ def train_gisec(args: argparse.Namespace) -> None:
         variant=variant_spec.name,
         modality=str(args.depth_mode),
         artifact_root=output_dir,
-        metrics=metrics,
-        inference_speed=speed,
+        metrics=final_metrics,
+        inference_speed=final_speed,
         checkpoint=final_ckpt,
         dataset_root=str(Path(args.dataset_root).resolve()),
         params_trainable=params_trainable,
