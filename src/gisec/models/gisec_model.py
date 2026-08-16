@@ -309,3 +309,12 @@ class GISECModel(nn.Module):
             if self.use_graph_rescue
             else None
         )
+
+    def train(self, mode: bool = True) -> GISECModel:
+        super().train(mode)
+        # A fully frozen backbone (refine stage) stays in eval mode so
+        # drop-path and other train-only noise never corrupts the features
+        # the frozen teacher feeds to the refiner.
+        if mode and not any(param.requires_grad for param in self.backbone.parameters()):
+            self.backbone.eval()
+        return self
