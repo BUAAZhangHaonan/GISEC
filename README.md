@@ -21,7 +21,7 @@ Mask2Former Swin-T with RGB-D early concat, trained on the 32254-image dataset (
 
 Measurement protocol notes:
 
-1. Every repo-internal AP number above was produced with a score>=0.5 candidate truncation at decode time, which makes AP a conservative lower bound rather than standard COCO AP. After the 2026-08-16 measurement fixes, `gisec eval` uses the standard protocol (score>=0.05 candidate set, COCOeval maxDets 100), and the trainer selects `model_best.pth` with the same epoch-val threshold. Numbers from before and after the fix are not directly comparable, and neither protocol matches the detectron2 stack that produced the 90.63 headline.
+1. Protocol ledger: the 0.6267 rerun row and the Mask2Former phase A baseline (0.5381) were produced with the old score>=0.5 candidate truncation at decode time, a conservative lower bound on AP rather than standard COCO AP. The Mask R-CNN phase A baseline (0.5151) is the odd one out: its run_summary decode_config records a 0.05 candidate set, so the two phase A rows were not measured under one protocol and their gap should be read with that in mind. The ordering Mask2Former > Mask R-CNN survives either way, because 0.05 is a relaxation of 0.5 that can only raise AP, and Mask R-CNN is the row measured under the looser protocol yet still lower. Since the 2026-08-16 fixes, `gisec eval`, infer's metrics, and the trainer's epoch-val all use the standard protocol (score>=0.05 candidate set, COCOeval maxDets 100); numbers from before and after the fix are not directly comparable, and neither protocol matches the detectron2 stack that produced the 90.63 headline.
 2. `boundary_band_iou` is a repo-defined metric, not the Boundary IoU of Cheng et al.: it takes the union of all instance boundary bands (each band is the mask minus its 1-px erosion), computes an image-level IoU between the predicted and ground-truth union maps, and averages per image. Historical artifacts keep the old `boundary/IoU` key for the same quantity.
 3. The 0.6267 rerun row was trained and evaluated on the `0831_1K` dataset, which lives outside the repo at `../magformer_datasets/0831_1K` and is not covered by the in-repo dataset table.
 4. The Historical Ladder numbers below have no surviving artifacts: the checkpoints were deleted during cleanup and the values are transcribed from historical documents, not re-derived from runnable outputs.
@@ -44,11 +44,11 @@ The ladder weights were lost during cleanup. The numbers say the refine stage im
 ### History
 
 - 2026-03/04: staged Mask2Former line on the 1566-scene dataset; refine stage best at 0.5761, rescue stages no gain.
-- 2026-04-06: phase A baselines (Mask2Former Swin-T 0.5381, Mask R-CNN R50 0.5151) on the 1566-scene dataset.
+- 2026-04-13: phase A baselines (Mask2Former Swin-T 0.5381, Mask R-CNN R50 0.5151) on the 1566-scene dataset, per the artifact mtimes and run_summary wall times (both finished in the early hours of 04-13).
 - 2026-04-13: full rerun of `base_rgb_1024` on `0831_1K`; best epoch 19 reaches segm AP 0.6267.
 - 2026-07-15: Mask2Former Swin-T RGB-D concat reaches segm AP 90.6 on the 32254-scene dataset (server 4028); current project benchmark.
 - 2026-08-15: repository refactor; only the rerun best and phase A baseline checkpoints kept on disk.
-- 2026-08-16: measurement correctness fixes; refined-mask paste keeps the probability as the single source of truth, eval switches to the standard COCO candidate protocol, latency covers the full pipeline, and dependencies pin the tested stack.
+- 2026-08-16: measurement correctness fixes; refined-mask paste keeps the probability as the single source of truth, eval switches to the standard COCO candidate protocol, latency covers the full pipeline, dependencies pin the tested stack, and training summaries/metrics rows record the eval protocol actually used.
 
 ## Install
 
@@ -122,7 +122,7 @@ gisec eval \
 
 `--checkpoint-dir` must differ from `--output-dir`. The usual checkpoint file is `model_best.pth`. Pass an absolute path to `--checkpoint`; with a relative path, run_summary auto-provenance may resolve to the default variant. A mismatch is hard-rejected by the variant check embedded in the checkpoint, never silently.
 
-Eval builds its candidate set with the standard COCO protocol: score >= 0.05 by default (`--eval-score-threshold` to override), COCOeval maxDets 100. The threshold actually used is recorded in `run_summary.json` under `decode_config`; `inference_speed.json` records the latency scope (`full_pipeline`). 
+Eval builds its candidate set with the standard COCO protocol: score >= 0.05 by default (`--eval-score-threshold` to override), COCOeval maxDets 100. The threshold actually used is recorded in `run_summary.json` under `decode_config` as `eval_score_threshold` (infer additionally records the `save_score_threshold` applied to its saved predictions). Training run summaries record the same actual value since the 2026-08-16 protocol fixes; earlier training summaries recorded the unused `score_threshold` field instead. `inference_speed.json` records the latency scope (`full_pipeline`).
 
 ## Infer
 
@@ -135,7 +135,7 @@ gisec infer \
   --checkpoint model_best.pth
 ```
 
-Inference uses the same checkpoint loading path as eval and writes raw prediction artifacts into the output directory.
+Inference uses the same checkpoint loading path as eval and writes raw prediction artifacts into the output directory. Metrics come from the same standard-protocol candidate set as eval (since the 2026-08-16 fixes; infer metrics from older versions were computed on the 0.5-threshold set and are not comparable), while the saved predictions (`coco_instances_results.json`, `coco_instances_results.raw.json`) are filtered at `--score-threshold`.
 
 ## Project Structure
 
@@ -182,4 +182,4 @@ Reference rescue expects a prepared bank root that contains one directory per pa
 
 ## What Is Not Included
 
-This repository keeps only the standalone GISEC package and its supporting docs. It does not include the split-out fragment-graph or object-query codebases, process notebooks, audit notes, archive material, or generated output artifacts.
+This repository keeps only the standalone GISEC package. It does not include the split-out fragment-graph or object-query codebases, process notebooks, audit notes, archive material, supporting docs (removed during the 2026-08-15 cleanup), or generated output artifacts.
