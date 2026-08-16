@@ -43,7 +43,9 @@ def _run_metadata_variant(argv: list[str]) -> str | None:
         try:
             variant = json.loads(summary.read_text(
                 encoding="utf-8")).get("variant")
-        except Exception:
+        except json.JSONDecodeError:
+            print(f"[gisec] ignoring malformed run summary: {summary}",
+                  flush=True)
             continue
         if variant in gisec_variant_names():
             return str(variant)

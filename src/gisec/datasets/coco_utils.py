@@ -68,7 +68,11 @@ class LiteCOCO:
     def getAnnIds(self, imgIds: list[int], iscrowd=None) -> list[int]:
         ann_ids: list[int] = []
         for image_id in imgIds:
-            ann_ids.extend(self._ann_ids_by_image.get(int(image_id), []))
+            for ann_id in self._ann_ids_by_image.get(int(image_id), []):
+                if iscrowd is not None and int(
+                        self._annotations[ann_id].get("iscrowd", 0)) != int(iscrowd):
+                    continue
+                ann_ids.append(ann_id)
         return ann_ids
 
     def loadAnns(self, ann_ids: list[int]) -> list[dict[str, Any]]:

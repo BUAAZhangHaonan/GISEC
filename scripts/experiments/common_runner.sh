@@ -38,8 +38,12 @@ runner_shell_join() {
 runner_parse_words_array() {
   local -n dest="$1"
   local source="${2:-}"
+  # Split with the interpreter runner_python_cmd_array already resolved
+  # into dest (the caller fills PYTHON_CMD before parsing --python); fall
+  # back to plain python on the first resolution.
+  local -a interpreter=("${dest[@]:-python}")
   mapfile -t dest < <(
-    python - "$source" <<'PY'
+    "${interpreter[@]}" - "$source" <<'PY'
 import shlex
 import sys
 

@@ -75,7 +75,9 @@ class BaselineInstanceDataset(Dataset):
         masks: list[np.ndarray] = []
         labels: list[int] = []
         if self.include_annotations:
-            ann_ids = self.coco.getAnnIds(imgIds=[image_id], iscrowd=None)
+            # Crowd annotations stay out of the training GT and of the
+            # split/merge statistics computed from the same masks.
+            ann_ids = self.coco.getAnnIds(imgIds=[image_id], iscrowd=False)
             anns = self.coco.loadAnns(ann_ids)
             for ann in anns:
                 mask = ann_to_mask(ann, height, width)
