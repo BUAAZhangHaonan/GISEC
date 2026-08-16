@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from gisec.config.variants import GISEC_VARIANTS, get_gisec_variant_spec, gisec_variant_names
@@ -155,3 +157,39 @@ def test_parse_train_args_relaxes_init_checkpoint_when_resuming() -> None:
 
     assert args.init_checkpoint == ""
     assert args.resume_checkpoint == "/tmp/resume/resume_last.pth"
+
+
+def _write_run_summary(run_dir, variant: str) -> None:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "run_summary.json").write_text(
+        json.dumps({"variant": variant}), encoding="utf-8")
+
+
+def test_parse_train_args_reads_variant_from_resume_run_metadata(tmp_path) -> None:
+    prior_run = tmp_path / "prior_run"
+    _write_run_summary(prior_run, "base_rgbd_1024")
+
+    args = parse_train_args(
+        [
+            "--dataset-root", "/tmp/dataset",
+            "--output-dir", "/tmp/output",
+            "--resume-checkpoint", str(prior_run / "resume_last.pth"),
+        ]
+    )
+
+    assert args.variant == "base_rgbd_1024"
+
+
+def test_parse_train_args_rejects_variant_conflicting_with_resume_metadata(tmp_path) -> None:
+    prior_run = tmp_path / "prior_run"
+    _write_run_summary(prior_run, "base_rgbd_1024")
+
+    with pytest.raises(SystemExit):
+        parse_train_args(
+            [
+                "--dataset-root", "/tmp/dataset",
+                "--output-dir", "/tmp/output",
+                "--variant", "base_rgb_1024",
+                "--resume-checkpoint", str(prior_run / "resume_last.pth"),
+            ]
+        )

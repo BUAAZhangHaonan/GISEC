@@ -33,6 +33,9 @@ def _run_metadata_variant(argv: list[str]) -> str | None:
     checkpoint = _flag_value(argv, "--checkpoint")
     if checkpoint is not None:
         candidate_roots.append(Path(checkpoint).resolve().parent)
+    resume_checkpoint = _flag_value(argv, "--resume-checkpoint")
+    if resume_checkpoint is not None:
+        candidate_roots.append(Path(resume_checkpoint).resolve().parent)
     output_dir = _flag_value(argv, "--output-dir")
     if output_dir is not None:
         candidate_roots.append(Path(output_dir).resolve())
