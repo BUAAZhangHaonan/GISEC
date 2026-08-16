@@ -180,7 +180,7 @@ def test_parse_train_args_reads_variant_from_resume_run_metadata(tmp_path) -> No
     assert args.variant == "base_rgbd_1024"
 
 
-def test_parse_train_args_rejects_variant_conflicting_with_resume_metadata(tmp_path) -> None:
+def test_parse_train_args_rejects_conflicting_resume_metadata(tmp_path) -> None:
     prior_run = tmp_path / "prior_run"
     _write_run_summary(prior_run, "base_rgbd_1024")
 
