@@ -220,6 +220,13 @@ def _run_checkpoint_inference(args: argparse.Namespace, *, save_raw: bool) -> No
     if bool(args.dry_run):
         print(json.dumps(model_payload(args), ensure_ascii=False))
         return
+    # Eval builds the candidate set with the standard COCO protocol
+    # (score >= 0.05 by default, maxDets up to 100); infer keeps
+    # --score-threshold for the predictions it saves to disk.
+    score_threshold = (
+        float(args.score_threshold) if save_raw else float(
+            getattr(args, "eval_score_threshold", args.score_threshold))
+    )
     variant_spec = get_gisec_variant_spec(args.variant)
     device = build_device(str(args.device))
     output_dir = Path(args.output_dir).resolve()
@@ -272,7 +279,7 @@ def _run_checkpoint_inference(args: argparse.Namespace, *, save_raw: bool) -> No
         reference_source=reference_source,
         ann_file=ann_file,
         output_dir=output_dir,
-        score_threshold=float(args.score_threshold),
+        score_threshold=score_threshold,
         mask_threshold=float(args.mask_threshold),
         crop_size=int(args.crop_size),
         crop_pad=int(args.crop_pad),
@@ -294,7 +301,7 @@ def _run_checkpoint_inference(args: argparse.Namespace, *, save_raw: bool) -> No
         benchmark=gisec_benchmark_payload(
             variant_spec.name, str(args.depth_mode)),
         decode_config={
-            "score_threshold": float(args.score_threshold),
+            "score_threshold": score_threshold,
             "mask_threshold": float(args.mask_threshold),
         },
     )

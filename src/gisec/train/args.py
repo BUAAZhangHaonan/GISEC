@@ -131,6 +131,14 @@ def _common_parser(*, mode: str, argv: list[str] | None) -> argparse.ArgumentPar
         parser.add_argument("--checkpoint", type=str, default="")
         parser.add_argument("--split", choices=["train", "val"], default="val")
         parser.add_argument("--max-images", type=int, default=0)
+        parser.add_argument(
+            "--eval-score-threshold",
+            type=float,
+            default=0.05,
+            help="score threshold for the eval candidate set (standard COCO "
+                 "protocol); infer still saves predictions above "
+                 "--score-threshold",
+        )
     return parser
 
 
