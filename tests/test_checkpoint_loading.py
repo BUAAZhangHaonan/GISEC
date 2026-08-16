@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import argparse
+
 import pytest
 import torch
 from torch import nn
 
-from gisec.train.model_builder import load_module_state_dict
+from gisec.train.model_builder import (
+    load_module_state_dict,
+    validate_checkpoint_model_args,
+)
 
 
 class _TwoLayer(nn.Module):
@@ -61,3 +66,33 @@ def test_strict_load_still_rejects_missing_keys() -> None:
     with pytest.raises(RuntimeError, match="missing_keys"):
         load_module_state_dict(
             module, partial, allow_partial=False, context="test checkpoint")
+
+
+def _runtime_args(**overrides: int) -> argparse.Namespace:
+    values = {"image_size": 1024, "crop_size": 256, "num_queries": 16}
+    values.update(overrides)
+    return argparse.Namespace(**values)
+
+
+def test_checkpoint_runtime_args_mismatch_reports_both_values() -> None:
+    payload = {"model": {"image_size": 512, "crop_size": 256, "num_queries": 16}}
+    args = _runtime_args()
+
+    with pytest.raises(RuntimeError, match=r"image_size=512.*image_size=1024"):
+        validate_checkpoint_model_args(
+            payload=payload, args=args, context="eval")
+
+
+def test_checkpoint_runtime_args_match_is_accepted() -> None:
+    payload = {"model": {"image_size": 1024, "crop_size": 256, "num_queries": 16}}
+    args = _runtime_args()
+
+    validate_checkpoint_model_args(
+        payload=payload, args=args, context="eval")
+
+
+def test_checkpoint_without_stored_model_args_is_accepted() -> None:
+    args = _runtime_args()
+
+    validate_checkpoint_model_args(
+        payload={"state_dict": {}}, args=args, context="eval")

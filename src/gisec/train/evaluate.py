@@ -28,6 +28,7 @@ from gisec.train.model_builder import (
     load_module_state_dict,
     resolve_checkpoint_path,
     run_backbone,
+    validate_checkpoint_model_args,
     validate_runtime_checkpoint_variant,
 )
 from gisec.train.args import model_payload
@@ -264,6 +265,11 @@ def _run_checkpoint_inference(args: argparse.Namespace, *, save_raw: bool) -> No
     model = build_gisec_model(args).to(device)
     checkpoint_payload = torch.load(
         str(checkpoint_path), map_location=device, weights_only=True)
+    validate_checkpoint_model_args(
+        payload=checkpoint_payload,
+        args=args,
+        context="eval" if not save_raw else "infer",
+    )
     validate_runtime_checkpoint_variant(
         requested_variant=variant_spec.name,
         run_variant=getattr(args, "_run_metadata_variant", None),

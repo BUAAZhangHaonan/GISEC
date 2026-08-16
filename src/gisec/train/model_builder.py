@@ -135,6 +135,26 @@ def validate_runtime_checkpoint_variant(
         )
 
 
+def validate_checkpoint_model_args(
+    *,
+    payload: dict[str, Any],
+    args: argparse.Namespace,
+    context: str,
+) -> None:
+    stored = payload.get("model") if isinstance(payload, dict) else None
+    if not isinstance(stored, dict):
+        return
+    for key in ("image_size", "crop_size", "num_queries"):
+        if key not in stored:
+            continue
+        if int(stored[key]) != int(getattr(args, key)):
+            raise RuntimeError(
+                f"{context} checkpoint was trained with {key}={int(stored[key])}, "
+                f"but the current run was given {key}={int(getattr(args, key))}; "
+                "shape-related model arguments must match the checkpoint."
+            )
+
+
 def _resolve_input_channels(depth_mode: str) -> int:
     if str(depth_mode) == "rgb":
         return 3
@@ -247,6 +267,7 @@ def load_resume_payload(
         checkpoint_path=resume_checkpoint,
         context="resume",
     )
+    validate_checkpoint_model_args(payload=payload, args=args, context="resume")
     load_module_state_dict(
         model,
         extract_state_dict(payload),
