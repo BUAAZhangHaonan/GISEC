@@ -45,12 +45,12 @@ The ladder weights were lost during cleanup. The numbers say the refine stage im
 ## Install
 
 ```bash
-conda create -n gisec python=3.12 -y
+conda create -n gisec python=3.13 -y
 conda activate gisec
-pip install -e . --index-url https://download.pytorch.org/whl/cu128 --extra-index-url https://pypi.org/simple
+pip install -e . --index-url https://download.pytorch.org/whl/cu130 --extra-index-url https://pypi.org/simple
 ```
 
-`pyproject.toml` is the single dependency declaration. Tested local stack: Python 3.13, CUDA cu128, PyTorch 2.7.0, torchvision 0.22.0. A CUDA-capable GPU is required for training.
+`pyproject.toml` is the single dependency declaration and pins the tested stack. Tested local stack: Python 3.13 (3.13.12), CUDA 13.0 (cu130 wheels), PyTorch 2.10.0, torchvision 0.25.0, transformers 4.57.6, numpy 2.4.3. A CUDA-capable GPU is required for training.
 
 ## Data
 
