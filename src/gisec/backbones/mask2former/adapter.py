@@ -72,8 +72,9 @@ def build_mask2former_model(
             num_labels=num_labels,
             ignore_mismatched_sizes=True,
         )
-        projection = model.model.pixel_level_module.encoder.embeddings.patch_embeddings.projection
-        model.model.pixel_level_module.encoder.embeddings.patch_embeddings.projection = _adapt_patch_projection(
+        embeddings = model.model.pixel_level_module.encoder.embeddings
+        projection = embeddings.patch_embeddings.projection
+        embeddings.patch_embeddings.projection = _adapt_patch_projection(
             projection,
             int(input_channels),
         )

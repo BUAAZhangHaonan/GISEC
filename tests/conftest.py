@@ -48,4 +48,7 @@ class _ZeroGraphHead(nn.Module):
         edge_features: torch.Tensor,
     ) -> torch.Tensor:
         return torch.zeros(
-            (edge_index.shape[1],), dtype=node_features.dtype, device=node_features.device)
+            (edge_index.shape[1],),
+            dtype=node_features.dtype,
+            device=node_features.device,
+        )

@@ -42,13 +42,16 @@ class BaselineInstanceDataset(Dataset):
         categories = self.coco.categories
         if len(categories) != 1:
             raise ValueError(
-                f"Expected exactly one COCO category in {self.root}, got {len(categories)}"
+                f"Expected exactly one COCO category in {self.root}, "
+                f"got {len(categories)}"
             )
         category_id = int(categories[0]["id"])
         # The component category id must index the adapter label space.
         if not 0 <= category_id < NUM_LABELS:
             raise ValueError(
-                f"Component category id {category_id} in {self.root} is outside the model label space [0, {NUM_LABELS})"
+                f"Component category id {category_id} in {self.root} "
+                "is outside the model label space "
+                f"[0, {NUM_LABELS})"
             )
         return category_id
 
@@ -59,7 +62,9 @@ class BaselineInstanceDataset(Dataset):
         image_id = int(self.image_ids[index])
         info = self.coco.loadImgs([image_id])[0]
         image = cv2.imread(
-            str(self.root / "images" / self.split / info["file_name"]), cv2.IMREAD_COLOR)
+            str(self.root / "images" / self.split / info["file_name"]),
+            cv2.IMREAD_COLOR,
+        )
         if image is None:
             raise FileNotFoundError(info["file_name"])
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -96,7 +101,10 @@ class BaselineInstanceDataset(Dataset):
                     f"missing depth array for {info['file_name']}: {depth_path}")
             depth = load_depth_array(depth_path)
             depth = cv2.resize(
-                depth, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
+                depth,
+                (self.image_size, self.image_size),
+                interpolation=cv2.INTER_NEAREST,
+            )
             depth_tensor = torch.from_numpy(depth[None, ...]).float()
 
         masks_tensor = None

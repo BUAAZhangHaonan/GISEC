@@ -16,7 +16,9 @@ _DEFAULT_PRETRAINED_MODEL = "facebook/mask2former-swin-tiny-coco-instance"
 
 
 def _flag_value(argv: list[str], flag: str) -> str | None:
-    """Last value of a repeated CLI flag, accepting ``--flag value`` and ``--flag=value``."""
+    """Last value of a repeated CLI flag, accepting ``--flag value``
+    and ``--flag=value``.
+    """
     value = None
     for index, token in enumerate(argv):
         if token == flag and index + 1 < len(argv):
@@ -79,7 +81,8 @@ def _check_variant_consistency(
     setattr(args, "_run_metadata_variant", run_variant)  # noqa: B010
     if str(args.variant) != str(run_variant):
         parser.error(
-            f"--variant {args.variant} conflicts with run metadata variant {run_variant}"
+            f"--variant {args.variant} conflicts with run metadata "
+            f"variant {run_variant}"
         )
 
 
@@ -120,8 +123,11 @@ def _common_parser(*, mode: str, argv: list[str] | None) -> argparse.ArgumentPar
     parser.add_argument("--crop-pad", type=int, default=16)
     parser.add_argument("--boundary-band-width", type=int, default=4)
     parser.add_argument("--reference-max-views", type=int, default=16)
-    parser.add_argument("--reference-view-sampler",
-                        choices=["all", "uniform", "pose_farthest"], default="pose_farthest")
+    parser.add_argument(
+        "--reference-view-sampler",
+        choices=["all", "uniform", "pose_farthest"],
+        default="pose_farthest",
+    )
     parser.add_argument("--allow-partial-checkpoint-load", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     if mode == "train":
@@ -167,7 +173,11 @@ def _common_parser(*, mode: str, argv: list[str] | None) -> argparse.ArgumentPar
     return parser
 
 
-def _validate_required_args(parser: argparse.ArgumentParser, args: argparse.Namespace, required: list[str]) -> None:
+def _validate_required_args(
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+    required: list[str],
+) -> None:
     missing = [name for name in required if getattr(
         args, name, None) in (None, "")]
     if missing:
@@ -175,19 +185,29 @@ def _validate_required_args(parser: argparse.ArgumentParser, args: argparse.Name
                      ", ".join(f"--{name.replace('_', '-')}" for name in missing))
 
 
-def _validate_variant_requirements(parser: argparse.ArgumentParser, args: argparse.Namespace, *, is_eval: bool) -> None:
+def _validate_variant_requirements(
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+    *,
+    is_eval: bool,
+) -> None:
     variant_spec = get_gisec_variant_spec(args.variant)
     depth_mode = str(getattr(args, "depth_mode", "")
                      or variant_spec.depth_mode)
     if variant_spec.depth_mode == "rgb":
         if depth_mode != "rgb":
             parser.error(
-                f"--depth-mode {depth_mode} is not allowed for GISEC variant {variant_spec.name}")
+                f"--depth-mode {depth_mode} is not allowed for GISEC "
+                f"variant {variant_spec.name}")
     elif depth_mode != "rgbd_concat":
         parser.error(
-            f"--depth-mode {depth_mode} is not allowed for GISEC variant {variant_spec.name}")
+            f"--depth-mode {depth_mode} is not allowed for GISEC "
+            f"variant {variant_spec.name}")
     args.depth_mode = depth_mode
-    if variant_spec.requires_reference_root and getattr(args, "reference_root", "") in ("", None):
+    if (
+        variant_spec.requires_reference_root
+        and getattr(args, "reference_root", "") in ("", None)
+    ):
         parser.error(
             f"--reference-root is required for GISEC variant {variant_spec.name}")
     resuming = str(getattr(args, "resume_checkpoint", "") or "").strip() != ""
@@ -242,7 +262,11 @@ def model_payload(args: argparse.Namespace) -> dict[str, Any]:
         "device": str(args.device),
         "score_threshold": float(args.score_threshold),
         "mask_threshold": float(args.mask_threshold),
-        "pretrained_model_name": None if str(args.pretrained_model_name).strip().lower() in {"", "none"} else str(args.pretrained_model_name),
+        "pretrained_model_name": (
+            None
+            if str(args.pretrained_model_name).strip().lower() in {"", "none"}
+            else str(args.pretrained_model_name)
+        ),
         "hidden_dim": int(args.hidden_dim),
         "feature_size": int(args.feature_size),
         "mask_feature_size": int(args.mask_feature_size),
@@ -271,7 +295,9 @@ def model_payload(args: argparse.Namespace) -> dict[str, Any]:
         "learning_rate": float(getattr(args, "learning_rate", 0.0)),
         "weight_decay": float(getattr(args, "weight_decay", 0.0)),
         "eval_every_epochs": int(getattr(args, "eval_every_epochs", 1)),
-        "allow_partial_checkpoint_load": bool(getattr(args, "allow_partial_checkpoint_load", False)),
+        "allow_partial_checkpoint_load": bool(
+            getattr(args, "allow_partial_checkpoint_load", False)
+        ),
         "resume_save_every_epochs": int(getattr(args, "resume_save_every_epochs", 1)),
         "seed": int(getattr(args, "seed", 42)),
     }

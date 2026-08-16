@@ -379,20 +379,23 @@ def _run_training_loop(
             ):
                 break
             step_start = time.perf_counter()
-            images = torch.stack([sample["image"].float() for sample in samples], dim=0).to(
-                run.device, non_blocking=non_blocking
-            )
+            images = torch.stack(
+                [sample["image"].float() for sample in samples], dim=0
+            ).to(run.device, non_blocking=non_blocking)
             depths = None
             if run.include_depth:
-                depths = torch.stack([sample["depth"].float() for sample in samples], dim=0).to(
-                    run.device, non_blocking=non_blocking
-                )
+                depths = torch.stack(
+                    [sample["depth"].float() for sample in samples], dim=0
+                ).to(run.device, non_blocking=non_blocking)
             pixel_values = prepare_gisec_input_batch(
                 images=images, depths=depths, depth_mode=str(args.depth_mode))
             pixel_mask = build_pixel_mask(pixel_values)
             mask_labels, class_labels = build_label_targets(
                 samples, device=run.device, non_blocking=non_blocking)
-            with autocast(device_type=run.device.type, enabled=bool(run.device.type == "cuda")):
+            with autocast(
+                device_type=run.device.type,
+                enabled=bool(run.device.type == "cuda"),
+            ):
                 outputs = run_backbone(
                     model=run.model,
                     pixel_values=pixel_values,
@@ -440,7 +443,10 @@ def _run_training_loop(
                 step_count == 1
                 or step_count % log_every_steps == 0
                 or step_count >= planned_total_steps
-                or (int(args.max_train_steps) > 0 and step_count >= int(args.max_train_steps))
+                or (
+                    int(args.max_train_steps) > 0
+                    and step_count >= int(args.max_train_steps)
+                )
             ):
                 row = {
                     "mode": "train_step",
@@ -450,7 +456,9 @@ def _run_training_loop(
                     "epoch_steps_total": int(epoch_steps_total),
                     "loss_total": float(loss.detach().cpu()),
                     "loss_backbone_total": float(backbone_loss.detach().cpu()),
-                    "loss_local_total": float(local_metrics.get("loss_local_total", 0.0)),
+                    "loss_local_total": float(
+                        local_metrics.get("loss_local_total", 0.0)
+                    ),
                     "lr": float(run.optimizer.param_groups[0]["lr"]),
                     "step_time_sec": step_time_sec,
                     "step_time_running_avg_sec": running_avg_step_time_sec,

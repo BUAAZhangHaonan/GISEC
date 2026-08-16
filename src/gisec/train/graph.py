@@ -45,7 +45,10 @@ def build_local_graph_inputs(
     if len(labels) <= 1:
         return (
             torch.zeros(
-                (0, feature_crop.shape[0] + 4), dtype=feature_crop.dtype, device=feature_crop.device),
+                (0, feature_crop.shape[0] + 4),
+                dtype=feature_crop.dtype,
+                device=feature_crop.device,
+            ),
             torch.zeros((2, 0), dtype=torch.long, device=feature_crop.device),
             torch.zeros((0, 4), dtype=feature_crop.dtype,
                         device=feature_crop.device),
@@ -158,8 +161,11 @@ def _graph_rescue_edge_targets(
     src_owner = owners[edge_index_local[0].long()]
     dst_owner = owners[edge_index_local[1].long()]
     valid_mask = (src_owner > 0) | (dst_owner > 0)
-    targets = torch.where((src_owner > 0) & (src_owner == dst_owner), torch.ones_like(
-        src_owner, dtype=torch.float32), torch.zeros_like(src_owner, dtype=torch.float32))
+    targets = torch.where(
+        (src_owner > 0) & (src_owner == dst_owner),
+        torch.ones_like(src_owner, dtype=torch.float32),
+        torch.zeros_like(src_owner, dtype=torch.float32),
+    )
     return (
         targets.to(dtype=torch.float32, device=edge_index.device),
         valid_mask.to(dtype=torch.bool, device=edge_index.device),
@@ -263,4 +269,6 @@ def graph_rescue_training_loss(
         edge_index=edge_index,
         edge_features=edge_features,
     )
-    return F.binary_cross_entropy_with_logits(edge_logits[valid_edge_mask], edge_targets[valid_edge_mask])
+    return F.binary_cross_entropy_with_logits(
+        edge_logits[valid_edge_mask], edge_targets[valid_edge_mask]
+    )

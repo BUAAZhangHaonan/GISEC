@@ -77,14 +77,14 @@ def evaluate_gisec(
         for batch_index, samples in enumerate(loader):
             if int(max_images) > 0 and batch_index >= int(max_images):
                 break
-            images = torch.stack([sample["image"].float() for sample in samples], dim=0).to(
-                device, non_blocking=non_blocking
-            )
+            images = torch.stack(
+                [sample["image"].float() for sample in samples], dim=0
+            ).to(device, non_blocking=non_blocking)
             depths = None
             if str(depth_mode) != "rgb":
-                depths = torch.stack([sample["depth"].float() for sample in samples], dim=0).to(
-                    device, non_blocking=non_blocking
-                )
+                depths = torch.stack(
+                    [sample["depth"].float() for sample in samples], dim=0
+                ).to(device, non_blocking=non_blocking)
             pixel_values = prepare_gisec_input_batch(
                 images=images, depths=depths, depth_mode=depth_mode)
             pixel_mask = build_pixel_mask(pixel_values)
@@ -142,7 +142,9 @@ def evaluate_gisec(
                         variant_name=variant_name,
                         sample=sample,
                         full_input=pixel_values[sample_offset],
-                        feature_map=outputs.pixel_decoder_last_hidden_state[sample_offset],
+                        feature_map=outputs.pixel_decoder_last_hidden_state[
+                            sample_offset
+                        ],
                         predictions=predictions,
                         crop_size=int(crop_size),
                         crop_pad=int(crop_pad),

@@ -42,7 +42,9 @@ def _write_dataset(root: Path, *, file_name: str = "000001.png") -> None:
          f"instances_{split}.json").write_text(json.dumps(ann), encoding="utf-8")
 
 
-def test_baseline_instance_dataset_returns_rgb_and_instance_targets(tmp_path: Path) -> None:
+def test_baseline_instance_dataset_returns_rgb_and_instance_targets(
+    tmp_path: Path,
+) -> None:
     dataset_root = tmp_path / "dataset"
     _write_dataset(dataset_root)
 

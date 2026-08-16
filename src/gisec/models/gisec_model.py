@@ -14,7 +14,9 @@ from gisec.models.graph_head import GraphEdgeScorer
 REFINE_FEATURE_CHANNELS = 16
 
 
-def normalize_descriptor_tensor(descriptor: torch.Tensor, *, dim: int, eps: float = 1.0e-6) -> torch.Tensor:
+def normalize_descriptor_tensor(
+    descriptor: torch.Tensor, *, dim: int, eps: float = 1.0e-6
+) -> torch.Tensor:
     return F.normalize(descriptor.float(), dim=dim, eps=float(eps))
 
 
@@ -32,7 +34,8 @@ def normalize_depth(depth: torch.Tensor) -> torch.Tensor:
 def prepare_reference_depth(*, depth: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
     if depth.shape != mask.shape:
         raise ValueError(
-            f"Expected depth and mask to share shape, got {tuple(depth.shape)} and {tuple(mask.shape)}")
+            f"Expected depth and mask to share shape, "
+            f"got {tuple(depth.shape)} and {tuple(mask.shape)}")
     valid = (mask > 0.5) & torch.isfinite(depth) & (depth < 1.0e9)
     safe_depth = torch.where(valid, depth.float(),
                              torch.zeros_like(depth.float()))
@@ -204,7 +207,12 @@ class LocalRefinementModule(nn.Module):
         reference_match_logits = None
         top_indices = None
         top_weights = None
-        if self.use_reference and reference_rgb is not None and reference_depth is not None and reference_mask is not None:
+        if (
+            self.use_reference
+            and reference_rgb is not None
+            and reference_depth is not None
+            and reference_mask is not None
+        ):
             query_batch_size = int(query_crop.shape[0])
             reference_batch_size, view_count = reference_rgb.shape[:2]
             if reference_batch_size not in {1, query_batch_size}:
@@ -310,6 +318,8 @@ class GISECModel(nn.Module):
         # A fully frozen backbone (refine stage) stays in eval mode so
         # drop-path and other train-only noise never corrupts the features
         # the frozen teacher feeds to the refiner.
-        if mode and not any(param.requires_grad for param in self.backbone.parameters()):
+        if mode and not any(
+            param.requires_grad for param in self.backbone.parameters()
+        ):
             self.backbone.eval()
         return self

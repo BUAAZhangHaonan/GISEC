@@ -21,7 +21,14 @@ def build_latency_payload(
 ) -> dict[str, Any]:
     values = np.asarray(latencies_ms, dtype=np.float32)
     if values.size == 0:
-        return {"device": device.type, "scope": str(scope), "images": 0, "latency_ms_mean": 0.0, "latency_ms_p50": 0.0, "latency_ms_p90": 0.0}
+        return {
+            "device": device.type,
+            "scope": str(scope),
+            "images": 0,
+            "latency_ms_mean": 0.0,
+            "latency_ms_p50": 0.0,
+            "latency_ms_p90": 0.0,
+        }
     return {
         "device": device.type,
         "scope": str(scope),

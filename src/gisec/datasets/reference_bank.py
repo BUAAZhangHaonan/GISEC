@@ -33,7 +33,9 @@ class ReferenceBank:
     _depths: torch.Tensor | None = field(default=None, init=False, repr=False)
     _masks: torch.Tensor | None = field(default=None, init=False, repr=False)
 
-    def _load_record(self, record: ReferenceViewRecord) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def _load_record(
+        self, record: ReferenceViewRecord
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         rgb = cv2.imread(str(record.rgb_path), cv2.IMREAD_COLOR)
         if rgb is None:
             raise FileNotFoundError(record.rgb_path)
@@ -294,7 +296,9 @@ def _uniform_sample_view_ids(view_ids: list[str], max_views: int) -> list[str]:
     return [view_ids[index] for index in sorted(selected)]
 
 
-def _pose_farthest_sample_view_ids(root: Path, view_ids: list[str], max_views: int) -> list[str]:
+def _pose_farthest_sample_view_ids(
+    root: Path, view_ids: list[str], max_views: int
+) -> list[str]:
     camera_dir = root / "camera"
     positions = []
     for view_id in view_ids:

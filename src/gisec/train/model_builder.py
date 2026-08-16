@@ -22,7 +22,9 @@ def resolve_checkpoint_path(checkpoint_dir: Path, checkpoint: str) -> Path:
     return (checkpoint_dir / checkpoint_path).resolve()
 
 
-def extract_state_dict(payload: dict[str, Any], *, prefix_backbone: bool = False) -> dict[str, Any]:
+def extract_state_dict(
+    payload: dict[str, Any], *, prefix_backbone: bool = False
+) -> dict[str, Any]:
     if "state_dict" in payload and isinstance(payload["state_dict"], dict):
         state_dict = dict(payload["state_dict"])
     else:
@@ -65,7 +67,8 @@ def _partition_state_dict(
             and tuple(value.shape) != tuple(target_value.shape)
         ):
             shape_mismatches.append(
-                f"{key}: checkpoint {tuple(value.shape)} != model {tuple(target_value.shape)}"
+                f"{key}: checkpoint {tuple(value.shape)} != "
+                f"model {tuple(target_value.shape)}"
             )
             continue
         compatible[key] = value
@@ -129,12 +132,14 @@ def validate_runtime_checkpoint_variant(
         return
     if str(checkpoint_variant) != str(requested_variant):
         raise RuntimeError(
-            f"{context} checkpoint {Path(checkpoint_path).resolve()} declares variant {checkpoint_variant}, "
+            f"{context} checkpoint {Path(checkpoint_path).resolve()} "
+            f"declares variant {checkpoint_variant}, "
             f"but the requested GISEC variant is {requested_variant}."
         )
     if run_variant not in {None, ""} and str(checkpoint_variant) != str(run_variant):
         raise RuntimeError(
-            f"{context} checkpoint {Path(checkpoint_path).resolve()} declares variant {checkpoint_variant}, "
+            f"{context} checkpoint {Path(checkpoint_path).resolve()} "
+            f"declares variant {checkpoint_variant}, "
             f"but run metadata resolves to {run_variant}."
         )
 
@@ -174,8 +179,11 @@ def build_gisec_model(args: argparse.Namespace) -> GISECModel:
     input_channels = _resolve_input_channels(depth_mode)
     backbone = build_mask2former_model(
         image_size=int(args.image_size),
-        pretrained_model_name=None if str(args.pretrained_model_name).strip().lower() in {
-            "", "none"} else str(args.pretrained_model_name),
+        pretrained_model_name=(
+            None
+            if str(args.pretrained_model_name).strip().lower() in {"", "none"}
+            else str(args.pretrained_model_name)
+        ),
         input_channels=int(input_channels),
         hidden_dim=int(args.hidden_dim),
         feature_size=int(args.feature_size),

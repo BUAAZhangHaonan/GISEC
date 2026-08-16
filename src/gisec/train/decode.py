@@ -33,7 +33,9 @@ MAX_REFINEMENT_INSTANCES = 8
 REFINEMENT_BUDGET_FRACTION = 0.25
 
 
-def _upscale_mask_logits(mask_logits: torch.Tensor, *, image_shape: tuple[int, int]) -> torch.Tensor:
+def _upscale_mask_logits(
+    mask_logits: torch.Tensor, *, image_shape: tuple[int, int]
+) -> torch.Tensor:
     return F.interpolate(
         mask_logits.unsqueeze(0),
         size=(int(image_shape[0]), int(image_shape[1])),
@@ -56,15 +58,21 @@ def select_refinement_instances(
 ) -> list[int]:
     if mask_probs.ndim != 3 or binary_masks.ndim != 3:
         raise ValueError(
-            f"Expected mask_probs and binary_masks with shape (N, H, W), got {tuple(mask_probs.shape)} and {tuple(binary_masks.shape)}"
+            f"Expected mask_probs and binary_masks with shape (N, H, W), "
+            f"got {tuple(mask_probs.shape)} and {tuple(binary_masks.shape)}"
         )
     if mask_probs.shape != binary_masks.shape:
         raise ValueError(
-            f"mask_probs and binary_masks must match, got {tuple(mask_probs.shape)} and {tuple(binary_masks.shape)}"
+            f"mask_probs and binary_masks must match, "
+            f"got {tuple(mask_probs.shape)} and {tuple(binary_masks.shape)}"
         )
-    if instance_scores.ndim != 1 or int(instance_scores.shape[0]) != int(mask_probs.shape[0]):
+    if (
+        instance_scores.ndim != 1
+        or int(instance_scores.shape[0]) != int(mask_probs.shape[0])
+    ):
         raise ValueError(
-            f"Expected instance_scores with shape ({int(mask_probs.shape[0])},), got {tuple(instance_scores.shape)}"
+            f"Expected instance_scores with shape "
+            f"({int(mask_probs.shape[0])},), got {tuple(instance_scores.shape)}"
         )
     instance_count = int(mask_probs.shape[0])
     if instance_count == 0:
@@ -185,7 +193,9 @@ def scale_bbox(
     return (tx, ty, tw, th)
 
 
-def project_local_features_float32(model: GISECModel, feature_map: torch.Tensor) -> torch.Tensor:
+def project_local_features_float32(
+    model: GISECModel, feature_map: torch.Tensor
+) -> torch.Tensor:
     with autocast(device_type=feature_map.device.type, enabled=False):
         projected = model.feature_proj(feature_map.float())
     return projected
@@ -207,7 +217,9 @@ def run_local_refiner_float32(
             coarse_mask_prob=coarse_mask_prob.float(),
             feature_crop=feature_crop.float(),
             reference_rgb=None if reference_rgb is None else reference_rgb.float(),
-            reference_depth=None if reference_depth is None else reference_depth.float(),
+            reference_depth=None
+            if reference_depth is None
+            else reference_depth.float(),
             reference_mask=None if reference_mask is None else reference_mask.float(),
         )
     return refined
@@ -295,8 +307,12 @@ def apply_local_rescue(
             crop_size), mode="bilinear").unsqueeze(0)
         coarse_mask_crop = crop_and_resize(row["mask_probs"].unsqueeze(
             0), bbox=bbox, output_size=int(crop_size), mode="bilinear").unsqueeze(0)
-        feature_crop = crop_and_resize(projected_feature_map, bbox=feature_bbox, output_size=int(
-            crop_size), mode="bilinear").unsqueeze(0)
+        feature_crop = crop_and_resize(
+            projected_feature_map,
+            bbox=feature_bbox,
+            output_size=int(crop_size),
+            mode="bilinear",
+        ).unsqueeze(0)
         refined = run_local_refiner_float32(
             model=model,
             query_crop=query_crop,

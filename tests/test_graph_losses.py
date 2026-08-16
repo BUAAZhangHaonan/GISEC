@@ -23,7 +23,7 @@ def test_graph_rescue_training_loss_is_zero_when_only_one_component_exists() -> 
     assert float(loss) == 0.0
 
 
-def test_graph_rescue_training_loss_is_positive_for_two_components_of_one_instance() -> None:
+def test_graph_rescue_training_loss_is_positive_for_fragments_of_one_instance() -> None:
     crop_features = torch.ones((4, 8, 8), dtype=torch.float32)
     coarse_mask_prob = torch.zeros((8, 8), dtype=torch.float32)
     coarse_mask_prob[1:4, 1:3] = 1.0

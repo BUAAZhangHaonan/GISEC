@@ -79,7 +79,9 @@ def build_run_summary_payload(
     resolved_checkpoint = (
         str(Path(checkpoint).resolve())
         if checkpoint is not None
-        else _resolve_existing_artifact(artifact_root, "model_best.pth", "model_final.pth")
+        else _resolve_existing_artifact(
+            artifact_root, "model_best.pth", "model_final.pth"
+        )
     )
     resolved_results_json = (
         str(Path(results_json).resolve())
@@ -108,7 +110,9 @@ def build_run_summary_payload(
         "artifact_root": str(artifact_root),
         "checkpoint": resolved_checkpoint,
         "results_json": resolved_results_json,
-        "dataset_root": None if dataset_root is None else str(Path(dataset_root).resolve()),
+        "dataset_root": (
+            None if dataset_root is None else str(Path(dataset_root).resolve())
+        ),
         "params_trainable": resolved_params_trainable,
         "training_peak_memory_mb": resolved_training_peak_memory_mb,
         "wall_time_sec": resolved_wall_time_sec,

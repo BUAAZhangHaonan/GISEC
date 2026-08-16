@@ -47,11 +47,17 @@ class GraphEdgeScorer(nn.Module):
 
         agg = torch.zeros_like(node_hidden)
         counts = torch.zeros(
-            (node_hidden.shape[0], 1), dtype=node_hidden.dtype, device=node_hidden.device)
+            (node_hidden.shape[0], 1),
+            dtype=node_hidden.dtype,
+            device=node_hidden.device,
+        )
         agg.index_add_(0, src, edge_hidden)
         agg.index_add_(0, dst, edge_hidden)
         ones = torch.ones(
-            (edge_hidden.shape[0], 1), dtype=node_hidden.dtype, device=node_hidden.device)
+            (edge_hidden.shape[0], 1),
+            dtype=node_hidden.dtype,
+            device=node_hidden.device,
+        )
         counts.index_add_(0, src, ones)
         counts.index_add_(0, dst, ones)
         node_hidden = self.node_upd(
