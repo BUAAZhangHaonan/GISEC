@@ -16,8 +16,14 @@ def build_reference_source(args: argparse.Namespace) -> ReferenceBankSource | No
     variant_spec = get_gisec_variant_spec(args.variant)
     if not variant_spec.requires_reference_root:
         return None
+    reference_root = str(getattr(args, "reference_root", "") or "").strip()
+    if not reference_root:
+        raise ValueError(
+            f"GISEC variant {variant_spec.name} requires --reference-root "
+            "pointing at the prepared reference bank, but none was given"
+        )
     return ReferenceBankSource(
-        root=Path(str(args.reference_root)).resolve(),
+        root=Path(reference_root).resolve(),
         image_size=int(args.crop_size),
         max_views=int(args.reference_max_views),
         view_sampler=str(args.reference_view_sampler),

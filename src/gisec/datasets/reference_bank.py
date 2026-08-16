@@ -14,8 +14,10 @@ from gisec.datasets.coco_utils import load_depth_array
 from gisec.models.gisec_model import prepare_reference_depth
 
 
-def _resize_rgb(image: np.ndarray, image_size: int) -> np.ndarray:
-    return cv2.resize(image, (image_size, image_size), interpolation=cv2.INTER_LINEAR)
+def _resize_linear(array: np.ndarray, image_size: int) -> np.ndarray:
+    # Depth is a continuous field, so it resamples bilinearly like RGB;
+    # nearest would leave stair-step artifacts along resample boundaries.
+    return cv2.resize(array, (image_size, image_size), interpolation=cv2.INTER_LINEAR)
 
 
 def _resize_mask(mask: np.ndarray, image_size: int) -> np.ndarray:
@@ -41,8 +43,8 @@ class ReferenceBank:
         if mask is None:
             raise FileNotFoundError(record.mask_path)
         mask = (mask > 0).astype(np.uint8)
-        rgb = _resize_rgb(rgb, self.image_size)
-        depth = _resize_mask(depth, self.image_size).astype(np.float32)
+        rgb = _resize_linear(rgb, self.image_size)
+        depth = _resize_linear(depth, self.image_size).astype(np.float32)
         mask = _resize_mask(mask, self.image_size).astype(np.uint8)
         return (
             torch.from_numpy(rgb.transpose(2, 0, 1)).float() / 255.0,
@@ -123,8 +125,9 @@ class ReferenceBankSource:
             return self.root
         candidate = (self.root / str(part_key)).resolve()
         if candidate.name not in self._available_parts or not candidate.exists():
-            raise KeyError(
-                f"Unknown part key for reference bank source: {part_key}")
+            raise ValueError(
+                f"Unknown part key for reference bank source: {part_key}; "
+                f"available parts: {self._available_parts}")
         return candidate
 
     def load_for_query(self, file_name: str) -> ReferenceBank:
@@ -195,8 +198,9 @@ def extract_reference_part_key(file_name: str, available_parts: list[str]) -> st
     for part_key in sorted(available_parts, key=lambda item: (-len(item), item)):
         if file_name.startswith(part_key + "_"):
             return part_key
-    raise KeyError(
-        f"Could not resolve part key from reference file name: {file_name}")
+    raise ValueError(
+        f"Could not resolve part key from reference file name: {file_name}; "
+        f"available parts: {sorted(available_parts)}")
 
 
 def load_reference_bank(
@@ -282,34 +286,48 @@ def _uniform_sample_view_ids(view_ids: list[str], max_views: int) -> list[str]:
         int(round(index))
         for index in np.linspace(0, len(view_ids) - 1, num=max_views)
     }
+    # linspace rounding can collapse to fewer than max_views distinct
+    # indices; fill the remaining slots with the lowest unselected ones so
+    # the caller always receives exactly min(max_views, available) views.
+    for index in range(len(view_ids)):
+        if len(selected) >= int(max_views):
+            break
+        selected.add(index)
     return [view_ids[index] for index in sorted(selected)]
 
 
 def _pose_farthest_sample_view_ids(root: Path, view_ids: list[str], max_views: int) -> list[str]:
     camera_dir = root / "camera"
-    vectors = []
+    positions = []
     for view_id in view_ids:
         path = camera_dir / f"{view_id}.json"
         if not path.exists():
+            print(
+                f"[gisec] reference bank: camera pose {path} is missing; "
+                "falling back to uniform view sampling", flush=True)
             return []
         payload = _read_json(path)
         position = payload.get("position")
-        quat = payload.get("quat_xyzw")
-        if not isinstance(position, list) or not isinstance(quat, list):
+        if not isinstance(position, list):
+            print(
+                f"[gisec] reference bank: camera pose {path} has no position "
+                "list; falling back to uniform view sampling", flush=True)
             return []
-        vectors.append(np.asarray(list(position) +
-                       list(quat), dtype=np.float32))
-    if not vectors:
+        # Distances use the camera position only: position is meters while
+        # quaternions are unitless, so mixing them into one euclidean
+        # distance compares incompatible units.
+        positions.append(np.asarray(list(position), dtype=np.float32))
+    if not positions:
         return []
     selected = [0]
     while len(selected) < min(int(max_views), len(view_ids)):
         best_index = None
         best_distance = -1.0
-        for index, vector in enumerate(vectors):
+        for index, position in enumerate(positions):
             if index in selected:
                 continue
             distance = min(
-                float(np.linalg.norm(vector - vectors[selected_index]))
+                float(np.linalg.norm(position - positions[selected_index]))
                 for selected_index in selected
             )
             if distance > best_distance:
