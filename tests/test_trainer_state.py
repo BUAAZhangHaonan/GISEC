@@ -226,3 +226,49 @@ def test_resumed_run_at_cap_trains_no_extra_step(tmp_path, monkeypatch) -> None:
     assert _train_step_rows(run.metrics_log_path) == []
     assert last_epoch == 3
     assert best_ap == 0.25
+
+
+def test_epoch_eval_row_stamps_the_decode_protocol(tmp_path, monkeypatch) -> None:
+    _stub_loop_dependencies(monkeypatch)
+    args = parse_train_args([
+        "--dataset-root", str(tmp_path),
+        "--output-dir", str(tmp_path),
+        "--variant", "base_rgb_1024",
+        "--eval-score-threshold", "0.1",
+    ])
+    run = _loop_run(args, _LoopModel(), tmp_path)
+
+    trainer_module._run_epoch_eval(run, epoch=1, best_ap_in=float("-inf"))
+
+    row = [r for r in _read_rows(run.metrics_log_path)
+           if r["mode"] == "epoch_eval"][0]
+    assert row["eval_score_threshold"] == 0.1
+    assert row["mask_threshold"] == 0.5
+
+
+def test_run_summary_records_the_actual_eval_threshold(tmp_path, monkeypatch) -> None:
+    _stub_loop_dependencies(monkeypatch)
+    args = parse_train_args([
+        "--dataset-root", str(tmp_path),
+        "--output-dir", str(tmp_path),
+        "--variant", "base_rgb_1024",
+        "--eval-score-threshold", "0.2",
+    ])
+    run = _loop_run(args, _LoopModel(), tmp_path)
+
+    trainer_module._finalize_run(
+        run,
+        last_epoch=1,
+        best_ap=0.25,
+        final_metrics={"segm/AP": 0.25},
+        final_speed={},
+        final_eval_pending=False,
+    )
+
+    summary = json.loads(
+        (tmp_path / "run_summary.json").read_text(encoding="utf-8"))
+    assert summary["decode_config"] == {
+        "eval_score_threshold": 0.2,
+        "mask_threshold": 0.5,
+        "graph_merge_threshold": 0.5,
+    }

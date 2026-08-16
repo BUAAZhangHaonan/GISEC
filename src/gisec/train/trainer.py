@@ -298,6 +298,10 @@ def _run_epoch_eval(
         "best_updated": best_updated,
         "metric": segm_ap,
         "best_metric": float(best_ap_in),
+        # Protocol stamp: rows from different decode protocols (or from
+        # before the eval-threshold fix) must never be silently mixed.
+        "eval_score_threshold": float(run.args.eval_score_threshold),
+        "mask_threshold": float(run.args.mask_threshold),
     }
     eval_row.update(metrics)
     _emit_gisec_log(run.metrics_log_path, eval_row)
@@ -558,8 +562,12 @@ def _finalize_run(
         wall_time_sec=wall_time_sec,
         benchmark=gisec_benchmark_payload(
             run.variant_spec.name, str(args.depth_mode), int(args.image_size)),
+        # Records the protocol the epoch-val actually used: best-model
+        # selection runs on the eval candidate set, never on the 0.5 save
+        # threshold of --score-threshold, and a CLI override must land on
+        # disk.
         decode_config={
-            "score_threshold": float(args.score_threshold),
+            "eval_score_threshold": float(args.eval_score_threshold),
             "mask_threshold": float(args.mask_threshold),
             "graph_merge_threshold": float(args.graph_merge_threshold),
         },
