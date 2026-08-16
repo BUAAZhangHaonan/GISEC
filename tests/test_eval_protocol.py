@@ -197,3 +197,26 @@ def test_eval_writes_the_full_candidate_set_to_disk(
                        .read_text(encoding="utf-8"))
     assert [row["score"] for row in saved] == [0.9, 0.3]
     assert not (tmp_path / "out" / "coco_instances_results.raw.json").exists()
+
+
+def test_exported_bbox_matches_pycocotools_rle_bbox() -> None:
+    from pycocotools import mask as mask_utils
+
+    shapes = [
+        ((16, 16), (slice(3, 9), slice(5, 12))),
+        ((8, 8), (slice(0, 8), slice(0, 1))),
+        ((20, 10), (slice(7, 8), slice(2, 3))),
+    ]
+    for size, (ys, xs) in shapes:
+        mask = np.zeros(size, dtype=np.uint8)
+        mask[ys, xs] = 1
+
+        row = masks_to_coco_results(
+            image_id=1, masks=[mask], scores=[0.9], category_id=1)[0]
+
+        rle = mask_utils.encode(np.asfortranarray(mask))
+        # toBbox uses the inclusive pixel span (a 1-px mask has width 1),
+        # so the exported x1 - x0 + 1 must match it exactly; dropping the
+        # +1 would shrink every predicted box by a pixel relative to both
+        # pycocotools and the dataset GT boxes.
+        assert row["bbox"] == [float(v) for v in mask_utils.toBbox(rle)]

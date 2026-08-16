@@ -33,6 +33,10 @@ def masks_to_coco_results(
                 "image_id": int(image_id),
                 "category_id": int(category_id),
                 "score": float(score),
+                # Inclusive pixel span, the same convention pycocotools
+                # uses for RLE-derived boxes (mask.toBbox returns
+                # x1 - x0 + 1) and the one the dataset GT boxes follow;
+                # pinned by test_exported_bbox_matches_pycocotools...
                 "bbox": [x0, y0, x1 - x0 + 1, y1 - y0 + 1],
                 "segmentation": encode_binary_mask(mask.astype(np.uint8)),
             }
