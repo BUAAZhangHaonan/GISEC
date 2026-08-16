@@ -460,6 +460,7 @@ def _finalize_run(
         decode_config={
             "score_threshold": float(args.score_threshold),
             "mask_threshold": float(args.mask_threshold),
+            "graph_merge_threshold": float(args.graph_merge_threshold),
         },
     )
     write_json(run.output_dir / "run_summary.json", summary)
