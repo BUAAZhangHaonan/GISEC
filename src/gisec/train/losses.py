@@ -137,10 +137,8 @@ def train_local_modules_with_metrics(
         feature_shape = (
             int(feature_map.shape[-2]), int(feature_map.shape[-1]))
         predictions = query_instances_from_outputs(
-            class_logits=backbone_outputs.class_queries_logits[sample_index].detach(
-            ),
-            mask_logits=backbone_outputs.masks_queries_logits[sample_index].detach(
-            ),
+            class_logits=backbone_outputs.class_queries_logits[sample_index].detach(),
+            mask_logits=backbone_outputs.masks_queries_logits[sample_index].detach(),
             image_shape=image_shape,
             score_threshold=0.0,
             mask_threshold=float(mask_threshold),

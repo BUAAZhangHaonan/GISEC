@@ -156,8 +156,11 @@ def evaluate_gisec(
                 # a pre-binarized field whose bilinear paste may have left
                 # fractional edge values for a uint8 cast to truncate.
                 pred_masks = [
-                    (row["mask_probs"] >= float(mask_threshold)).detach().cpu(
-                    ).numpy().astype(np.uint8)
+                    (row["mask_probs"] >= float(mask_threshold))
+                    .detach()
+                    .cpu()
+                    .numpy()
+                    .astype(np.uint8)
                     for row in predictions
                 ]
                 pred_scores = [float(row["score"]) for row in predictions]
@@ -233,8 +236,9 @@ def evaluate_gisec(
         write_json(output_dir / "coco_instances_results.raw.json",
                    {"rows": saved_raw_rows})
     metrics = evaluate_json(ann_file, results)
-    metrics["boundary_band_iou"] = float(np.mean(boundary_rows)
-                                         ) if boundary_rows else 0.0
+    metrics["boundary_band_iou"] = (
+        float(np.mean(boundary_rows)) if boundary_rows else 0.0
+    )
     metrics["split_gt_count"] = int(split_total)
     metrics["merge_pred_count"] = int(merge_total)
     metrics["refinement_invocation_rate"] = 0.0 if total_predictions == 0 else float(
