@@ -145,6 +145,7 @@ Inference uses the same checkpoint loading path as eval and writes raw predictio
 - `src/gisec/backbones/`: Mask2Former adapter
 - `src/gisec/models/`: the GISEC model and graph head
 - `src/gisec/engine.py`: shared run machinery (device selection, JSON artifact writing, latency benchmark payload)
+- `src/gisec/geometry.py`: the single torch dilate-erode boundary-band implementation, used by train/decode and train/losses
 - `src/gisec/train/`: training orchestration, split into single-responsibility modules (`args`, `data`, `model_builder`, `graph`, `decode`, `losses`, `evaluate`, `trainer`)
 - `src/gisec/eval/`: COCO evaluation and export, boundary and split/merge metrics, run summaries
 - `scripts/experiments/run_gisec.sh`: stage-group runner

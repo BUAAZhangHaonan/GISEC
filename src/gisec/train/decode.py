@@ -323,12 +323,12 @@ def apply_local_rescue(
                         edge_scores=edge_scores,
                         threshold=float(mask_threshold),
                     )
-                    # Merge in probability space: inside the merged union keep
-                    # the member probability (per-pixel max over the members
-                    # of the shared probability field), outside it drop to
-                    # zero. The binary below is re-derived from this
-                    # probability, so the merge never leaves binary and
-                    # probability inconsistent.
+                    # Merge in probability space: multiply the probability
+                    # field by the merged-union mask, which with the single
+                    # shared field just keeps the member probability inside
+                    # the union and drops to zero outside. The binary below
+                    # is re-derived from this probability, so the merge
+                    # never leaves binary and probability inconsistent.
                     merged_union = torch.from_numpy(
                         (merged > 0).astype(np.float32)).to(refined_prob.device)
                     refined_prob = refined_prob * merged_union
