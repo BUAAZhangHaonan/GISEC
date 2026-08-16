@@ -7,7 +7,6 @@ from typing import Any
 
 from gisec.config.variants import get_gisec_variant_spec, gisec_variant_names
 
-
 GISEC_DEPTH_MODES = ("rgb", "rgbd_concat")
 # Standard COCO candidate protocol: one shared default for `gisec eval` and
 # the trainer's epoch-val, so best-model selection matches eval exactly.
@@ -74,7 +73,10 @@ def _check_variant_consistency(
     run_variant = _run_metadata_variant(argv)
     if run_variant is None:
         return
-    setattr(args, "_run_metadata_variant", run_variant)
+    # Intentionally dynamic: the marker is read back with getattr in
+    # train/evaluate, and the underscore name must not become a literal
+    # attribute of this module.
+    setattr(args, "_run_metadata_variant", run_variant)  # noqa: B010
     if str(args.variant) != str(run_variant):
         parser.error(
             f"--variant {args.variant} conflicts with run metadata variant {run_variant}"

@@ -3,8 +3,8 @@ from __future__ import annotations
 import cv2
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 # Decision boundary of the trained edge scorer: an edge with a probability
 # at or above this value votes that its two fragments belong to the same
@@ -190,7 +190,8 @@ def merge_local_components(
         if ra != rb:
             parent[rb] = ra
 
-    for (src_index, dst_index), score in zip(edge_index.t().tolist(), edge_scores.tolist()):
+    for (src_index, dst_index), score in zip(
+            edge_index.t().tolist(), edge_scores.tolist(), strict=True):
         if float(score) >= float(threshold):
             union(labels[int(src_index)], labels[int(dst_index)])
     remapped = np.zeros_like(component_map, dtype=np.int32)

@@ -28,12 +28,12 @@ def _resize_mask(mask: np.ndarray, image_size: int) -> np.ndarray:
 class ReferenceBank:
     root: Path
     image_size: int
-    view_records: list["ReferenceViewRecord"]
+    view_records: list[ReferenceViewRecord]
     _images: torch.Tensor | None = field(default=None, init=False, repr=False)
     _depths: torch.Tensor | None = field(default=None, init=False, repr=False)
     _masks: torch.Tensor | None = field(default=None, init=False, repr=False)
 
-    def _load_record(self, record: "ReferenceViewRecord") -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def _load_record(self, record: ReferenceViewRecord) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         rgb = cv2.imread(str(record.rgb_path), cv2.IMREAD_COLOR)
         if rgb is None:
             raise FileNotFoundError(record.rgb_path)
@@ -281,7 +281,7 @@ def _uniform_sample_view_ids(view_ids: list[str], max_views: int) -> list[str]:
     if max_views == 1:
         return [view_ids[0]]
     selected = {
-        int(round(index))
+        round(index)
         for index in np.linspace(0, len(view_ids) - 1, num=max_views)
     }
     # linspace rounding can collapse to fewer than max_views distinct

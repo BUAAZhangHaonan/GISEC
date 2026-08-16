@@ -10,7 +10,10 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from gisec.backbones.mask2former.adapter import build_mask2former_processor, outputs_to_instance_masks
+from gisec.backbones.mask2former.adapter import (
+    build_mask2former_processor,
+    outputs_to_instance_masks,
+)
 from gisec.config.variants import get_gisec_variant_spec
 from gisec.datasets.reference_bank import ReferenceBankSource
 from gisec.engine import build_device, build_latency_payload, write_json
@@ -20,6 +23,7 @@ from gisec.eval.coco_export import masks_to_coco_results
 from gisec.eval.export import build_run_summary_payload, gisec_benchmark_payload
 from gisec.eval.split_merge import compute_split_merge_counts
 from gisec.models.gisec_model import GISECModel, prepare_gisec_input_batch
+from gisec.train.args import model_payload
 from gisec.train.data import build_loader, build_reference_source
 from gisec.train.decode import apply_local_rescue, query_instances_from_outputs
 from gisec.train.model_builder import (
@@ -32,7 +36,6 @@ from gisec.train.model_builder import (
     validate_checkpoint_model_args,
     validate_runtime_checkpoint_variant,
 )
-from gisec.train.args import model_payload
 
 
 def evaluate_gisec(
@@ -121,7 +124,7 @@ def evaluate_gisec(
                             "mask_probs": torch.from_numpy(mask.astype(np.float32)),
                         }
                         for index, (mask, score) in enumerate(
-                            zip(decoded_masks, decoded_scores))
+                            zip(decoded_masks, decoded_scores, strict=True))
                     ]
                     refine_count = 0
                     graph_count = 0

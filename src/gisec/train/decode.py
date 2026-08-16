@@ -71,7 +71,7 @@ def select_refinement_instances(
         return []
     budget = min(
         MAX_REFINEMENT_INSTANCES,
-        int(math.ceil(REFINEMENT_BUDGET_FRACTION * float(instance_count))),
+        math.ceil(REFINEMENT_BUDGET_FRACTION * float(instance_count)),
     )
     if budget <= 0:
         return []
@@ -156,7 +156,8 @@ def match_query_predictions_to_gt(
             )
     pred_indices, gt_indices = linear_sum_assignment(cost)
     matches: list[tuple[int, int, float]] = []
-    for pred_index, gt_index in zip(pred_indices.tolist(), gt_indices.tolist()):
+    for pred_index, gt_index in zip(
+            pred_indices.tolist(), gt_indices.tolist(), strict=True):
         iou = 1.0 - float(cost[pred_index, gt_index])
         if iou <= 0.0:
             continue
@@ -173,10 +174,10 @@ def scale_bbox(
     sx = float(target_shape[1]) / float(max(source_shape[1], 1))
     sy = float(target_shape[0]) / float(max(source_shape[0], 1))
     x, y, w, h = bbox
-    tx = int(round(float(x) * sx))
-    ty = int(round(float(y) * sy))
-    tw = max(1, int(round(float(w) * sx)))
-    th = max(1, int(round(float(h) * sy)))
+    tx = round(float(x) * sx)
+    ty = round(float(y) * sy)
+    tw = max(1, round(float(w) * sx))
+    th = max(1, round(float(h) * sy))
     tx = min(max(tx, 0), max(target_shape[1] - 1, 0))
     ty = min(max(ty, 0), max(target_shape[0] - 1, 0))
     tw = min(tw, max(target_shape[1] - tx, 1))

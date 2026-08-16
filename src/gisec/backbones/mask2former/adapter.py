@@ -5,7 +5,11 @@ from typing import Any
 import numpy as np
 import torch
 from torch import nn
-from transformers import Mask2FormerConfig, Mask2FormerForUniversalSegmentation, Mask2FormerImageProcessor
+from transformers import (
+    Mask2FormerConfig,
+    Mask2FormerForUniversalSegmentation,
+    Mask2FormerImageProcessor,
+)
 
 # Foreground (component) plus background; the dataset validation in
 # gisec.datasets.baseline_instance_dataset checks ids against this label space.

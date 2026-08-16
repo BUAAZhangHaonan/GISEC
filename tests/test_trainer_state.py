@@ -8,19 +8,19 @@ from types import SimpleNamespace
 
 import pytest
 import torch
-from torch.amp import GradScaler
 from torch import nn
+from torch.amp import GradScaler
 
 from gisec.config.variants import get_gisec_variant_spec
 from gisec.train import trainer as trainer_module
 from gisec.train.args import parse_train_args
 from gisec.train.model_builder import resume_payload, save_torch_payload
 from gisec.train.trainer import (
-    _TrainingRun,
     _acquire_run_lock,
     _drop_stale_metrics_rows,
     _release_run_lock,
     _run_training_loop,
+    _TrainingRun,
 )
 
 
@@ -240,8 +240,8 @@ def test_epoch_eval_row_stamps_the_decode_protocol(tmp_path, monkeypatch) -> Non
 
     trainer_module._run_epoch_eval(run, epoch=1, best_ap_in=float("-inf"))
 
-    row = [r for r in _read_rows(run.metrics_log_path)
-           if r["mode"] == "epoch_eval"][0]
+    row = next(r for r in _read_rows(run.metrics_log_path)
+               if r["mode"] == "epoch_eval")
     assert row["eval_score_threshold"] == 0.1
     assert row["mask_threshold"] == 0.5
 

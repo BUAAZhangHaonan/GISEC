@@ -4,9 +4,10 @@ import argparse
 
 import pytest
 import torch
-from torch.amp import GradScaler
 from torch import nn
+from torch.amp import GradScaler
 
+from gisec.train.args import parse_train_args
 from gisec.train.model_builder import (
     configure_model_for_stage,
     load_module_state_dict,
@@ -15,7 +16,6 @@ from gisec.train.model_builder import (
     save_torch_payload,
     validate_checkpoint_model_args,
 )
-from gisec.train.args import parse_train_args
 
 
 class _TwoLayer(nn.Module):

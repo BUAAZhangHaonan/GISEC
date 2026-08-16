@@ -22,7 +22,7 @@ def masks_to_coco_results(
     category_id: int,
 ) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
-    for mask, score in zip(masks, scores):
+    for mask, score in zip(masks, scores, strict=True):
         ys, xs = np.nonzero(mask > 0)
         if xs.size == 0 or ys.size == 0:
             continue

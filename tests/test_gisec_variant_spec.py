@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from gisec.config.variants import GISEC_VARIANTS, get_gisec_variant_spec, gisec_variant_names
+from gisec.config.variants import (
+    GISEC_VARIANTS,
+    get_gisec_variant_spec,
+    gisec_variant_names,
+)
 
 
 def test_gisec_variants_cover_all_staged_paths() -> None:

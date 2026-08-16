@@ -8,8 +8,8 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from gisec.datasets.coco_utils import LiteCOCO, ann_to_mask, load_depth_array
 from gisec.backbones.mask2former.adapter import NUM_LABELS
+from gisec.datasets.coco_utils import LiteCOCO, ann_to_mask, load_depth_array
 
 
 class BaselineInstanceDataset(Dataset):

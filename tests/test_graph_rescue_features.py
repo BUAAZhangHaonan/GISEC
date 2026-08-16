@@ -78,7 +78,7 @@ def _two_component_setup() -> tuple[torch.Tensor, np.ndarray]:
 def test_shared_builder_takes_probability_statistics_from_coarse_prob() -> None:
     coarse, component_map = _two_component_setup()
 
-    node_features, edge_index, edge_features = build_rescue_graph_inputs(
+    _node_features, edge_index, edge_features = build_rescue_graph_inputs(
         component_map=component_map,
         feature_crop=torch.zeros((4, 8, 8)),
         coarse_mask_prob=coarse,
@@ -296,13 +296,13 @@ def test_grouped_probability_fields_fuse_members_largest_first() -> None:
         merged_map=merged_map, refined_prob=refined_prob)
 
     assert len(fields) == 3
-    for field, label in zip(fields, [1, 2, 3]):
+    for field, label in zip(fields, [1, 2, 3], strict=True):
         support = torch.from_numpy((merged_map == label).astype(np.float32))
         assert torch.equal(field, refined_prob * support)
     assert [int((field > 0).sum()) for field in fields] == [6, 4, 2]
     # Zero outside the group support: no field leaks probability into
     # another group's pixels or the background.
-    for field, label in zip(fields, [1, 2, 3]):
+    for field, label in zip(fields, [1, 2, 3], strict=True):
         other = torch.from_numpy(
             ((merged_map != label) & (merged_map > 0)).astype(np.float32))
         assert float((field * other).sum()) == 0.0

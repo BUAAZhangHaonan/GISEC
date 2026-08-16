@@ -6,7 +6,13 @@ import sys
 from collections.abc import Callable
 from typing import Any
 
-from gisec.train import eval_gisec, infer_gisec, parse_eval_args, parse_train_args, train_gisec
+from gisec.train import (
+    eval_gisec,
+    infer_gisec,
+    parse_eval_args,
+    parse_train_args,
+    train_gisec,
+)
 
 # One entry per subcommand: (help text, arg parser, handler). build_parser
 # and main both derive their behavior from this table.

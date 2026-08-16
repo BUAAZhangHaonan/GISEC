@@ -118,7 +118,7 @@ def test_baseline_instance_dataset_requires_depth_file_when_depth_requested(
         include_depth=True,
     )
 
-    with pytest.raises(FileNotFoundError, match="000001.png"):
+    with pytest.raises(FileNotFoundError, match=r"000001\.png"):
         _ = dataset[0]
 
 

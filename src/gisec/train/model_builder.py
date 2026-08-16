@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
-import torch.nn as nn
+from torch import nn
 from torch.amp import GradScaler
 
 from gisec.backbones.mask2former.adapter import build_mask2former_model
@@ -27,10 +27,11 @@ def extract_state_dict(payload: dict[str, Any], *, prefix_backbone: bool = False
         state_dict = dict(payload["state_dict"])
     else:
         state_dict = dict(payload)
-    if prefix_backbone:
-        if state_dict and not any(key.startswith("backbone.") for key in state_dict):
-            state_dict = {f"backbone.{key}": value for key,
-                          value in state_dict.items()}
+    if prefix_backbone and state_dict and not any(
+        key.startswith("backbone.") for key in state_dict
+    ):
+        state_dict = {f"backbone.{key}": value for key,
+                      value in state_dict.items()}
     return state_dict
 
 
@@ -58,12 +59,15 @@ def _partition_state_dict(
         if key not in target_state:
             continue
         target_value = target_state[key]
-        if hasattr(value, "shape") and hasattr(target_value, "shape"):
-            if tuple(value.shape) != tuple(target_value.shape):
-                shape_mismatches.append(
-                    f"{key}: checkpoint {tuple(value.shape)} != model {tuple(target_value.shape)}"
-                )
-                continue
+        if (
+            hasattr(value, "shape")
+            and hasattr(target_value, "shape")
+            and tuple(value.shape) != tuple(target_value.shape)
+        ):
+            shape_mismatches.append(
+                f"{key}: checkpoint {tuple(value.shape)} != model {tuple(target_value.shape)}"
+            )
+            continue
         compatible[key] = value
     missing_keys = sorted(
         key for key in target_state if key not in source_state)
