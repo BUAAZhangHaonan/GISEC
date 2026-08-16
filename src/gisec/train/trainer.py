@@ -116,7 +116,10 @@ def train_gisec(args: argparse.Namespace) -> None:
     (output_dir /
      "params_trainable.txt").write_text(f"{params_trainable}\n", encoding="utf-8")
     metrics_log_path = output_dir / "metrics_log.jsonl"
-    if metrics_log_path.exists():
+    resume_requested = bool(str(getattr(args, "resume_checkpoint", "")).strip())
+    if metrics_log_path.exists() and not resume_requested:
+        # Fresh runs start from an empty log; resumed runs append so the
+        # metrics history of the original run survives.
         metrics_log_path.unlink()
     resume_last_ckpt = output_dir / "resume_last.pth"
     best_ap = float("-inf")
@@ -139,7 +142,7 @@ def train_gisec(args: argparse.Namespace) -> None:
             planned_total_steps, int(args.max_train_steps))
     running_step_time_total = 0.0
     non_blocking = bool(device.type == "cuda")
-    if str(getattr(args, "resume_checkpoint", "")).strip():
+    if resume_requested:
         completed_epoch, step_count, best_ap, running_step_time_total = load_resume_payload(
             model=model,
             optimizer=optimizer,
