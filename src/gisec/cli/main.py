@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import argparse
 import sys
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from gisec.train import eval_gisec, infer_gisec, parse_eval_args, parse_train_args, train_gisec
 

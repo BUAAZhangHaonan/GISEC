@@ -41,15 +41,15 @@ if [[ "$GROUP" == "all" ]]; then
   # Variant list comes straight from the Python registry so --group all
   # always covers every registered variant. The grep drops the blank line
   # `conda run` appends to captured output.
-  mapfile -t CONFIGS < <(
+  mapfile -t VARIANTS < <(
     "${PYTHON_CMD[@]}" -c 'from gisec.config.variants import gisec_variant_names; print("\n".join(gisec_variant_names()))' | grep -v '^$'
   )
-  if [[ ${#CONFIGS[@]} -eq 0 ]]; then
+  if [[ ${#VARIANTS[@]} -eq 0 ]]; then
     echo "Failed to list GISEC variants from the registry" >&2
     exit 1
   fi
 else
-  CONFIGS=("${GROUP}")
+  VARIANTS=("${GROUP}")
 fi
 
 mkdir -p "${OUTPUT_ROOT}"
@@ -62,18 +62,18 @@ runner_log "${RUN_MODE}" "${RUN_LOG}" "[gisec] reference_root=${REFERENCE_ROOT}"
 runner_log "${RUN_MODE}" "${RUN_LOG}" "[gisec] init_checkpoint=${INIT_CHECKPOINT}"
 runner_log "${RUN_MODE}" "${RUN_LOG}" "[gisec] depth_mode=${DEPTH_MODE}"
 
-for config_stem in "${CONFIGS[@]}"; do
-  train_output_dir="${OUTPUT_ROOT}/train/${config_stem}"
-  eval_output_dir="${OUTPUT_ROOT}/eval/${config_stem}"
+for variant in "${VARIANTS[@]}"; do
+  train_output_dir="${OUTPUT_ROOT}/train/${variant}"
+  eval_output_dir="${OUTPUT_ROOT}/eval/${variant}"
   output_dir="${train_output_dir}"
   if [[ "${MODE}" == "eval" ]]; then
     output_dir="${eval_output_dir}"
   fi
   mkdir -p "${output_dir}"
-  runner_log "${RUN_MODE}" "${RUN_LOG}" "[gisec] variant=${config_stem}"
+  runner_log "${RUN_MODE}" "${RUN_LOG}" "[gisec] variant=${variant}"
   args=(
     "--dataset-root" "${DATASET_ROOT}"
-    "--variant" "${config_stem}"
+    "--variant" "${variant}"
     "--output-dir" "${output_dir}"
     "--device" "cuda"
   )

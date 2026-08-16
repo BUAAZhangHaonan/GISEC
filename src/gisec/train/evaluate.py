@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 from gisec.backbones.mask2former.adapter import build_mask2former_processor, outputs_to_instance_masks
 from gisec.config.variants import get_gisec_variant_spec
 from gisec.datasets.reference_bank import ReferenceBankSource
-from gisec.engine import build_benchmark_payload, build_device, write_json
+from gisec.engine import build_device, build_latency_payload, write_json
 from gisec.eval.boundary_metrics import compute_boundary_band_iou
 from gisec.eval.coco_eval import evaluate_json
 from gisec.eval.coco_export import masks_to_coco_results
@@ -238,7 +238,7 @@ def evaluate_gisec(
         refinement_invocations) / float(total_predictions)
     metrics["local_graph_invocation_rate"] = 0.0 if total_predictions == 0 else float(
         graph_invocations) / float(total_predictions)
-    speed = build_benchmark_payload(
+    speed = build_latency_payload(
         latencies_ms, device, scope="full_pipeline")
     write_json(output_dir / "metrics.cocoeval.json", metrics)
     write_json(output_dir / "inference_speed.json", speed)

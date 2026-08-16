@@ -10,6 +10,7 @@ from scipy.optimize import linear_sum_assignment
 from torch.amp import autocast
 
 from gisec.config.variants import get_gisec_variant_spec
+from gisec.datasets.reference_bank import ReferenceBankSource, prepare_reference_tensors
 from gisec.geometry import boundary_band
 from gisec.models.gisec_model import (
     GISECModel,
@@ -18,7 +19,6 @@ from gisec.models.gisec_model import (
     mask_bbox,
     paste_mask_from_crop,
 )
-from gisec.datasets.reference_bank import ReferenceBankSource, prepare_reference_tensors
 from gisec.train.graph import (
     GRAPH_MERGE_THRESHOLD,
     build_rescue_graph_inputs,
@@ -105,7 +105,7 @@ def query_instances_from_outputs(
     if int(class_prob.shape[-1]) < 2:
         return []
     fg_prob = class_prob[:, :-1]
-    scores, class_ids = fg_prob.max(dim=-1)
+    _, class_ids = fg_prob.max(dim=-1)
     upsampled_mask_logits = _upscale_mask_logits(
         mask_logits, image_shape=image_shape)
     mask_probs = torch.sigmoid(upsampled_mask_logits)

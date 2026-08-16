@@ -210,9 +210,9 @@ def configure_model_for_stage(model: nn.Module, args: argparse.Namespace) -> Non
     init_checkpoint = Path(init_checkpoint_value).resolve()
     if not init_checkpoint.exists():
         raise FileNotFoundError(init_checkpoint)
-    checkpoint_payload = torch.load(
+    init_payload = torch.load(
         str(init_checkpoint), map_location="cpu", weights_only=True)
-    state_dict = extract_state_dict(checkpoint_payload, prefix_backbone=True)
+    state_dict = extract_state_dict(init_payload, prefix_backbone=True)
     load_module_state_dict(
         model.backbone,
         _backbone_state_dict(state_dict),

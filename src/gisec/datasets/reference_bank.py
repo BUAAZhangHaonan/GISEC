@@ -80,7 +80,6 @@ class ReferenceBank:
 
 @dataclass(frozen=True)
 class ReferenceViewRecord:
-    view_id: str
     rgb_path: Path
     depth_path: Path
     mask_path: Path
@@ -244,7 +243,6 @@ def load_reference_bank(
     for view_id in view_ids:
         view_records.append(
             ReferenceViewRecord(
-                view_id=view_id,
                 rgb_path=rgb_files[view_id],
                 depth_path=depth_files[view_id],
                 mask_path=mask_files[view_id],

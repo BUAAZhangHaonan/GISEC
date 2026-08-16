@@ -1,6 +1,6 @@
 """Shared run machinery for the trainer and evaluator.
 
-Device selection, JSON artifact writing, and the latency benchmark payload
+Device selection, JSON artifact writing, and the latency statistics payload
 used by the training and evaluation entrypoints.
 """
 from __future__ import annotations
@@ -13,7 +13,7 @@ import numpy as np
 import torch
 
 
-def build_benchmark_payload(
+def build_latency_payload(
     latencies_ms: list[float],
     device: torch.device,
     *,
