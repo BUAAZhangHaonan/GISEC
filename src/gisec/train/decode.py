@@ -22,6 +22,7 @@ from gisec.datasets.reference_bank import ReferenceBankSource, prepare_reference
 from gisec.train.graph import (
     GRAPH_MERGE_THRESHOLD,
     build_rescue_graph_inputs,
+    grouped_probability_fields,
     merge_local_components,
     rescue_component_map,
 )
@@ -267,6 +268,7 @@ def apply_local_rescue(
     refinement_invocations = 0
     graph_invocations = 0
     updated = list(predictions)
+    extra_rows: list[dict[str, Any]] = []
     projected_feature_map = project_local_features_float32(
         model, feature_map.unsqueeze(0))[0]
     reference_rgb: torch.Tensor | None = None
@@ -305,6 +307,7 @@ def apply_local_rescue(
         )
         refined_prob = torch.sigmoid(refined["refined_mask_logits"][0, 0])
         refinement_invocations += 1
+        group_fields: list[torch.Tensor] = []
         if variant_spec.use_graph_rescue and model.graph_head is not None:
             component_map = rescue_component_map(
                 coarse_prob=coarse_mask_crop[0, 0],
@@ -329,18 +332,37 @@ def apply_local_rescue(
                         edge_scores=edge_scores,
                         threshold=float(graph_merge_threshold),
                     )
-                    # Merge in probability space: multiply the probability
-                    # field by the merged-union mask, which with the single
-                    # shared field just keeps the member probability inside
-                    # the union and drops to zero outside. The binary below
-                    # is re-derived from this probability, so the merge
-                    # never leaves binary and probability inconsistent.
-                    merged_union = torch.from_numpy(
-                        (merged > 0).astype(np.float32)).to(refined_prob.device)
-                    refined_prob = refined_prob * merged_union
+                    # The graph head votes on fragment ownership, and the
+                    # vote reaches the output only by rebuilding the
+                    # prediction per merge group: fragments the head assigns
+                    # to one instance fuse into a single row (mask = union
+                    # of the member components, probability = per-pixel
+                    # member maximum), fragments of different instances
+                    # split into separate rows.
+                    group_fields = grouped_probability_fields(
+                        merged_map=merged, refined_prob=refined_prob)
                     graph_invocations += 1
-        row["mask_probs"], row["binary_mask"] = paste_refined_mask(
-            refined_prob, bbox=bbox, image_shape=image_shape,
-            mask_threshold=float(mask_threshold))
-        updated[int(index)] = row
-    return updated, refinement_invocations, graph_invocations
+        group_rows: list[dict[str, Any]] = []
+        for group_prob in group_fields:
+            pasted_prob, pasted_binary = paste_refined_mask(
+                group_prob, bbox=bbox, image_shape=image_shape,
+                mask_threshold=float(mask_threshold))
+            if float(pasted_binary.sum()) > 0.0:
+                group_rows.append(
+                    {
+                        "query_index": int(row["query_index"]),
+                        "score": float(row["score"]),
+                        "mask_probs": pasted_prob,
+                        "binary_mask": pasted_binary,
+                    })
+        if group_rows:
+            updated[int(index)] = group_rows[0]
+            extra_rows.extend(group_rows[1:])
+        else:
+            # Grouping yielded no positive support (the refiner moved the
+            # mask off every fragment), so the refiner output stands as-is.
+            row["mask_probs"], row["binary_mask"] = paste_refined_mask(
+                refined_prob, bbox=bbox, image_shape=image_shape,
+                mask_threshold=float(mask_threshold))
+            updated[int(index)] = row
+    return updated + extra_rows, refinement_invocations, graph_invocations

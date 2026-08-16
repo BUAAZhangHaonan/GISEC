@@ -205,6 +205,31 @@ def merge_local_components(
     return remapped
 
 
+def grouped_probability_fields(
+    *,
+    merged_map: np.ndarray,
+    refined_prob: torch.Tensor,
+) -> list[torch.Tensor]:
+    """One probability field per merge group, largest group first.
+
+    A fused instance keeps the refined probability inside the union of its
+    member components — the per-pixel maximum over the members, which for
+    one shared field is the field itself — and drops to zero outside, so a
+    downstream threshold derives the union binary from the single pasted
+    probability source of truth."""
+    labels = [int(x) for x in np.unique(merged_map).tolist() if int(x) > 0]
+    ordered = sorted(
+        labels,
+        key=lambda label: -int((merged_map == label).sum()),
+    )
+    fields: list[torch.Tensor] = []
+    for label in ordered:
+        support = torch.from_numpy((merged_map == label).astype(np.float32))
+        support = support.to(device=refined_prob.device, dtype=refined_prob.dtype)
+        fields.append(refined_prob * support)
+    return fields
+
+
 def graph_rescue_training_loss(
     *,
     graph_head: nn.Module,
