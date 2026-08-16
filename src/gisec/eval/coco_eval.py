@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -8,8 +7,7 @@ from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 
 
-def evaluate_json(ann_file: Path, results_json: Path) -> dict[str, Any]:
-    results = json.loads(results_json.read_text(encoding="utf-8"))
+def evaluate_json(ann_file: Path, results: list[dict[str, Any]]) -> dict[str, Any]:
     if not results:
         # An empty candidate set is a legitimate outcome (a checkpoint may
         # predict nothing above the score threshold); report zero AP with a
@@ -20,7 +18,7 @@ def evaluate_json(ann_file: Path, results_json: Path) -> dict[str, Any]:
                 payload[f"{metric}/{suffix}"] = 0.0
         return payload
     coco_gt = COCO(str(ann_file))
-    coco_dt = coco_gt.loadRes(str(results_json))
+    coco_dt = coco_gt.loadRes(results)
     payload = {}
     for metric in ("bbox", "segm"):
         coco_eval = COCOeval(coco_gt, coco_dt, metric)

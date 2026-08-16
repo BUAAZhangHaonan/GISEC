@@ -54,6 +54,7 @@ def evaluate_gisec(
     save_raw: bool,
     depth_mode: str,
     component_class_index: int,
+    save_score_threshold: float | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     model.eval()
     processor = build_mask2former_processor()
@@ -201,13 +202,26 @@ def evaluate_gisec(
                         image_shape=decoded["image_shape"],
                     )
                 )
+    if save_score_threshold is not None:
+        # Infer saves only the high-confidence subset (--score-threshold);
+        # the metrics below stay on the full standard-protocol candidate
+        # set so they remain comparable with `gisec eval`.
+        saved_results = [
+            row for row in results
+            if float(row["score"]) >= float(save_score_threshold)]
+        saved_raw_rows = [
+            row for row in raw_rows
+            if float(row["score"]) >= float(save_score_threshold)]
+    else:
+        saved_results = results
+        saved_raw_rows = raw_rows
     results_json = output_dir / "coco_instances_results.json"
     results_json.write_text(json.dumps(
-        results, ensure_ascii=False) + "\n", encoding="utf-8")
+        saved_results, ensure_ascii=False) + "\n", encoding="utf-8")
     if save_raw:
         write_json(output_dir / "coco_instances_results.raw.json",
-                   {"rows": raw_rows})
-    metrics = evaluate_json(ann_file, results_json)
+                   {"rows": saved_raw_rows})
+    metrics = evaluate_json(ann_file, results)
     metrics["boundary_band_iou"] = float(np.mean(boundary_rows)
                                          ) if boundary_rows else 0.0
     metrics["split_gt_count"] = int(split_total)
@@ -227,13 +241,13 @@ def _run_checkpoint_inference(args: argparse.Namespace, *, save_raw: bool) -> No
     if bool(args.dry_run):
         print(json.dumps(model_payload(args), ensure_ascii=False))
         return
-    # Eval builds the candidate set with the standard COCO protocol
-    # (score >= 0.05 by default, maxDets up to 100); infer keeps
-    # --score-threshold for the predictions it saves to disk.
-    score_threshold = (
-        float(args.score_threshold) if save_raw else float(
-            getattr(args, "eval_score_threshold", args.score_threshold))
-    )
+    # Metrics always run on the standard COCO candidate set (score >=
+    # eval_score_threshold, 0.05 by default, maxDets up to 100), so infer's
+    # metrics land in the same protocol as eval's. --score-threshold only
+    # filters the prediction artifacts infer saves to disk.
+    score_threshold = float(
+        getattr(args, "eval_score_threshold", args.score_threshold))
+    save_score_threshold = float(args.score_threshold) if save_raw else None
     variant_spec = get_gisec_variant_spec(args.variant)
     device = build_device(str(args.device))
     output_dir = Path(args.output_dir).resolve()
@@ -301,7 +315,15 @@ def _run_checkpoint_inference(args: argparse.Namespace, *, save_raw: bool) -> No
         save_raw=save_raw,
         depth_mode=str(args.depth_mode),
         component_class_index=component_class_index,
+        save_score_threshold=save_score_threshold,
     )
+    decode_config = {
+        "eval_score_threshold": score_threshold,
+        "mask_threshold": float(args.mask_threshold),
+        "graph_merge_threshold": float(args.graph_merge_threshold),
+    }
+    if save_raw:
+        decode_config["save_score_threshold"] = float(args.score_threshold)
     summary = build_run_summary_payload(
         model="mask2former",
         variant=variant_spec.name,
@@ -313,11 +335,7 @@ def _run_checkpoint_inference(args: argparse.Namespace, *, save_raw: bool) -> No
         dataset_root=str(Path(args.dataset_root).resolve()),
         benchmark=gisec_benchmark_payload(
             variant_spec.name, str(args.depth_mode), int(args.image_size)),
-        decode_config={
-            "score_threshold": score_threshold,
-            "mask_threshold": float(args.mask_threshold),
-            "graph_merge_threshold": float(args.graph_merge_threshold),
-        },
+        decode_config=decode_config,
     )
     write_json(output_dir / "run_summary.json", summary)
 
