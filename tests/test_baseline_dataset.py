@@ -80,6 +80,50 @@ def test_baseline_instance_dataset_can_include_depth(tmp_path: Path) -> None:
     assert tuple(sample["depth"].shape) == (1, 64, 64)
 
 
+def test_baseline_instance_dataset_rejects_non_square_images(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "dataset"
+    _write_dataset(dataset_root)
+    image = np.zeros((64, 48, 3), dtype=np.uint8)
+    cv2.imwrite(str(dataset_root / "images" / "train" / "000001.png"),
+                cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+
+    dataset = BaselineInstanceDataset(
+        dataset_root=str(dataset_root), split="train", image_size=64)
+
+    with pytest.raises(ValueError, match="64x48"):
+        _ = dataset[0]
+
+
+def test_baseline_instance_dataset_rejects_wrong_image_size(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "dataset"
+    _write_dataset(dataset_root)
+    image = np.zeros((128, 128, 3), dtype=np.uint8)
+    cv2.imwrite(str(dataset_root / "images" / "train" / "000001.png"),
+                cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+
+    dataset = BaselineInstanceDataset(
+        dataset_root=str(dataset_root), split="train", image_size=64)
+
+    with pytest.raises(ValueError, match="128x128"):
+        _ = dataset[0]
+
+
+def test_baseline_instance_dataset_requires_depth_file_when_depth_requested(
+    tmp_path: Path,
+) -> None:
+    dataset_root = tmp_path / "dataset"
+    _write_dataset(dataset_root)
+    (dataset_root / "depth" / "train" / "000001.npy").unlink()
+
+    dataset = BaselineInstanceDataset(
+        dataset_root=str(dataset_root), split="train", image_size=64,
+        include_depth=True,
+    )
+
+    with pytest.raises(FileNotFoundError, match="000001.png"):
+        _ = dataset[0]
+
+
 def test_component_category_id_tracks_dataset_metadata(tmp_path: Path) -> None:
     dataset_root = tmp_path / "dataset"
     _write_dataset(dataset_root)

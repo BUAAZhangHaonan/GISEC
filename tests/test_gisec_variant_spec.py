@@ -116,3 +116,28 @@ def test_parse_eval_args_requires_checkpoint_for_eval() -> None:
                 "base_rgb_1024",
             ]
         )
+
+
+def test_parse_train_args_accepts_zero_eval_every_epochs() -> None:
+    args = parse_train_args(
+        [
+            "--dataset-root", "/tmp/dataset",
+            "--output-dir", "/tmp/output",
+            "--variant", "base_rgb_1024",
+            "--eval-every-epochs", "0",
+        ]
+    )
+
+    assert args.eval_every_epochs == 0
+
+
+def test_parse_train_args_rejects_negative_eval_every_epochs() -> None:
+    with pytest.raises(SystemExit):
+        parse_train_args(
+            [
+                "--dataset-root", "/tmp/dataset",
+                "--output-dir", "/tmp/output",
+                "--variant", "base_rgb_1024",
+                "--eval-every-epochs", "-1",
+            ]
+        )

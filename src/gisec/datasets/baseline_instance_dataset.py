@@ -75,8 +75,13 @@ class BaselineInstanceDataset(Dataset):
             raise FileNotFoundError(info["file_name"])
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         height, width = image.shape[:2]
-        image = cv2.resize(
-            image, (self.image_size, self.image_size), interpolation=cv2.INTER_LINEAR)
+        if height != width or height != self.image_size:
+            raise ValueError(
+                f"{info['file_name']} is {height}x{width}, but this dataset "
+                f"expects square {self.image_size}x{self.image_size} images; "
+                "refusing to resize silently because masks and COCO "
+                "evaluation would be misaligned."
+            )
 
         masks: list[np.ndarray] = []
         boxes: list[list[float]] = []
@@ -92,8 +97,6 @@ class BaselineInstanceDataset(Dataset):
             next_instance_id = int(instance_map.max())
             for ann in anns:
                 mask = ann_to_mask(ann, height, width)
-                mask = cv2.resize(
-                    mask, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
                 if int(mask.max()) <= 0:
                     continue
                 next_instance_id += 1
@@ -104,13 +107,17 @@ class BaselineInstanceDataset(Dataset):
                 instance_map[mask > 0] = int(next_instance_id)
 
         depth_tensor = None
-        if self.include_depth and self.depth_dir is not None:
-            depth_path = self.depth_dir / f"{Path(info['file_name']).stem}.npy"
-            if depth_path.exists():
-                depth = load_depth_array(depth_path)
-                depth = cv2.resize(
-                    depth, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
-                depth_tensor = torch.from_numpy(depth[None, ...]).float()
+        if self.include_depth:
+            depth_dir = self.depth_dir if self.depth_dir is not None else \
+                self.root / "depth" / self.split
+            depth_path = depth_dir / f"{Path(info['file_name']).stem}.npy"
+            if not depth_path.exists():
+                raise FileNotFoundError(
+                    f"missing depth array for {info['file_name']}: {depth_path}")
+            depth = load_depth_array(depth_path)
+            depth = cv2.resize(
+                depth, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
+            depth_tensor = torch.from_numpy(depth[None, ...]).float()
 
         masks_tensor = None
         boxes_tensor = None

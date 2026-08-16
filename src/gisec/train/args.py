@@ -127,7 +127,13 @@ def _common_parser(*, mode: str, argv: list[str] | None) -> argparse.ArgumentPar
         parser.add_argument("--weight-decay", type=float, default=1.0e-4)
         parser.add_argument("--max-train-steps", type=int, default=0)
         parser.add_argument("--max-val-images", type=int, default=0)
-        parser.add_argument("--eval-every-epochs", type=int, default=1)
+        parser.add_argument(
+            "--eval-every-epochs",
+            type=int,
+            default=1,
+            help="evaluate on the val split every N epochs; 0 disables epoch "
+                 "evals so only the final epoch is evaluated",
+        )
         parser.add_argument("--log-every-steps", type=int, default=50)
         parser.add_argument("--resume-save-every-epochs", type=int, default=1)
         parser.add_argument(
@@ -186,6 +192,9 @@ def _validate_variant_requirements(parser: argparse.ArgumentParser, args: argpar
 def parse_train_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = _common_parser(mode="train", argv=argv)
     args = parser.parse_args(argv)
+    if int(getattr(args, "eval_every_epochs", 1)) < 0:
+        parser.error(
+            "--eval-every-epochs must be >= 0 (0 evaluates only the final epoch)")
     _check_variant_consistency(parser, args, list(argv or []))
     _validate_required_args(parser, args, ["dataset_root", "output_dir"])
     _validate_variant_requirements(parser, args, is_eval=False)
