@@ -11,7 +11,7 @@ Mask2Former Swin-T with RGB-D early concat, trained on the 32254-image dataset (
 
 ## Results
 
-| Model | Dataset | segm AP | bbox AP | boundary IoU | Artifacts |
+| Model | Dataset | segm AP | bbox AP | boundary_band_iou | Artifacts |
 | --- | --- | ---: | ---: | ---: | --- |
 | Mask2Former Swin-T, RGB-D concat | `20260318_1K_32254` | 0.9063 | – | – | 4028 magformer workspace (not in repo) |
 | GISEC `base_rgb_1024` rerun, best epoch 19 | `0831_1K` | 0.6267 | 0.6155 | 0.1886 | `output/experiments/2026-04-13-rgb-full-rerun/phase_c/active_rgb_official/train/base_rgb_1024/` |
@@ -19,20 +19,27 @@ Mask2Former Swin-T with RGB-D early concat, trained on the 32254-image dataset (
 | Mask R-CNN R50 baseline (phase A) | `20260318_1K_1566` | 0.5151 | 0.4890 | 0.1434 | `output/experiments/baselines/mask_rcnn_r50_1024_phasea_full` |
 | U-Net dense + connected components | `20260318_1K_1566` | ~0 | – | – | failed route, artifacts deleted |
 
+Measurement protocol notes:
+
+1. Every repo-internal AP number above was produced with a score>=0.5 candidate truncation at decode time, which makes AP a conservative lower bound rather than standard COCO AP. After the 2026-08-16 measurement fixes, `gisec eval` uses the standard protocol (score>=0.05 candidate set, COCOeval maxDets 100). Numbers from before and after the fix are not directly comparable, and neither protocol matches the detectron2 stack that produced the 90.63 headline.
+2. `boundary_band_iou` is a repo-defined metric, not the Boundary IoU of Cheng et al.: it takes the union of all instance boundary bands (each band is the mask minus its 1-px erosion), computes an image-level IoU between the predicted and ground-truth union maps, and averages per image. Historical artifacts keep the old `boundary/IoU` key for the same quantity.
+3. The 0.6267 rerun row was trained and evaluated on the `0831_1K` dataset, which lives outside the repo at `../magformer_datasets/0831_1K` and is not covered by the in-repo dataset table.
+4. The Historical Ladder numbers below have no surviving artifacts: the checkpoints were deleted during cleanup and the values are transcribed from historical documents, not re-derived from runnable outputs.
+
 The U-Net dense-prediction-plus-connected-components route produced near-zero instance AP and its outputs were removed. The best-epoch-19 numbers of the rerun come from its `metrics_log.jsonl`; the `run_summary.json` in that directory records the final epoch instead (segm AP 0.6115).
 
 ### Historical Ladder (checkpoints not preserved)
 
 The staged RGB ladder on the 1566-scene dataset, measured before the repo split:
 
-| Stage | segm/AP | bbox/AP | boundary/IoU |
+| Stage | segm/AP | bbox/AP | boundary_band_iou |
 | --- | ---: | ---: | ---: |
 | `base_rgb_1024` | 0.5496 | 0.5140 | 0.1939 |
 | `base_rgb_1024_refine` | 0.5761 | 0.5156 | 0.2512 |
 | `base_rgb_1024_refine_ref` | 0.5747 | 0.5142 | 0.2501 |
 | `base_rgb_1024_refine_ref_graph` | 0.5746 | 0.5153 | 0.2488 |
 
-The ladder weights were lost during cleanup. The numbers say the refine stage improved boundary IoU (0.19 to 0.25) but the reference and graph rescue stages added nothing on top. Combined with the U-Net route collapsing to near-zero instance AP, the conclusion is that on this data the wins come from the backbone, input modality, and dataset scale, not from the rescue modules.
+The ladder weights were lost during cleanup. The numbers say the refine stage improved boundary_band_iou (0.19 to 0.25) but the reference and graph rescue stages added nothing on top. Combined with the U-Net route collapsing to near-zero instance AP, the conclusion is that on this data the wins come from the backbone, input modality, and dataset scale, not from the rescue modules.
 
 ### History
 
@@ -41,6 +48,7 @@ The ladder weights were lost during cleanup. The numbers say the refine stage im
 - 2026-04-13: full rerun of `base_rgb_1024` on `0831_1K`; best epoch 19 reaches segm AP 0.6267.
 - 2026-07-15: Mask2Former Swin-T RGB-D concat reaches segm AP 90.6 on the 32254-scene dataset (server 4028); current project benchmark.
 - 2026-08-15: repository refactor; only the rerun best and phase A baseline checkpoints kept on disk.
+- 2026-08-16: measurement correctness fixes; refined-mask paste keeps the probability as the single source of truth, eval switches to the standard COCO candidate protocol, latency covers the full pipeline, and dependencies pin the tested stack.
 
 ## Install
 
@@ -112,7 +120,9 @@ gisec eval \
   --checkpoint model_best.pth
 ```
 
-`--checkpoint-dir` must differ from `--output-dir`. The usual checkpoint file is `model_best.pth`. Pass an absolute path to `--checkpoint`; with a relative path, run_summary auto-provenance may resolve to the default variant. A mismatch is hard-rejected by the variant check embedded in the checkpoint, never silently. 
+`--checkpoint-dir` must differ from `--output-dir`. The usual checkpoint file is `model_best.pth`. Pass an absolute path to `--checkpoint`; with a relative path, run_summary auto-provenance may resolve to the default variant. A mismatch is hard-rejected by the variant check embedded in the checkpoint, never silently.
+
+Eval builds its candidate set with the standard COCO protocol: score >= 0.05 by default (`--eval-score-threshold` to override), COCOeval maxDets 100. The threshold actually used is recorded in `run_summary.json` under `decode_config`; `inference_speed.json` records the latency scope (`full_pipeline`). 
 
 ## Infer
 

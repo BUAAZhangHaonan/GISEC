@@ -35,13 +35,21 @@ def instance_masks_to_boundary_map(
     return boundary
 
 
-def compute_boundary_iou(
+def compute_boundary_band_iou(
     pred_masks: Iterable[np.ndarray],
     gt_masks: Iterable[np.ndarray],
     *,
     image_shape: tuple[int, int] | None = None,
     band_px: int = 1,
 ) -> float:
+    """Repo-defined boundary-band IoU, not the Boundary IoU of Cheng et al.
+
+    For each side it builds the union of per-instance boundary bands (the
+    band between an instance mask and its erosion by ``band_px``), then
+    computes the image-level IoU between the predicted and ground-truth
+    union maps; the caller averages this per image. Returns 1.0 when both
+    sides have empty boundaries.
+    """
     pred_boundary = instance_masks_to_boundary_map(
         pred_masks, image_shape=image_shape, band_px=band_px)
     gt_boundary = instance_masks_to_boundary_map(

@@ -14,7 +14,7 @@ from gisec.backbones.mask2former.adapter import build_mask2former_processor, out
 from gisec.config.variants import get_gisec_variant_spec
 from gisec.datasets.reference_bank import ReferenceBankSource
 from gisec.engine.runtime import build_benchmark_payload, build_device, evaluate_json, write_json
-from gisec.eval.boundary_metrics import compute_boundary_iou
+from gisec.eval.boundary_metrics import compute_boundary_band_iou
 from gisec.eval.coco_export import masks_to_coco_results
 from gisec.eval.export import build_run_summary_payload
 from gisec.metrics import compute_split_merge_counts
@@ -210,7 +210,7 @@ def evaluate_gisec(
                 split_total += int(failure["split_gt_count"])
                 merge_total += int(failure["merge_pred_count"])
                 boundary_rows.append(
-                    compute_boundary_iou(
+                    compute_boundary_band_iou(
                         pred_masks,
                         gt_masks,
                         image_shape=decoded["image_shape"],
@@ -223,8 +223,8 @@ def evaluate_gisec(
         write_json(output_dir / "coco_instances_results.raw.json",
                    {"rows": raw_rows})
     metrics = evaluate_json(ann_file, results_json)
-    metrics["boundary/IoU"] = float(np.mean(boundary_rows)
-                                    ) if boundary_rows else 0.0
+    metrics["boundary_band_iou"] = float(np.mean(boundary_rows)
+                                         ) if boundary_rows else 0.0
     metrics["split_gt_count"] = int(split_total)
     metrics["merge_pred_count"] = int(merge_total)
     metrics["refinement_invocation_rate"] = 0.0 if total_predictions == 0 else float(
