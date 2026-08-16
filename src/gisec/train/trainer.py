@@ -367,6 +367,10 @@ def _run_training_loop(
         run.model.train()
         epoch_train_start = time.perf_counter()
         for epoch_step, samples in enumerate(run.train_loader, start=1):
+            # Check before the optimizer step so a run that resumes already
+            # at the cap trains exactly N steps, never N + 1.
+            if int(args.max_train_steps) > 0 and step_count >= int(args.max_train_steps):
+                break
             step_start = time.perf_counter()
             images = torch.stack([sample["image"].float() for sample in samples], dim=0).to(
                 run.device, non_blocking=non_blocking
@@ -452,8 +456,6 @@ def _run_training_loop(
                             value.detach().cpu())
                 row.update(local_metrics)
                 _emit_gisec_log(run.metrics_log_path, row)
-            if int(args.max_train_steps) > 0 and step_count >= int(args.max_train_steps):
-                break
         epoch_train_sec = float(time.perf_counter() - epoch_train_start)
         _emit_gisec_log(
             run.metrics_log_path,

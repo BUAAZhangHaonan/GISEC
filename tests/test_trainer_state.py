@@ -3,13 +3,24 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import time
+from types import SimpleNamespace
 
 import pytest
+import torch
+from torch.amp import GradScaler
+from torch import nn
 
+from gisec.config.variants import get_gisec_variant_spec
+from gisec.train import trainer as trainer_module
+from gisec.train.args import parse_train_args
+from gisec.train.model_builder import resume_payload, save_torch_payload
 from gisec.train.trainer import (
+    _TrainingRun,
     _acquire_run_lock,
     _drop_stale_metrics_rows,
     _release_run_lock,
+    _run_training_loop,
 )
 
 
@@ -102,3 +113,116 @@ def test_run_lock_overrides_a_stale_lock(tmp_path) -> None:
 
     assert (output_dir / ".run_lock").read_text(
         encoding="utf-8").strip() == str(os.getpid())
+
+
+class _StubBackbone(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.proj = nn.Conv2d(3, 4, kernel_size=1)
+
+    def forward(self, pixel_values, pixel_mask, output_hidden_states,
+                mask_labels=None, class_labels=None):
+        return SimpleNamespace(
+            loss=self.proj(pixel_values).sum(), loss_dict=None)
+
+
+class _LoopModel(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.backbone = _StubBackbone()
+
+
+def _stub_loop_dependencies(monkeypatch) -> None:
+    monkeypatch.setattr(
+        trainer_module, "train_local_modules_with_metrics",
+        lambda **kwargs: (torch.tensor(0.0), {"loss_local_total": 0.0}),
+    )
+    monkeypatch.setattr(
+        trainer_module, "evaluate_gisec",
+        lambda **kwargs: ({"segm/AP": 0.25}, {}),
+    )
+
+
+def _loop_run(args, model: _LoopModel, tmp_path) -> _TrainingRun:
+    batches = [[{"image": torch.randn(3, 8, 8)}] for _ in range(2)]
+    return _TrainingRun(
+        args=args,
+        variant_spec=get_gisec_variant_spec(args.variant),
+        device=torch.device("cpu"),
+        output_dir=tmp_path,
+        include_depth=False,
+        train_loader=batches,
+        val_loader=[],
+        component_class_index=1,
+        model=model,
+        reference_source=None,
+        optimizer=torch.optim.AdamW(model.parameters()),
+        scaler=GradScaler(enabled=False),
+        ann_file=tmp_path / "instances_val.json",
+        metrics_log_path=tmp_path / "metrics_log.jsonl",
+        resume_last_checkpoint=tmp_path / "resume_last.pth",
+        best_checkpoint=tmp_path / "model_best.pth",
+        params_trainable=sum(
+            param.numel() for param in model.parameters()),
+        start=time.perf_counter(),
+    )
+
+
+def _train_step_rows(path):
+    return [
+        row for row in _read_rows(path) if row["mode"] == "train_step"
+    ]
+
+
+def test_max_train_steps_cap_runs_exactly_n_steps(tmp_path, monkeypatch) -> None:
+    _stub_loop_dependencies(monkeypatch)
+    args = parse_train_args([
+        "--dataset-root", str(tmp_path),
+        "--output-dir", str(tmp_path),
+        "--variant", "base_rgb_1024",
+        "--epochs", "3",
+        "--max-train-steps", "3",
+        "--log-every-steps", "1",
+    ])
+    run = _loop_run(args, _LoopModel(), tmp_path)
+
+    last_epoch, best_ap, _, _, _ = _run_training_loop(run)
+
+    assert [row["global_step"] for row in _train_step_rows(
+        run.metrics_log_path)] == [1, 2, 3]
+    assert last_epoch == 2
+    assert best_ap == 0.25
+
+
+def test_resumed_run_at_cap_trains_no_extra_step(tmp_path, monkeypatch) -> None:
+    _stub_loop_dependencies(monkeypatch)
+    resume_checkpoint = tmp_path / "resume_last.pth"
+    args = parse_train_args([
+        "--dataset-root", str(tmp_path),
+        "--output-dir", str(tmp_path),
+        "--variant", "base_rgb_1024",
+        "--epochs", "3",
+        "--max-train-steps", "3",
+        "--log-every-steps", "1",
+        "--resume-checkpoint", str(resume_checkpoint),
+    ])
+    model = _LoopModel()
+    save_torch_payload(resume_checkpoint, resume_payload(
+        model=model,
+        optimizer=torch.optim.AdamW(model.parameters()),
+        scaler=GradScaler(enabled=False),
+        args=args,
+        completed_epoch=2,
+        global_step=3,
+        best_metric=0.25,
+        running_step_time_total=0.5,
+        elapsed_sec=10.0,
+        peak_memory_mb=0.0,
+    ))
+    run = _loop_run(args, model, tmp_path)
+
+    last_epoch, best_ap, _, _, _ = _run_training_loop(run)
+
+    assert _train_step_rows(run.metrics_log_path) == []
+    assert last_epoch == 3
+    assert best_ap == 0.25
