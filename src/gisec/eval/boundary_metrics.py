@@ -16,6 +16,13 @@ def instance_masks_to_boundary_map(
     image_shape: tuple[int, int] | None = None,
     band_px: int = 1,
 ) -> np.ndarray:
+    """One-sided boundary edge: the mask minus its erosion by ``band_px``.
+
+    Deliberately different from gisec.geometry.boundary_band (the symmetric
+    dilate-erode band used as the refiner's training target and for instance
+    selection): this metric edge stays inside the mask so it measures how far
+    a predicted boundary intrudes into the ground truth.
+    """
     masks = list(masks)
     if image_shape is None:
         if not masks:

@@ -15,9 +15,9 @@ from gisec.datasets.reference_bank import (
     prepare_reference_tensors,
     reference_tensors_from_bank,
 )
+from gisec.geometry import boundary_band
 from gisec.models.gisec_model import (
     GISECModel,
-    boundary_target_from_mask,
     crop_and_resize,
     expand_bbox,
     mask_bbox,
@@ -209,7 +209,7 @@ def train_local_modules_with_metrics(
         coarse_mask_batch = torch.stack(coarse_masks, dim=0)
         gt_crop_batch = torch.stack(gt_crops, dim=0)
         gt_boundary_batch = torch.stack(
-            [boundary_target_from_mask(gt_crop) for gt_crop in gt_crop_batch],
+            [boundary_band(gt_crop, width=1).float() for gt_crop in gt_crop_batch],
             dim=0,
         )
         reference_rgb, reference_depth, reference_mask = positive_reference

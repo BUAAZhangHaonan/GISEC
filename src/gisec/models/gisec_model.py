@@ -142,16 +142,6 @@ def paste_mask_from_crop(
     return pasted
 
 
-def boundary_target_from_mask(mask: torch.Tensor) -> torch.Tensor:
-    if mask.ndim != 2:
-        raise ValueError(f"Expected HW mask, got {tuple(mask.shape)}")
-    mask4 = mask.float().unsqueeze(0).unsqueeze(0)
-    dilated = F.max_pool2d(mask4, kernel_size=3, stride=1, padding=1)
-    eroded = 1.0 - F.max_pool2d(1.0 - mask4,
-                                kernel_size=3, stride=1, padding=1)
-    return ((dilated - eroded) > 0.0).float()[0, 0]
-
-
 class _ConvBlock(nn.Module):
     def __init__(self, in_channels: int, out_channels: int) -> None:
         super().__init__()

@@ -10,6 +10,7 @@ from scipy.optimize import linear_sum_assignment
 from torch.amp import autocast
 
 from gisec.config.variants import get_gisec_variant_spec
+from gisec.geometry import boundary_band
 from gisec.models.gisec_model import (
     GISECModel,
     crop_and_resize,
@@ -28,24 +29,6 @@ def _upscale_mask_logits(mask_logits: torch.Tensor, *, image_shape: tuple[int, i
         mode="bilinear",
         align_corners=False,
     )[0]
-
-
-def _binary_morphology(mask: torch.Tensor, *, radius: int) -> tuple[torch.Tensor, torch.Tensor]:
-    if mask.ndim != 2:
-        raise ValueError(f"Expected 2D mask, got shape {tuple(mask.shape)}")
-    kernel = 2 * int(radius) + 1
-    mask4 = mask.float().unsqueeze(0).unsqueeze(0)
-    dilated = F.max_pool2d(mask4, kernel_size=kernel,
-                           stride=1, padding=radius)[0, 0]
-    eroded = 1.0 - \
-        F.max_pool2d(1.0 - mask4, kernel_size=kernel,
-                     stride=1, padding=radius)[0, 0]
-    return dilated, eroded
-
-
-def _boundary_band(mask: torch.Tensor, *, width: int) -> torch.Tensor:
-    dilated, eroded = _binary_morphology(mask, radius=max(int(width), 1))
-    return (dilated - eroded) > 0.0
 
 
 def _bernoulli_entropy(probs: torch.Tensor) -> torch.Tensor:
@@ -82,7 +65,7 @@ def select_refinement_instances(
     rows: list[tuple[float, float, int]] = []
     entropy_map = _bernoulli_entropy(mask_probs.float())
     for index in range(instance_count):
-        band = _boundary_band(
+        band = boundary_band(
             binary_masks[index].float(), width=int(boundary_band_width))
         if bool(band.any()):
             uncertainty = float(entropy_map[index][band].mean().item())

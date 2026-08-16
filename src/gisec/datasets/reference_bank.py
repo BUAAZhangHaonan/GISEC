@@ -3,13 +3,14 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
 
+from gisec.datasets.coco_utils import load_depth_array
 from gisec.models.gisec_model import prepare_reference_depth
 
 
@@ -19,13 +20,6 @@ def _resize_rgb(image: np.ndarray, image_size: int) -> np.ndarray:
 
 def _resize_mask(mask: np.ndarray, image_size: int) -> np.ndarray:
     return cv2.resize(mask, (image_size, image_size), interpolation=cv2.INTER_NEAREST)
-
-
-def _load_depth_array(path: Path) -> np.ndarray:
-    depth = np.load(path).astype(np.float32)
-    if depth.ndim == 3:
-        depth = depth[..., 0]
-    return depth
 
 
 @dataclass
@@ -42,7 +36,7 @@ class ReferenceBank:
         if rgb is None:
             raise FileNotFoundError(record.rgb_path)
         rgb = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)
-        depth = _load_depth_array(record.depth_path)
+        depth = load_depth_array(record.depth_path)
         mask = cv2.imread(str(record.mask_path), cv2.IMREAD_GRAYSCALE)
         if mask is None:
             raise FileNotFoundError(record.mask_path)
@@ -189,7 +183,7 @@ def prepare_reference_tensors(
     return reference_tensors_from_bank(bank=bank, crop_size=crop_size, device=device)
 
 
-def _read_json(path: Path) -> Dict[str, Any]:
+def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 

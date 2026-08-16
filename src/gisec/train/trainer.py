@@ -87,8 +87,8 @@ class _TrainingRun:
     scaler: GradScaler
     ann_file: Path
     metrics_log_path: Path
-    resume_last_ckpt: Path
-    best_ckpt: Path
+    resume_last_checkpoint: Path
+    best_checkpoint: Path
     params_trainable: int
     start: float
 
@@ -144,8 +144,8 @@ def _prepare_training(args: argparse.Namespace) -> _TrainingRun:
         # Fresh runs start from an empty log; resumed runs append so the
         # metrics history of the original run survives.
         metrics_log_path.unlink()
-    resume_last_ckpt = output_dir / "resume_last.pth"
-    best_ckpt = output_dir / "model_best.pth"
+    resume_last_checkpoint = output_dir / "resume_last.pth"
+    best_checkpoint = output_dir / "model_best.pth"
     start = time.perf_counter()
     if device.type == "cuda" and torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats(device)
@@ -164,8 +164,8 @@ def _prepare_training(args: argparse.Namespace) -> _TrainingRun:
         scaler=scaler,
         ann_file=ann_file,
         metrics_log_path=metrics_log_path,
-        resume_last_ckpt=resume_last_ckpt,
-        best_ckpt=best_ckpt,
+        resume_last_checkpoint=resume_last_checkpoint,
+        best_checkpoint=best_checkpoint,
         params_trainable=params_trainable,
         start=start,
     )
@@ -203,14 +203,14 @@ def _run_epoch_eval(
     best_updated = bool(segm_ap > best_ap_in)
     if best_updated:
         best_ap_in = segm_ap
-        save_torch_payload(run.best_ckpt, checkpoint_payload(
+        save_torch_payload(run.best_checkpoint, checkpoint_payload(
             run.model, run.args))
         _emit_gisec_log(
             run.metrics_log_path,
             {
                 "mode": "checkpoint",
                 "epoch": int(epoch),
-                "checkpoint_path": str(run.best_ckpt.resolve()),
+                "checkpoint_path": str(run.best_checkpoint.resolve()),
                 "reason": "best",
                 "metric": segm_ap,
             },
@@ -384,7 +384,7 @@ def _run_training_loop(
                 best_metric=float(best_ap),
                 running_step_time_total=float(running_step_time_total),
             )
-            save_torch_payload(run.resume_last_ckpt, resume_state)
+            save_torch_payload(run.resume_last_checkpoint, resume_state)
         stopping_early = int(args.max_train_steps) > 0 and step_count >= int(
             args.max_train_steps)
         should_eval = False
@@ -417,15 +417,15 @@ def _finalize_run(
     final_eval_pending: bool,
 ) -> None:
     args = run.args
-    final_ckpt = run.output_dir / "model_final.pth"
+    final_checkpoint = run.output_dir / "model_final.pth"
     final_payload = checkpoint_payload(run.model, args)
-    save_torch_payload(final_ckpt, final_payload)
+    save_torch_payload(final_checkpoint, final_payload)
     _emit_gisec_log(
         run.metrics_log_path,
         {
             "mode": "checkpoint",
             "epoch": int(last_epoch),
-            "checkpoint_path": str(final_ckpt.resolve()),
+            "checkpoint_path": str(final_checkpoint.resolve()),
             "reason": "final",
         },
     )
@@ -448,7 +448,7 @@ def _finalize_run(
         artifact_root=run.output_dir,
         metrics=final_metrics,
         inference_speed=final_speed,
-        checkpoint=final_ckpt,
+        checkpoint=final_checkpoint,
         dataset_root=str(Path(args.dataset_root).resolve()),
         params_trainable=run.params_trainable,
         training_peak_memory_mb=peak_memory_mb,
@@ -467,8 +467,8 @@ def _finalize_run(
             "mode": "run_final",
             "wall_time_sec": float(wall_time_sec),
             "best_metric": float(best_ap),
-            "final_checkpoint_path": str(final_ckpt.resolve()),
-            "best_checkpoint_path": str(run.best_ckpt.resolve()),
+            "final_checkpoint_path": str(final_checkpoint.resolve()),
+            "best_checkpoint_path": str(run.best_checkpoint.resolve()),
         },
     )
 
