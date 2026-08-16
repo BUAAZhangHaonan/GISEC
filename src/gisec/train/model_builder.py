@@ -91,6 +91,14 @@ def load_module_state_dict(
             f"unexpected_keys={unexpected_keys}; "
             f"shape_mismatches={shape_mismatches}"
         )
+    if allow_partial and (missing_keys or unexpected_keys or shape_mismatches):
+        print(
+            f"[gisec] partial checkpoint load ({context}): "
+            f"missing={len(missing_keys)} {missing_keys}; "
+            f"unexpected={len(unexpected_keys)} {unexpected_keys}; "
+            f"shape_mismatch={len(shape_mismatches)} {shape_mismatches}",
+            flush=True,
+        )
     module.load_state_dict(
         compatible if allow_partial else source_state, strict=not allow_partial)
 
