@@ -313,10 +313,21 @@ def _pose_farthest_sample_view_ids(root: Path, view_ids: list[str], max_views: i
                 f"[gisec] reference bank: camera pose {path} has no position "
                 "list; falling back to uniform view sampling", flush=True)
             return []
+        position_array = np.asarray(list(position), dtype=np.float32)
+        if not bool(np.all(np.isfinite(position_array))):
+            # A NaN position makes every norm NaN, the farthest-point
+            # comparison never fires, and the sampler used to fall through
+            # to a silent single-view result; treat it like any other
+            # unusable pose instead.
+            print(
+                f"[gisec] reference bank: camera pose {path} has a "
+                "non-finite position; falling back to uniform view "
+                "sampling", flush=True)
+            return []
         # Distances use the camera position only: position is meters while
         # quaternions are unitless, so mixing them into one euclidean
         # distance compares incompatible units.
-        positions.append(np.asarray(list(position), dtype=np.float32))
+        positions.append(position_array)
     if not positions:
         return []
     selected = [0]
