@@ -3,6 +3,27 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from gisec.config.variants import get_gisec_variant_spec
+
+
+def gisec_benchmark_payload(variant_name: str, depth_mode: str) -> dict[str, Any]:
+    variant_spec = get_gisec_variant_spec(variant_name)
+    refine_mode = "none"
+    if variant_spec.use_local_refine:
+        refine_mode = "local_refine"
+        if variant_spec.use_reference_rescue:
+            refine_mode += "_ref"
+            if variant_spec.use_graph_rescue:
+                refine_mode += "_graph"
+    return {
+        "model_family": "mask2former",
+        "backbone_name": "swin_t",
+        "resolution": 1024,
+        "input_mode": str(depth_mode),
+        "fusion_mode": str(depth_mode),
+        "refine_mode": refine_mode,
+    }
+
 
 def _resolve_existing_artifact(artifact_root: Path, *relative_paths: str) -> str | None:
     for relative_path in relative_paths:

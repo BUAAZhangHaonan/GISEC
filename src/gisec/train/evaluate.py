@@ -17,7 +17,7 @@ from gisec.engine import build_benchmark_payload, build_device, write_json
 from gisec.eval.boundary_metrics import compute_boundary_band_iou
 from gisec.eval.coco_eval import evaluate_json
 from gisec.eval.coco_export import masks_to_coco_results
-from gisec.eval.export import build_run_summary_payload
+from gisec.eval.export import build_run_summary_payload, gisec_benchmark_payload
 from gisec.eval.split_merge import compute_split_merge_counts
 from gisec.models.gisec_model import GISECModel, prepare_gisec_input_batch
 from gisec.train.data import build_loader, build_reference_source
@@ -33,25 +33,6 @@ from gisec.train.model_builder import (
     validate_runtime_checkpoint_variant,
 )
 from gisec.train.args import model_payload
-
-
-def gisec_benchmark_payload(variant_name: str, depth_mode: str) -> dict[str, Any]:
-    variant_spec = get_gisec_variant_spec(variant_name)
-    refine_mode = "none"
-    if variant_spec.use_local_refine:
-        refine_mode = "local_refine"
-        if variant_spec.use_reference_rescue:
-            refine_mode += "_ref"
-            if variant_spec.use_graph_rescue:
-                refine_mode += "_graph"
-    return {
-        "model_family": "mask2former",
-        "backbone_name": "swin_t",
-        "resolution": 1024,
-        "input_mode": str(depth_mode),
-        "fusion_mode": str(depth_mode),
-        "refine_mode": refine_mode,
-    }
 
 
 def evaluate_gisec(
