@@ -42,10 +42,14 @@ def compute_boundary_iou(
     image_shape: tuple[int, int] | None = None,
     band_px: int = 1,
 ) -> float:
-    pred_boundary = instance_masks_to_boundary_map(pred_masks, image_shape=image_shape, band_px=band_px)
-    gt_boundary = instance_masks_to_boundary_map(gt_masks, image_shape=pred_boundary.shape, band_px=band_px)
-    union = np.logical_or(pred_boundary > 0, gt_boundary > 0).sum(dtype=np.int64)
+    pred_boundary = instance_masks_to_boundary_map(
+        pred_masks, image_shape=image_shape, band_px=band_px)
+    gt_boundary = instance_masks_to_boundary_map(
+        gt_masks, image_shape=pred_boundary.shape, band_px=band_px)
+    union = np.logical_or(pred_boundary > 0, gt_boundary >
+                          0).sum(dtype=np.int64)
     if int(union) <= 0:
         return 1.0
-    intersection = np.logical_and(pred_boundary > 0, gt_boundary > 0).sum(dtype=np.int64)
+    intersection = np.logical_and(
+        pred_boundary > 0, gt_boundary > 0).sum(dtype=np.int64)
     return float(intersection) / float(union)

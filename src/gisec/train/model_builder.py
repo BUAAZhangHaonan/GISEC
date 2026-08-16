@@ -29,7 +29,8 @@ def extract_state_dict(payload: dict[str, Any], *, prefix_backbone: bool = False
         state_dict = dict(payload)
     if prefix_backbone:
         if state_dict and not any(key.startswith("backbone.") for key in state_dict):
-            state_dict = {f"backbone.{key}": value for key, value in state_dict.items()}
+            state_dict = {f"backbone.{key}": value for key,
+                          value in state_dict.items()}
     return state_dict
 
 
@@ -38,7 +39,8 @@ def _checkpoint_variant(payload: Any) -> str | None:
         return None
     candidates = [
         payload.get("variant"),
-        payload.get("model", {}).get("variant") if isinstance(payload.get("model"), dict) else None,
+        payload.get("model", {}).get("variant") if isinstance(
+            payload.get("model"), dict) else None,
     ]
     for candidate in candidates:
         if candidate not in {"", None}:
@@ -63,8 +65,10 @@ def _partition_state_dict(
                 )
                 continue
         compatible[key] = value
-    missing_keys = sorted(key for key in target_state if key not in source_state)
-    unexpected_keys = sorted(key for key in source_state if key not in target_state)
+    missing_keys = sorted(
+        key for key in target_state if key not in source_state)
+    unexpected_keys = sorted(
+        key for key in source_state if key not in target_state)
     return compatible, missing_keys, unexpected_keys, shape_mismatches
 
 
@@ -87,7 +91,8 @@ def load_module_state_dict(
             f"unexpected_keys={unexpected_keys}; "
             f"shape_mismatches={shape_mismatches}"
         )
-    module.load_state_dict(compatible if allow_partial else source_state, strict=not allow_partial)
+    module.load_state_dict(
+        compatible if allow_partial else source_state, strict=not allow_partial)
 
 
 def _backbone_state_dict(source_state: dict[str, Any]) -> dict[str, Any]:
@@ -132,11 +137,13 @@ def _resolve_input_channels(depth_mode: str) -> int:
 
 def build_gisec_model(args: argparse.Namespace) -> GISECModel:
     variant_spec = get_gisec_variant_spec(args.variant)
-    depth_mode = str(getattr(args, "depth_mode", "") or variant_spec.depth_mode)
+    depth_mode = str(getattr(args, "depth_mode", "")
+                     or variant_spec.depth_mode)
     input_channels = _resolve_input_channels(depth_mode)
     backbone = build_mask2former_model(
         image_size=int(args.image_size),
-        pretrained_model_name=None if str(args.pretrained_model_name).strip().lower() in {"", "none"} else str(args.pretrained_model_name),
+        pretrained_model_name=None if str(args.pretrained_model_name).strip().lower() in {
+            "", "none"} else str(args.pretrained_model_name),
         input_channels=int(input_channels),
         hidden_dim=int(args.hidden_dim),
         feature_size=int(args.feature_size),
@@ -147,7 +154,8 @@ def build_gisec_model(args: argparse.Namespace) -> GISECModel:
         num_queries=int(args.num_queries),
         train_num_points=int(args.train_num_points),
     )
-    feature_channels = int(getattr(backbone.config, "hidden_dim", int(args.feature_size)))
+    feature_channels = int(
+        getattr(backbone.config, "hidden_dim", int(args.feature_size)))
     return GISECModel(
         backbone=backbone,
         feature_channels=feature_channels,
@@ -169,12 +177,14 @@ def configure_model_for_stage(model: nn.Module, args: argparse.Namespace) -> Non
     init_checkpoint = Path(str(args.init_checkpoint)).resolve()
     if not init_checkpoint.exists():
         raise FileNotFoundError(init_checkpoint)
-    checkpoint_payload = torch.load(str(init_checkpoint), map_location="cpu", weights_only=True)
+    checkpoint_payload = torch.load(
+        str(init_checkpoint), map_location="cpu", weights_only=True)
     state_dict = extract_state_dict(checkpoint_payload, prefix_backbone=True)
     load_module_state_dict(
         model.backbone,
         _backbone_state_dict(state_dict),
-        allow_partial=bool(getattr(args, "allow_partial_checkpoint_load", False)),
+        allow_partial=bool(
+            getattr(args, "allow_partial_checkpoint_load", False)),
         context=f"init checkpoint {init_checkpoint}",
     )
 
@@ -220,7 +230,8 @@ def load_resume_payload(
     resume_checkpoint = Path(str(args.resume_checkpoint)).resolve()
     if not resume_checkpoint.exists():
         raise FileNotFoundError(resume_checkpoint)
-    payload = torch.load(str(resume_checkpoint), map_location="cpu", weights_only=True)
+    payload = torch.load(str(resume_checkpoint),
+                         map_location="cpu", weights_only=True)
     validate_runtime_checkpoint_variant(
         requested_variant=str(args.variant),
         run_variant=None,
@@ -254,7 +265,8 @@ def save_torch_payload(path: Path, payload: dict[str, Any]) -> None:
 
 def build_pixel_mask(pixel_values: torch.Tensor) -> torch.Tensor:
     return torch.ones(
-        (int(pixel_values.shape[0]), int(pixel_values.shape[-2]), int(pixel_values.shape[-1])),
+        (int(pixel_values.shape[0]), int(
+            pixel_values.shape[-2]), int(pixel_values.shape[-1])),
         dtype=torch.long,
         device=pixel_values.device,
     )
@@ -277,4 +289,3 @@ def run_backbone(
         kwargs["mask_labels"] = mask_labels
         kwargs["class_labels"] = class_labels
     return model.backbone(**kwargs)
-

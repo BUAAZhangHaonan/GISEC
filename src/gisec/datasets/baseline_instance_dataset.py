@@ -38,13 +38,15 @@ class BaselineInstanceDataset(Dataset):
         self.include_depth = bool(include_depth)
         self.include_annotations = bool(include_annotations)
         self.include_instance_map = bool(include_instance_map)
-        self.coco = LiteCOCO(self.root / "annotations" / f"instances_{self.split}.json")
+        self.coco = LiteCOCO(self.root / "annotations" /
+                             f"instances_{self.split}.json")
         self.image_ids = sorted(self.coco.getImgIds())
         depth_candidates = [
             self.root / "depth" / self.split,
             self.root / "depth" / "depth_npy" / self.split,
         ]
-        self.depth_dir = next((path for path in depth_candidates if path.exists()), None)
+        self.depth_dir = next(
+            (path for path in depth_candidates if path.exists()), None)
 
     @property
     def component_category_id(self) -> int:
@@ -67,12 +69,14 @@ class BaselineInstanceDataset(Dataset):
     def __getitem__(self, index: int) -> dict[str, Any]:
         image_id = int(self.image_ids[index])
         info = self.coco.loadImgs([image_id])[0]
-        image = cv2.imread(str(self.root / "images" / self.split / info["file_name"]), cv2.IMREAD_COLOR)
+        image = cv2.imread(
+            str(self.root / "images" / self.split / info["file_name"]), cv2.IMREAD_COLOR)
         if image is None:
             raise FileNotFoundError(info["file_name"])
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         height, width = image.shape[:2]
-        image = cv2.resize(image, (self.image_size, self.image_size), interpolation=cv2.INTER_LINEAR)
+        image = cv2.resize(
+            image, (self.image_size, self.image_size), interpolation=cv2.INTER_LINEAR)
 
         masks: list[np.ndarray] = []
         boxes: list[list[float]] = []
@@ -83,11 +87,13 @@ class BaselineInstanceDataset(Dataset):
             ann_ids = self.coco.getAnnIds(imgIds=[image_id], iscrowd=None)
             anns = self.coco.loadAnns(ann_ids)
             if instance_map is None:
-                instance_map = np.zeros((self.image_size, self.image_size), dtype=np.int64)
+                instance_map = np.zeros(
+                    (self.image_size, self.image_size), dtype=np.int64)
             next_instance_id = int(instance_map.max())
             for ann in anns:
                 mask = ann_to_mask(ann, height, width)
-                mask = cv2.resize(mask, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
+                mask = cv2.resize(
+                    mask, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
                 if int(mask.max()) <= 0:
                     continue
                 next_instance_id += 1
@@ -102,7 +108,8 @@ class BaselineInstanceDataset(Dataset):
             depth_path = self.depth_dir / f"{Path(info['file_name']).stem}.npy"
             if depth_path.exists():
                 depth = load_depth_array(depth_path)
-                depth = cv2.resize(depth, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
+                depth = cv2.resize(
+                    depth, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
                 depth_tensor = torch.from_numpy(depth[None, ...]).float()
 
         masks_tensor = None
@@ -110,18 +117,21 @@ class BaselineInstanceDataset(Dataset):
         labels_tensor = None
         if self.include_annotations:
             if masks:
-                masks_tensor = torch.from_numpy(np.stack(masks, axis=0)).to(torch.uint8)
+                masks_tensor = torch.from_numpy(
+                    np.stack(masks, axis=0)).to(torch.uint8)
                 boxes_tensor = torch.tensor(boxes, dtype=torch.float32)
                 labels_tensor = torch.tensor(labels, dtype=torch.int64)
             else:
-                masks_tensor = torch.zeros((0, self.image_size, self.image_size), dtype=torch.uint8)
+                masks_tensor = torch.zeros(
+                    (0, self.image_size, self.image_size), dtype=torch.uint8)
                 boxes_tensor = torch.zeros((0, 4), dtype=torch.float32)
                 labels_tensor = torch.zeros((0,), dtype=torch.int64)
 
         instance_map_tensor = None
         if self.include_instance_map:
             if instance_map is None:
-                instance_map = np.zeros((self.image_size, self.image_size), dtype=np.int64)
+                instance_map = np.zeros(
+                    (self.image_size, self.image_size), dtype=np.int64)
             instance_map_tensor = torch.from_numpy(instance_map).long()
 
         return {

@@ -56,7 +56,6 @@ def build_loader(
     return DataLoader(dataset, **loader_kwargs)
 
 
-
 def build_label_targets(
     samples: list[dict[str, Any]],
     *,
@@ -69,11 +68,12 @@ def build_label_targets(
         masks = sample.get("masks")
         labels = sample.get("labels")
         if masks is None or labels is None:
-            mask_labels.append(torch.zeros((0, 1, 1), dtype=torch.float32, device=device))
-            class_labels.append(torch.zeros((0,), dtype=torch.long, device=device))
+            mask_labels.append(torch.zeros(
+                (0, 1, 1), dtype=torch.float32, device=device))
+            class_labels.append(torch.zeros(
+                (0,), dtype=torch.long, device=device))
             continue
         mask_labels.append(masks.float().to(device, non_blocking=non_blocking))
-        class_labels.append(labels.long().to(device, non_blocking=non_blocking))
+        class_labels.append(labels.long().to(
+            device, non_blocking=non_blocking))
     return mask_labels, class_labels
-
-

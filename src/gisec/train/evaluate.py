@@ -83,7 +83,8 @@ def evaluate_gisec(
     graph_invocations = 0
     total_predictions = 0
     non_blocking = bool(device.type == "cuda")
-    uses_baseline_decode = not get_gisec_variant_spec(variant_name).use_local_refine
+    uses_baseline_decode = not get_gisec_variant_spec(
+        variant_name).use_local_refine
     with torch.no_grad():
         for batch_index, samples in enumerate(loader):
             if int(max_images) > 0 and batch_index >= int(max_images):
@@ -96,13 +97,16 @@ def evaluate_gisec(
                 depths = torch.stack([sample["depth"].float() for sample in samples], dim=0).to(
                     device, non_blocking=non_blocking
                 )
-            pixel_values = prepare_gisec_input_batch(images=images, depths=depths, depth_mode=depth_mode)
+            pixel_values = prepare_gisec_input_batch(
+                images=images, depths=depths, depth_mode=depth_mode)
             pixel_mask = build_pixel_mask(pixel_values)
             start = time.perf_counter()
-            outputs = run_backbone(model=model, pixel_values=pixel_values, pixel_mask=pixel_mask)
+            outputs = run_backbone(
+                model=model, pixel_values=pixel_values, pixel_mask=pixel_mask)
             latencies_ms.append((time.perf_counter() - start) * 1000.0)
             for sample_offset, sample in enumerate(samples):
-                image_shape = (int(sample["image"].shape[-2]), int(sample["image"].shape[-1]))
+                image_shape = (
+                    int(sample["image"].shape[-2]), int(sample["image"].shape[-1]))
                 if uses_baseline_decode:
                     pred_masks, pred_scores = outputs_to_instance_masks(
                         outputs,
@@ -145,7 +149,8 @@ def evaluate_gisec(
                         boundary_band_width=int(boundary_band_width),
                         reference_source=reference_source,
                     )
-                    pred_masks = [row["binary_mask"].detach().cpu().numpy().astype(np.uint8) for row in predictions]
+                    pred_masks = [row["binary_mask"].detach().cpu(
+                    ).numpy().astype(np.uint8) for row in predictions]
                     pred_scores = [float(row["score"]) for row in predictions]
                 refinement_invocations += int(refine_count)
                 graph_invocations += int(graph_count)
@@ -169,8 +174,10 @@ def evaluate_gisec(
                             for row in predictions
                         ]
                     )
-                gt_masks = [] if sample.get("masks") is None else [mask.cpu().numpy().astype(np.uint8) for mask in sample["masks"]]
-                failure = compute_split_merge_counts(gt_masks=gt_masks, pred_masks=pred_masks)
+                gt_masks = [] if sample.get("masks") is None else [
+                    mask.cpu().numpy().astype(np.uint8) for mask in sample["masks"]]
+                failure = compute_split_merge_counts(
+                    gt_masks=gt_masks, pred_masks=pred_masks)
                 split_total += int(failure["split_gt_count"])
                 merge_total += int(failure["merge_pred_count"])
                 boundary_rows.append(
@@ -181,15 +188,20 @@ def evaluate_gisec(
                     )
                 )
     results_json = output_dir / "coco_instances_results.json"
-    results_json.write_text(json.dumps(results, ensure_ascii=False) + "\n", encoding="utf-8")
+    results_json.write_text(json.dumps(
+        results, ensure_ascii=False) + "\n", encoding="utf-8")
     if save_raw:
-        write_json(output_dir / "coco_instances_results.raw.json", {"rows": raw_rows})
+        write_json(output_dir / "coco_instances_results.raw.json",
+                   {"rows": raw_rows})
     metrics = evaluate_json(ann_file, results_json)
-    metrics["boundary/IoU"] = float(np.mean(boundary_rows)) if boundary_rows else 0.0
+    metrics["boundary/IoU"] = float(np.mean(boundary_rows)
+                                    ) if boundary_rows else 0.0
     metrics["split_gt_count"] = int(split_total)
     metrics["merge_pred_count"] = int(merge_total)
-    metrics["refinement_invocation_rate"] = 0.0 if total_predictions == 0 else float(refinement_invocations) / float(total_predictions)
-    metrics["local_graph_invocation_rate"] = 0.0 if total_predictions == 0 else float(graph_invocations) / float(total_predictions)
+    metrics["refinement_invocation_rate"] = 0.0 if total_predictions == 0 else float(
+        refinement_invocations) / float(total_predictions)
+    metrics["local_graph_invocation_rate"] = 0.0 if total_predictions == 0 else float(
+        graph_invocations) / float(total_predictions)
     speed = build_benchmark_payload(latencies_ms, device)
     write_json(output_dir / "metrics.cocoeval.json", metrics)
     write_json(output_dir / "inference_speed.json", speed)
@@ -204,13 +216,17 @@ def _run_checkpoint_inference(args: argparse.Namespace, *, save_raw: bool) -> No
     device = build_device(str(args.device))
     output_dir = Path(args.output_dir).resolve()
     checkpoint_dir_arg = getattr(args, "checkpoint_dir", "")
-    checkpoint_dir = output_dir if checkpoint_dir_arg in ("", None) else Path(str(checkpoint_dir_arg)).resolve()
-    checkpoint_path = resolve_checkpoint_path(checkpoint_dir, str(args.checkpoint))
+    checkpoint_dir = output_dir if checkpoint_dir_arg in (
+        "", None) else Path(str(checkpoint_dir_arg)).resolve()
+    checkpoint_path = resolve_checkpoint_path(
+        checkpoint_dir, str(args.checkpoint))
     if checkpoint_path.parent.resolve() == output_dir.resolve():
-        raise ValueError("eval/infer requires --checkpoint-dir to differ from --output-dir")
+        raise ValueError(
+            "eval/infer requires --checkpoint-dir to differ from --output-dir")
     output_dir.mkdir(parents=True, exist_ok=True)
     model = build_gisec_model(args).to(device)
-    checkpoint_payload = torch.load(str(checkpoint_path), map_location=device, weights_only=True)
+    checkpoint_payload = torch.load(
+        str(checkpoint_path), map_location=device, weights_only=True)
     validate_runtime_checkpoint_variant(
         requested_variant=variant_spec.name,
         run_variant=getattr(args, "_run_metadata_variant", None),
@@ -222,7 +238,8 @@ def _run_checkpoint_inference(args: argparse.Namespace, *, save_raw: bool) -> No
     load_module_state_dict(
         model,
         state_dict,
-        allow_partial=bool(getattr(args, "allow_partial_checkpoint_load", False)),
+        allow_partial=bool(
+            getattr(args, "allow_partial_checkpoint_load", False)),
         context=f"checkpoint {checkpoint_path}",
     )
     reference_source = build_reference_source(args)
@@ -237,7 +254,8 @@ def _run_checkpoint_inference(args: argparse.Namespace, *, save_raw: bool) -> No
         use_cuda=bool(device.type == "cuda"),
     )
     component_class_index = int(loader.dataset.component_category_id)
-    ann_file = Path(args.dataset_root).resolve() / "annotations" / f"instances_{args.split}.json"
+    ann_file = Path(args.dataset_root).resolve() / \
+        "annotations" / f"instances_{args.split}.json"
     metrics, speed = evaluate_gisec(
         model=model,
         loader=loader,
@@ -265,7 +283,8 @@ def _run_checkpoint_inference(args: argparse.Namespace, *, save_raw: bool) -> No
         inference_speed=speed,
         checkpoint=checkpoint_path,
         dataset_root=str(Path(args.dataset_root).resolve()),
-        benchmark=gisec_benchmark_payload(variant_spec.name, str(args.depth_mode)),
+        benchmark=gisec_benchmark_payload(
+            variant_spec.name, str(args.depth_mode)),
         decode_config={
             "score_threshold": float(args.score_threshold),
             "mask_threshold": float(args.mask_threshold),
@@ -280,4 +299,3 @@ def eval_gisec(args: argparse.Namespace) -> None:
 
 def infer_gisec(args: argparse.Namespace) -> None:
     _run_checkpoint_inference(args, save_raw=True)
-

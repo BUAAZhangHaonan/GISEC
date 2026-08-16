@@ -11,8 +11,11 @@ def _binary_morphology(mask: torch.Tensor, *, radius: int) -> tuple[torch.Tensor
         raise ValueError(f"Expected 2D mask, got shape {tuple(mask.shape)}")
     kernel = 2 * int(radius) + 1
     mask4 = mask.float().unsqueeze(0).unsqueeze(0)
-    dilated = F.max_pool2d(mask4, kernel_size=kernel, stride=1, padding=radius)[0, 0]
-    eroded = 1.0 - F.max_pool2d(1.0 - mask4, kernel_size=kernel, stride=1, padding=radius)[0, 0]
+    dilated = F.max_pool2d(mask4, kernel_size=kernel,
+                           stride=1, padding=radius)[0, 0]
+    eroded = 1.0 - \
+        F.max_pool2d(1.0 - mask4, kernel_size=kernel,
+                     stride=1, padding=radius)[0, 0]
     return dilated, eroded
 
 
@@ -55,12 +58,14 @@ def select_refinement_instances(
     rows: list[tuple[float, float, int]] = []
     entropy_map = _bernoulli_entropy(mask_probs.float())
     for index in range(instance_count):
-        band = _boundary_band(binary_masks[index].float(), width=int(boundary_band_width))
+        band = _boundary_band(
+            binary_masks[index].float(), width=int(boundary_band_width))
         if bool(band.any()):
             uncertainty = float(entropy_map[index][band].mean().item())
         else:
             uncertainty = float(entropy_map[index].mean().item())
-        rows.append((uncertainty, -float(instance_scores[index].item()), index))
+        rows.append(
+            (uncertainty, -float(instance_scores[index].item()), index))
 
     rows.sort(key=lambda item: (-item[0], item[1], item[2]))
     return [index for _uncertainty, _score_tiebreak, index in rows[:budget]]

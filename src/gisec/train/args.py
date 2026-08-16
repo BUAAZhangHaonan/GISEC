@@ -20,7 +20,7 @@ def _flag_value(argv: list[str], flag: str) -> str | None:
         if token == flag and index + 1 < len(argv):
             value = argv[index + 1]
         elif token.startswith(f"{flag}="):
-            value = token[len(flag) + 1 :]
+            value = token[len(flag) + 1:]
     return None if value in (None, "") else str(value)
 
 
@@ -38,7 +38,8 @@ def _run_metadata_variant(argv: list[str]) -> str | None:
         if not summary.exists():
             continue
         try:
-            variant = json.loads(summary.read_text(encoding="utf-8")).get("variant")
+            variant = json.loads(summary.read_text(
+                encoding="utf-8")).get("variant")
         except Exception:
             continue
         if variant in gisec_variant_names():
@@ -84,14 +85,16 @@ def _common_parser(*, mode: str, argv: list[str] | None) -> argparse.ArgumentPar
         choices=list(gisec_variant_names()),
         default=_resolved_variant_default(list(argv or [])),
     )
-    parser.add_argument("--depth-mode", choices=list(GISEC_DEPTH_MODES), default="")
+    parser.add_argument(
+        "--depth-mode", choices=list(GISEC_DEPTH_MODES), default="")
     parser.add_argument("--image-size", type=int, default=1024)
     parser.add_argument("--batch", type=int, default=1)
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--score-threshold", type=float, default=0.5)
     parser.add_argument("--mask-threshold", type=float, default=0.5)
-    parser.add_argument("--pretrained-model-name", type=str, default=_DEFAULT_PRETRAINED_MODEL)
+    parser.add_argument("--pretrained-model-name", type=str,
+                        default=_DEFAULT_PRETRAINED_MODEL)
     parser.add_argument("--hidden-dim", type=int, default=64)
     parser.add_argument("--feature-size", type=int, default=64)
     parser.add_argument("--mask-feature-size", type=int, default=64)
@@ -106,14 +109,16 @@ def _common_parser(*, mode: str, argv: list[str] | None) -> argparse.ArgumentPar
     parser.add_argument("--crop-pad", type=int, default=16)
     parser.add_argument("--boundary-band-width", type=int, default=4)
     parser.add_argument("--reference-max-views", type=int, default=16)
-    parser.add_argument("--reference-view-sampler", choices=["all", "uniform", "pose_farthest"], default="pose_farthest")
+    parser.add_argument("--reference-view-sampler",
+                        choices=["all", "uniform", "pose_farthest"], default="pose_farthest")
     parser.add_argument("--allow-partial-checkpoint-load", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     if mode == "train":
         parser.add_argument("--seed", type=int, default=42)
         parser.add_argument("--boundary-loss-weight", type=float, default=0.5)
         parser.add_argument("--graph-loss-weight", type=float, default=0.1)
-        parser.add_argument("--reference-match-loss-weight", type=float, default=0.05)
+        parser.add_argument("--reference-match-loss-weight",
+                            type=float, default=0.05)
         parser.add_argument("--epochs", type=int, default=20)
         parser.add_argument("--learning-rate", type=float, default=1.0e-4)
         parser.add_argument("--weight-decay", type=float, default=1.0e-4)
@@ -130,24 +135,31 @@ def _common_parser(*, mode: str, argv: list[str] | None) -> argparse.ArgumentPar
 
 
 def _validate_required_args(parser: argparse.ArgumentParser, args: argparse.Namespace, required: list[str]) -> None:
-    missing = [name for name in required if getattr(args, name, None) in (None, "")]
+    missing = [name for name in required if getattr(
+        args, name, None) in (None, "")]
     if missing:
-        parser.error("the following arguments are required: " + ", ".join(f"--{name.replace('_', '-')}" for name in missing))
+        parser.error("the following arguments are required: " +
+                     ", ".join(f"--{name.replace('_', '-')}" for name in missing))
 
 
 def _validate_variant_requirements(parser: argparse.ArgumentParser, args: argparse.Namespace, *, is_eval: bool) -> None:
     variant_spec = get_gisec_variant_spec(args.variant)
-    depth_mode = str(getattr(args, "depth_mode", "") or variant_spec.depth_mode)
+    depth_mode = str(getattr(args, "depth_mode", "")
+                     or variant_spec.depth_mode)
     if variant_spec.depth_mode == "rgb":
         if depth_mode != "rgb":
-            parser.error(f"--depth-mode {depth_mode} is not allowed for GISEC variant {variant_spec.name}")
+            parser.error(
+                f"--depth-mode {depth_mode} is not allowed for GISEC variant {variant_spec.name}")
     elif depth_mode != "rgbd_concat":
-        parser.error(f"--depth-mode {depth_mode} is not allowed for GISEC variant {variant_spec.name}")
+        parser.error(
+            f"--depth-mode {depth_mode} is not allowed for GISEC variant {variant_spec.name}")
     args.depth_mode = depth_mode
     if variant_spec.requires_reference_root and getattr(args, "reference_root", "") in ("", None):
-        parser.error(f"--reference-root is required for GISEC variant {variant_spec.name}")
+        parser.error(
+            f"--reference-root is required for GISEC variant {variant_spec.name}")
     if (not is_eval) and variant_spec.use_local_refine and getattr(args, "init_checkpoint", "") in ("", None):
-        parser.error(f"--init-checkpoint is required for GISEC variant {variant_spec.name}")
+        parser.error(
+            f"--init-checkpoint is required for GISEC variant {variant_spec.name}")
     if is_eval and getattr(args, "checkpoint", "") in ("", None):
         parser.error("--checkpoint is required for eval/infer")
 

@@ -22,14 +22,16 @@ def ann_to_mask(annotation: dict[str, Any], height: int, width: int) -> np.ndarr
         elif isinstance(segmentation, dict):
             rle = segmentation
         else:
-            raise TypeError(f"Unsupported segmentation type: {type(segmentation)}")
+            raise TypeError(
+                f"Unsupported segmentation type: {type(segmentation)}")
         mask = mask_utils.decode(rle)
         if mask.ndim == 3:
             mask = mask[:, :, 0]
         return (mask > 0).astype(np.uint8)
 
     if not isinstance(segmentation, list):
-        raise TypeError("Polygon fallback requires list segmentation without pycocotools")
+        raise TypeError(
+            "Polygon fallback requires list segmentation without pycocotools")
     mask = np.zeros((height, width), dtype=np.uint8)
     for polygon in segmentation:
         points = np.asarray(polygon, dtype=np.float32).reshape(-1, 2)
@@ -48,11 +50,14 @@ class LiteCOCO:
     def __init__(self, ann_path: str | Path) -> None:
         payload = json.loads(Path(ann_path).read_text(encoding="utf-8"))
         self.categories = list(payload.get("categories", []))
-        self._images = {int(item["id"]): item for item in payload.get("images", [])}
-        self._annotations = {int(item["id"]): item for item in payload.get("annotations", [])}
+        self._images = {
+            int(item["id"]): item for item in payload.get("images", [])}
+        self._annotations = {
+            int(item["id"]): item for item in payload.get("annotations", [])}
         self._ann_ids_by_image: dict[int, list[int]] = {}
         for ann_id, ann in self._annotations.items():
-            self._ann_ids_by_image.setdefault(int(ann["image_id"]), []).append(ann_id)
+            self._ann_ids_by_image.setdefault(
+                int(ann["image_id"]), []).append(ann_id)
 
     def getImgIds(self) -> list[int]:
         return sorted(self._images)

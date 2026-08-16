@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import cv2
 import numpy as np
 import torch
 import torch.nn as nn
@@ -28,14 +27,21 @@ def normalize_depth(depth: torch.Tensor) -> torch.Tensor:
 
 def prepare_reference_depth(*, depth: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
     if depth.shape != mask.shape:
-        raise ValueError(f"Expected depth and mask to share shape, got {tuple(depth.shape)} and {tuple(mask.shape)}")
+        raise ValueError(
+            f"Expected depth and mask to share shape, got {tuple(depth.shape)} and {tuple(mask.shape)}")
     valid = (mask > 0.5) & torch.isfinite(depth) & (depth < 1.0e9)
-    safe_depth = torch.where(valid, depth.float(), torch.zeros_like(depth.float()))
-    masked_min = torch.where(valid, safe_depth, torch.full_like(safe_depth, float("inf"))).flatten(2).amin(dim=2, keepdim=True)
-    masked_max = torch.where(valid, safe_depth, torch.full_like(safe_depth, float("-inf"))).flatten(2).amax(dim=2, keepdim=True)
-    masked_min = torch.where(torch.isfinite(masked_min), masked_min, torch.zeros_like(masked_min)).view(depth.shape[0], depth.shape[1], 1, 1)
-    masked_max = torch.where(torch.isfinite(masked_max), masked_max, torch.ones_like(masked_max)).view(depth.shape[0], depth.shape[1], 1, 1)
-    normalized = (safe_depth - masked_min) / (masked_max - masked_min).clamp_min(1.0e-6)
+    safe_depth = torch.where(valid, depth.float(),
+                             torch.zeros_like(depth.float()))
+    masked_min = torch.where(valid, safe_depth, torch.full_like(
+        safe_depth, float("inf"))).flatten(2).amin(dim=2, keepdim=True)
+    masked_max = torch.where(valid, safe_depth, torch.full_like(
+        safe_depth, float("-inf"))).flatten(2).amax(dim=2, keepdim=True)
+    masked_min = torch.where(torch.isfinite(masked_min), masked_min, torch.zeros_like(
+        masked_min)).view(depth.shape[0], depth.shape[1], 1, 1)
+    masked_max = torch.where(torch.isfinite(masked_max), masked_max, torch.ones_like(
+        masked_max)).view(depth.shape[0], depth.shape[1], 1, 1)
+    normalized = (safe_depth - masked_min) / \
+        (masked_max - masked_min).clamp_min(1.0e-6)
     normalized = torch.where(valid, normalized, torch.zeros_like(normalized))
     return normalized
 
@@ -58,7 +64,8 @@ def prepare_gisec_input_batch(
 
 
 def mask_bbox(mask: torch.Tensor | np.ndarray) -> tuple[int, int, int, int]:
-    array = mask.detach().cpu().numpy() if isinstance(mask, torch.Tensor) else np.asarray(mask)
+    array = mask.detach().cpu().numpy() if isinstance(
+        mask, torch.Tensor) else np.asarray(mask)
     ys, xs = np.nonzero(array > 0)
     if xs.size == 0 or ys.size == 0:
         return (0, 0, 0, 0)
@@ -112,7 +119,8 @@ def paste_mask_from_crop(
     image_shape: tuple[int, int],
 ) -> torch.Tensor:
     if crop_mask.ndim != 2:
-        raise ValueError(f"Expected HW crop mask, got {tuple(crop_mask.shape)}")
+        raise ValueError(
+            f"Expected HW crop mask, got {tuple(crop_mask.shape)}")
     x, y, w, h = bbox
     resized = F.interpolate(
         crop_mask.unsqueeze(0).unsqueeze(0).float(),
@@ -120,7 +128,8 @@ def paste_mask_from_crop(
         mode="bilinear",
         align_corners=False,
     )[0, 0]
-    pasted = torch.zeros(image_shape, dtype=resized.dtype, device=resized.device)
+    pasted = torch.zeros(image_shape, dtype=resized.dtype,
+                         device=resized.device)
     pasted[y:y + h, x:x + w] = resized
     return pasted
 
@@ -130,7 +139,8 @@ def boundary_target_from_mask(mask: torch.Tensor) -> torch.Tensor:
         raise ValueError(f"Expected HW mask, got {tuple(mask.shape)}")
     mask4 = mask.float().unsqueeze(0).unsqueeze(0)
     dilated = F.max_pool2d(mask4, kernel_size=3, stride=1, padding=1)
-    eroded = 1.0 - F.max_pool2d(1.0 - mask4, kernel_size=3, stride=1, padding=1)
+    eroded = 1.0 - F.max_pool2d(1.0 - mask4,
+                                kernel_size=3, stride=1, padding=1)
     return ((dilated - eroded) > 0.0).float()[0, 0]
 
 
@@ -138,10 +148,12 @@ class _ConvBlock(nn.Module):
     def __init__(self, in_channels: int, out_channels: int) -> None:
         super().__init__()
         self.net = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.Conv2d(in_channels, out_channels,
+                      kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True),
-            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.Conv2d(out_channels, out_channels,
+                      kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True),
         )
@@ -161,7 +173,8 @@ class LocalRefinementModule(nn.Module):
     ) -> None:
         super().__init__()
         self.use_reference = bool(use_reference)
-        self.query_encoder = _ConvBlock(int(query_channels) + 1 + int(feature_channels), int(hidden_dim))
+        self.query_encoder = _ConvBlock(
+            int(query_channels) + 1 + int(feature_channels), int(hidden_dim))
         if self.use_reference:
             self.reference_encoder = _ConvBlock(5, int(hidden_dim))
             self.fusion = _ConvBlock(int(hidden_dim) * 2, int(hidden_dim))
@@ -182,7 +195,8 @@ class LocalRefinementModule(nn.Module):
         reference_depth: torch.Tensor | None = None,
         reference_mask: torch.Tensor | None = None,
     ) -> dict[str, Any]:
-        query = torch.cat([query_crop.float(), coarse_mask_prob.float(), feature_crop.float()], dim=1)
+        query = torch.cat(
+            [query_crop.float(), coarse_mask_prob.float(), feature_crop.float()], dim=1)
         query_features = self.query_encoder(query)
         fused = query_features
         reference_match_logits = None
@@ -192,8 +206,10 @@ class LocalRefinementModule(nn.Module):
             query_batch_size = int(query_crop.shape[0])
             reference_batch_size, view_count = reference_rgb.shape[:2]
             if reference_batch_size not in {1, query_batch_size}:
-                raise ValueError("Reference batch size must be 1 or match query batch size")
-            flat_reference = torch.cat([reference_rgb, reference_depth, reference_mask], dim=2)
+                raise ValueError(
+                    "Reference batch size must be 1 or match query batch size")
+            flat_reference = torch.cat(
+                [reference_rgb, reference_depth, reference_mask], dim=2)
             flat_reference = flat_reference.reshape(
                 reference_batch_size * view_count,
                 flat_reference.shape[2],
@@ -208,11 +224,14 @@ class LocalRefinementModule(nn.Module):
                 encoded_reference.shape[2],
                 encoded_reference.shape[3],
             )
-            query_desc = normalize_descriptor_tensor(query_features.mean(dim=(-1, -2)), dim=1)
-            ref_desc = normalize_descriptor_tensor(encoded_reference.mean(dim=(-1, -2)), dim=2)
+            query_desc = normalize_descriptor_tensor(
+                query_features.mean(dim=(-1, -2)), dim=1)
+            ref_desc = normalize_descriptor_tensor(
+                encoded_reference.mean(dim=(-1, -2)), dim=2)
             if reference_batch_size == 1 and query_batch_size > 1:
                 similarity = torch.einsum("bd,vd->bv", query_desc, ref_desc[0])
-                gather_source = encoded_reference.expand(query_batch_size, -1, -1, -1, -1)
+                gather_source = encoded_reference.expand(
+                    query_batch_size, -1, -1, -1, -1)
             else:
                 similarity = torch.einsum("bd,bvd->bv", query_desc, ref_desc)
                 gather_source = encoded_reference
@@ -226,10 +245,14 @@ class LocalRefinementModule(nn.Module):
                 gather_source.shape[3],
                 gather_source.shape[4],
             )
-            top_reference = torch.gather(gather_source, dim=1, index=gather_index)
-            reference_context = (top_reference * top_weights[:, :, None, None, None]).sum(dim=1)
-            fused = self.fusion(torch.cat([query_features, reference_context], dim=1))
-            reference_match_logits = self.reference_match_head(fused.mean(dim=(-1, -2)))
+            top_reference = torch.gather(
+                gather_source, dim=1, index=gather_index)
+            reference_context = (
+                top_reference * top_weights[:, :, None, None, None]).sum(dim=1)
+            fused = self.fusion(
+                torch.cat([query_features, reference_context], dim=1))
+            reference_match_logits = self.reference_match_head(
+                fused.mean(dim=(-1, -2)))
         else:
             fused = self.fusion(fused)
         return {

@@ -8,7 +8,8 @@ from gisec.train import eval_gisec, infer_gisec, parse_eval_args, parse_train_ar
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="gisec", description="Standalone GISEC command line interface")
+    parser = argparse.ArgumentParser(
+        prog="gisec", description="Standalone GISEC command line interface")
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("train", help="Train a GISEC model")
     subparsers.add_parser("eval", help="Evaluate a trained GISEC model")

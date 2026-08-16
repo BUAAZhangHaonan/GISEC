@@ -44,7 +44,8 @@ def query_instances_from_outputs(
         return []
     fg_prob = class_prob[:, :-1]
     scores, class_ids = fg_prob.max(dim=-1)
-    upsampled_mask_logits = _upscale_mask_logits(mask_logits, image_shape=image_shape)
+    upsampled_mask_logits = _upscale_mask_logits(
+        mask_logits, image_shape=image_shape)
     mask_probs = torch.sigmoid(upsampled_mask_logits)
     rows: list[dict[str, Any]] = []
     for query_index in range(int(mask_probs.shape[0])):
@@ -84,7 +85,8 @@ def match_query_predictions_to_gt(
 ) -> list[tuple[int, int, float]]:
     if not predictions or int(gt_masks.shape[0]) == 0:
         return []
-    cost = np.ones((len(predictions), int(gt_masks.shape[0])), dtype=np.float32)
+    cost = np.ones((len(predictions), int(
+        gt_masks.shape[0])), dtype=np.float32)
     for pred_index, prediction in enumerate(predictions):
         for gt_index in range(int(gt_masks.shape[0])):
             cost[pred_index, gt_index] = 1.0 - float(
@@ -165,9 +167,11 @@ def apply_local_rescue(
     variant_spec = get_gisec_variant_spec(variant_name)
     if not variant_spec.use_local_refine or model.refiner is None or not predictions:
         return predictions, 0, 0
-    binary_masks = torch.stack([row["binary_mask"] for row in predictions], dim=0)
+    binary_masks = torch.stack([row["binary_mask"]
+                               for row in predictions], dim=0)
     mask_probs = torch.stack([row["mask_probs"] for row in predictions], dim=0)
-    scores = torch.tensor([float(row["score"]) for row in predictions], dtype=torch.float32, device=mask_probs.device)
+    scores = torch.tensor([float(row["score"]) for row in predictions],
+                          dtype=torch.float32, device=mask_probs.device)
     selected = select_refinement_instances(
         mask_probs=mask_probs,
         binary_masks=binary_masks,
@@ -181,7 +185,8 @@ def apply_local_rescue(
     refinement_invocations = 0
     graph_invocations = 0
     updated = list(predictions)
-    projected_feature_map = project_local_features_float32(model, feature_map.unsqueeze(0))[0]
+    projected_feature_map = project_local_features_float32(
+        model, feature_map.unsqueeze(0))[0]
     reference_rgb: torch.Tensor | None = None
     reference_depth: torch.Tensor | None = None
     reference_mask: torch.Tensor | None = None
@@ -199,10 +204,14 @@ def apply_local_rescue(
             image_shape=image_shape,
             pad=int(crop_pad),
         )
-        feature_bbox = scale_bbox(bbox, source_shape=image_shape, target_shape=feature_shape)
-        query_crop = crop_and_resize(full_input, bbox=bbox, output_size=int(crop_size), mode="bilinear").unsqueeze(0)
-        coarse_mask_crop = crop_and_resize(row["mask_probs"].unsqueeze(0), bbox=bbox, output_size=int(crop_size), mode="bilinear").unsqueeze(0)
-        feature_crop = crop_and_resize(projected_feature_map, bbox=feature_bbox, output_size=int(crop_size), mode="bilinear").unsqueeze(0)
+        feature_bbox = scale_bbox(
+            bbox, source_shape=image_shape, target_shape=feature_shape)
+        query_crop = crop_and_resize(full_input, bbox=bbox, output_size=int(
+            crop_size), mode="bilinear").unsqueeze(0)
+        coarse_mask_crop = crop_and_resize(row["mask_probs"].unsqueeze(
+            0), bbox=bbox, output_size=int(crop_size), mode="bilinear").unsqueeze(0)
+        feature_crop = crop_and_resize(projected_feature_map, bbox=feature_bbox, output_size=int(
+            crop_size), mode="bilinear").unsqueeze(0)
         refined = run_local_refiner_float32(
             model=model,
             query_crop=query_crop,
@@ -216,7 +225,8 @@ def apply_local_rescue(
         refined_binary = (refined_prob >= float(mask_threshold)).float()
         refinement_invocations += 1
         if variant_spec.use_graph_rescue and model.graph_head is not None:
-            component_map = connected_components(refined_binary.detach().cpu().numpy())
+            component_map = connected_components(
+                refined_binary.detach().cpu().numpy())
             if int(component_map.max()) > 1:
                 node_features, edge_index, edge_features = build_local_graph_inputs(
                     component_map=component_map,
@@ -237,10 +247,12 @@ def apply_local_rescue(
                         edge_scores=edge_scores,
                         threshold=0.5,
                     )
-                    refined_binary = torch.from_numpy((merged > 0).astype(np.float32)).to(refined_binary.device)
+                    refined_binary = torch.from_numpy(
+                        (merged > 0).astype(np.float32)).to(refined_binary.device)
                     graph_invocations += 1
-        row["mask_probs"] = paste_mask_from_crop(refined_prob, bbox=bbox, image_shape=image_shape)
-        row["binary_mask"] = paste_mask_from_crop(refined_binary, bbox=bbox, image_shape=image_shape)
+        row["mask_probs"] = paste_mask_from_crop(
+            refined_prob, bbox=bbox, image_shape=image_shape)
+        row["binary_mask"] = paste_mask_from_crop(
+            refined_binary, bbox=bbox, image_shape=image_shape)
         updated[int(index)] = row
     return updated, refinement_invocations, graph_invocations
-

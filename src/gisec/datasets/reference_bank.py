@@ -129,7 +129,8 @@ class ReferenceBankSource:
             return self.root
         candidate = (self.root / str(part_key)).resolve()
         if candidate.name not in self._available_parts or not candidate.exists():
-            raise KeyError(f"Unknown part key for reference bank source: {part_key}")
+            raise KeyError(
+                f"Unknown part key for reference bank source: {part_key}")
         return candidate
 
     def load_for_query(self, file_name: str) -> ReferenceBank:
@@ -166,9 +167,12 @@ def reference_tensors_from_bank(
         mask=bank.masks.float(),
     )
     return (
-        F.interpolate(bank.images.float().to(device), size=(crop_size, crop_size), mode="bilinear", align_corners=False).unsqueeze(0),
-        F.interpolate(normalized_ref_depth.to(device), size=(crop_size, crop_size), mode="bilinear", align_corners=False).unsqueeze(0),
-        F.interpolate(bank.masks.float().to(device), size=(crop_size, crop_size), mode="nearest").unsqueeze(0),
+        F.interpolate(bank.images.float().to(device), size=(
+            crop_size, crop_size), mode="bilinear", align_corners=False).unsqueeze(0),
+        F.interpolate(normalized_ref_depth.to(device), size=(
+            crop_size, crop_size), mode="bilinear", align_corners=False).unsqueeze(0),
+        F.interpolate(bank.masks.float().to(device), size=(
+            crop_size, crop_size), mode="nearest").unsqueeze(0),
     )
 
 
@@ -197,7 +201,8 @@ def extract_reference_part_key(file_name: str, available_parts: list[str]) -> st
     for part_key in sorted(available_parts, key=lambda item: (-len(item), item)):
         if file_name.startswith(part_key + "_"):
             return part_key
-    raise KeyError(f"Could not resolve part key from reference file name: {file_name}")
+    raise KeyError(
+        f"Could not resolve part key from reference file name: {file_name}")
 
 
 def load_reference_bank(
@@ -298,7 +303,8 @@ def _pose_farthest_sample_view_ids(root: Path, view_ids: list[str], max_views: i
         quat = payload.get("quat_xyzw")
         if not isinstance(position, list) or not isinstance(quat, list):
             return []
-        vectors.append(np.asarray(list(position) + list(quat), dtype=np.float32))
+        vectors.append(np.asarray(list(position) +
+                       list(quat), dtype=np.float32))
     if not vectors:
         return []
     selected = [0]

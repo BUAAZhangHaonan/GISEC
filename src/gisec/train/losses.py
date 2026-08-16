@@ -39,7 +39,8 @@ def _reference_match_aux_examples(
 ) -> list[tuple[ReferenceBank, float]]:
     if source is None or source.is_single_bank:
         return []
-    positive_part_key = extract_reference_part_key(str(file_name), source.available_parts)
+    positive_part_key = extract_reference_part_key(
+        str(file_name), source.available_parts)
     negative_candidates = [
         part_key for part_key in source.available_parts
         if str(part_key) != str(positive_part_key)
@@ -64,7 +65,8 @@ def _reference_match_examples(
         return []
     positive_bank = source.load_for_query(str(sample["file_name"]))
     examples = [
-        (reference_tensors_from_bank(bank=positive_bank, crop_size=crop_size, device=device), 1.0)
+        (reference_tensors_from_bank(bank=positive_bank,
+         crop_size=crop_size, device=device), 1.0)
     ]
     if source.is_single_bank:
         return examples
@@ -74,7 +76,8 @@ def _reference_match_examples(
     ):
         if float(target) <= 0.0:
             examples.append(
-                (reference_tensors_from_bank(bank=bank, crop_size=crop_size, device=device), target)
+                (reference_tensors_from_bank(bank=bank,
+                 crop_size=crop_size, device=device), target)
             )
             break
     return examples
@@ -109,7 +112,8 @@ def train_local_modules_with_metrics(
             "local_reference_sec": 0.0,
             "local_graph_sec": 0.0,
         }
-    feature_map = project_local_features_float32(model, backbone_outputs.pixel_decoder_last_hidden_state)
+    feature_map = project_local_features_float32(
+        model, backbone_outputs.pixel_decoder_last_hidden_state)
     loss_sum = pixel_values.sum() * 0.0
     loss_count = 0
     component_totals = {
@@ -127,21 +131,28 @@ def train_local_modules_with_metrics(
         if masks is None:
             continue
         gt_masks = masks.float().to(pixel_values.device)
-        image_shape = (int(sample["image"].shape[-2]), int(sample["image"].shape[-1]))
-        feature_shape = (int(feature_map.shape[-2]), int(feature_map.shape[-1]))
+        image_shape = (int(sample["image"].shape[-2]),
+                       int(sample["image"].shape[-1]))
+        feature_shape = (
+            int(feature_map.shape[-2]), int(feature_map.shape[-1]))
         predictions = query_instances_from_outputs(
-            class_logits=backbone_outputs.class_queries_logits[sample_index].detach(),
-            mask_logits=backbone_outputs.masks_queries_logits[sample_index].detach(),
+            class_logits=backbone_outputs.class_queries_logits[sample_index].detach(
+            ),
+            mask_logits=backbone_outputs.masks_queries_logits[sample_index].detach(
+            ),
             image_shape=image_shape,
             score_threshold=0.0,
             mask_threshold=0.5,
             component_class_index=int(component_class_index),
         )
-        matches = match_query_predictions_to_gt(predictions=predictions, gt_masks=gt_masks)
+        matches = match_query_predictions_to_gt(
+            predictions=predictions, gt_masks=gt_masks)
         if not matches:
             continue
-        positive_reference: tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None] = (None, None, None)
-        reference_examples: list[tuple[tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None], float]] = []
+        positive_reference: tuple[torch.Tensor | None, torch.Tensor |
+                                  None, torch.Tensor | None] = (None, None, None)
+        reference_examples: list[tuple[tuple[torch.Tensor | None,
+                                             torch.Tensor | None, torch.Tensor | None], float]] = []
         if variant_spec.use_reference_rescue:
             positive_reference = prepare_reference_tensors(
                 sample=sample,
@@ -168,10 +179,14 @@ def train_local_modules_with_metrics(
                 image_shape=image_shape,
                 pad=int(crop_pad),
             )
-            feature_bbox = scale_bbox(bbox, source_shape=image_shape, target_shape=feature_shape)
-            gt_crop = crop_and_resize(instance_mask.unsqueeze(0), bbox=bbox, output_size=int(crop_size), mode="nearest")[0]
-            query_crop = crop_and_resize(pixel_values[sample_index], bbox=bbox, output_size=int(crop_size), mode="bilinear")
-            feature_crop = crop_and_resize(feature_map[sample_index], bbox=feature_bbox, output_size=int(crop_size), mode="bilinear")
+            feature_bbox = scale_bbox(
+                bbox, source_shape=image_shape, target_shape=feature_shape)
+            gt_crop = crop_and_resize(instance_mask.unsqueeze(
+                0), bbox=bbox, output_size=int(crop_size), mode="nearest")[0]
+            query_crop = crop_and_resize(
+                pixel_values[sample_index], bbox=bbox, output_size=int(crop_size), mode="bilinear")
+            feature_crop = crop_and_resize(
+                feature_map[sample_index], bbox=feature_bbox, output_size=int(crop_size), mode="bilinear")
             coarse_mask = crop_and_resize(
                 prediction["mask_probs"].unsqueeze(0),
                 bbox=bbox,
@@ -208,18 +223,24 @@ def train_local_modules_with_metrics(
             reference_depth=reference_depth,
             reference_mask=reference_mask,
         )
-        component_totals["local_refine_sec"] += float(time.perf_counter() - refine_start)
-        loss_mask = F.binary_cross_entropy_with_logits(refined["refined_mask_logits"][:, 0], gt_crop_batch)
-        loss_boundary = F.binary_cross_entropy_with_logits(refined["refined_boundary_logits"][:, 0], gt_boundary_batch)
+        component_totals["local_refine_sec"] += float(
+            time.perf_counter() - refine_start)
+        loss_mask = F.binary_cross_entropy_with_logits(
+            refined["refined_mask_logits"][:, 0], gt_crop_batch)
+        loss_boundary = F.binary_cross_entropy_with_logits(
+            refined["refined_boundary_logits"][:, 0], gt_boundary_batch)
         batch_size_f = float(batch_size)
         loss_mask_value = float(loss_mask.detach().cpu())
         loss_boundary_value = float(loss_boundary.detach().cpu())
-        sample_loss_sum = (loss_mask + boundary_loss_weight * loss_boundary) * batch_size_f
+        sample_loss_sum = (loss_mask + boundary_loss_weight *
+                           loss_boundary) * batch_size_f
         component_totals["loss_local_mask"] += loss_mask_value * batch_size_f
-        component_totals["loss_local_boundary"] += boundary_loss_weight * loss_boundary_value * batch_size_f
+        component_totals["loss_local_boundary"] += boundary_loss_weight * \
+            loss_boundary_value * batch_size_f
         if variant_spec.use_reference_rescue and refined["reference_match_logits"] is not None and len(reference_examples) > 1:
             reference_start = time.perf_counter()
-            positive_target = torch.ones_like(refined["reference_match_logits"])
+            positive_target = torch.ones_like(
+                refined["reference_match_logits"])
             positive_loss = reference_match_loss_weight * F.binary_cross_entropy_with_logits(
                 refined["reference_match_logits"],
                 positive_target,
@@ -234,15 +255,18 @@ def train_local_modules_with_metrics(
                 reference_depth=negative_depth,
                 reference_mask=negative_mask,
             )
-            negative_target = torch.zeros_like(negative_refined["reference_match_logits"])
+            negative_target = torch.zeros_like(
+                negative_refined["reference_match_logits"])
             negative_loss = reference_match_loss_weight * F.binary_cross_entropy_with_logits(
                 negative_refined["reference_match_logits"],
                 negative_target,
             )
-            component_totals["local_reference_sec"] += float(time.perf_counter() - reference_start)
+            component_totals["local_reference_sec"] += float(
+                time.perf_counter() - reference_start)
             positive_loss_value = float(positive_loss.detach().cpu())
             negative_loss_value = float(negative_loss.detach().cpu())
-            sample_loss_sum = sample_loss_sum + (positive_loss + negative_loss) * batch_size_f
+            sample_loss_sum = sample_loss_sum + \
+                (positive_loss + negative_loss) * batch_size_f
             component_totals["loss_local_reference_positive"] += positive_loss_value * batch_size_f
             component_totals["loss_local_reference_negative"] += negative_loss_value * batch_size_f
         if variant_spec.use_graph_rescue and model.graph_head is not None:
@@ -251,7 +275,8 @@ def train_local_modules_with_metrics(
             for match_index, match in enumerate(match_rows):
                 gt_instance_crops = torch.stack(
                     [
-                        crop_and_resize(mask.unsqueeze(0), bbox=match["bbox"], output_size=int(crop_size), mode="nearest")[0]
+                        crop_and_resize(mask.unsqueeze(0), bbox=match["bbox"], output_size=int(
+                            crop_size), mode="nearest")[0]
                         for mask in gt_masks
                     ],
                     dim=0,
@@ -265,7 +290,8 @@ def train_local_modules_with_metrics(
                         instance_mask_crops=gt_instance_crops,
                     )
                 )
-            component_totals["local_graph_sec"] += float(time.perf_counter() - graph_start)
+            component_totals["local_graph_sec"] += float(
+                time.perf_counter() - graph_start)
             if graph_losses:
                 graph_loss_sum = torch.stack(graph_losses).sum()
                 sample_loss_sum = sample_loss_sum + graph_loss_sum
@@ -291,4 +317,3 @@ def train_local_modules_with_metrics(
         "local_reference_sec": float(component_totals["local_reference_sec"]),
         "local_graph_sec": float(component_totals["local_graph_sec"]),
     }
-

@@ -20,8 +20,10 @@ def _write_dataset(root: Path, *, file_name: str = "000001.png") -> None:
     for split in ["train", "val"]:
         image = np.zeros((64, 64, 3), dtype=np.uint8)
         image[16:48, 16:48] = (60, 80, 120)
-        cv2.imwrite(str(root / "images" / split / file_name), cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
-        np.save(root / "depth" / split / f"{Path(file_name).stem}.npy", np.full((64, 64), 0.9, dtype=np.float32))
+        cv2.imwrite(str(root / "images" / split / file_name),
+                    cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+        np.save(root / "depth" / split /
+                f"{Path(file_name).stem}.npy", np.full((64, 64), 0.9, dtype=np.float32))
         ann = {
             "images": [{"id": 1, "file_name": file_name, "width": 64, "height": 64}],
             "annotations": [
@@ -37,7 +39,8 @@ def _write_dataset(root: Path, *, file_name: str = "000001.png") -> None:
             ],
             "categories": [{"id": 1, "name": "component"}],
         }
-        (root / "annotations" / f"instances_{split}.json").write_text(json.dumps(ann), encoding="utf-8")
+        (root / "annotations" /
+         f"instances_{split}.json").write_text(json.dumps(ann), encoding="utf-8")
 
 
 def test_baseline_instance_dataset_returns_rgb_and_instance_targets(tmp_path: Path) -> None:
