@@ -19,7 +19,12 @@ from gisec.models.gisec_model import (
     paste_mask_from_crop,
 )
 from gisec.datasets.reference_bank import ReferenceBankSource, prepare_reference_tensors
-from gisec.train.graph import build_rescue_graph_inputs, connected_components, merge_local_components
+from gisec.train.graph import (
+    GRAPH_MERGE_THRESHOLD,
+    build_rescue_graph_inputs,
+    connected_components,
+    merge_local_components,
+)
 
 # Refinement budget: per image refine at most 8 instances — the top
 # ceil(25% of candidates) ranked by boundary uncertainty, whichever is fewer.
@@ -239,6 +244,7 @@ def apply_local_rescue(
     mask_threshold: float,
     boundary_band_width: int,
     reference_source: ReferenceBankSource | None,
+    graph_merge_threshold: float = GRAPH_MERGE_THRESHOLD,
 ) -> tuple[list[dict[str, Any]], int, int]:
     variant_spec = get_gisec_variant_spec(variant_name)
     if not variant_spec.use_local_refine or model.refiner is None or not predictions:
@@ -321,7 +327,7 @@ def apply_local_rescue(
                         component_map=component_map,
                         edge_index=edge_index.detach().cpu(),
                         edge_scores=edge_scores,
-                        threshold=float(mask_threshold),
+                        threshold=float(graph_merge_threshold),
                     )
                     # Merge in probability space: multiply the probability
                     # field by the merged-union mask, which with the single

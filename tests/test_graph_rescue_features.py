@@ -56,6 +56,54 @@ class _FixedRefiner(nn.Module):
         }
 
 
+class _FixedEdgeScores(nn.Module):
+    """Graph head stub returning one fixed logit per edge."""
+
+    def __init__(self, logits: list[float]) -> None:
+        super().__init__()
+        self._logits = [float(value) for value in logits]
+
+    def forward(
+        self,
+        *,
+        node_features: torch.Tensor,
+        edge_index: torch.Tensor,
+        edge_features: torch.Tensor,
+    ) -> torch.Tensor:
+        count = int(edge_index.shape[1])
+        assert count <= len(self._logits)
+        return torch.tensor(self._logits[:count], dtype=torch.float32)
+
+
+def _two_blob_coarse_prob() -> torch.Tensor:
+    coarse_prob = torch.full((64, 64), 0.05, dtype=torch.float32)
+    coarse_prob[24:40, 6:22] = 0.9
+    coarse_prob[24:40, 42:58] = 0.9
+    return coarse_prob
+
+
+def _two_fragment_refined_prob() -> torch.Tensor:
+    refined_prob = torch.full((16, 16), 0.02, dtype=torch.float32)
+    refined_prob[2:14, 1:6] = 0.95
+    refined_prob[2:14, 11:16] = 0.95
+    return refined_prob
+
+
+def _rescue_model(refined_prob: torch.Tensor,
+                  edge_logits: list[float]) -> GISECModel:
+    model = GISECModel(
+        backbone=nn.Identity(),
+        feature_channels=16,
+        input_channels=4,
+        use_local_refine=True,
+        use_reference_rescue=True,
+        use_graph_rescue=True,
+    )
+    model.refiner = _FixedRefiner(refined_prob, feature_channels=32)
+    model.graph_head = _FixedEdgeScores(edge_logits)
+    return model
+
+
 def _two_component_setup() -> tuple[torch.Tensor, np.ndarray]:
     coarse = torch.zeros((8, 8), dtype=torch.float32)
     coarse[1:4, 1:3] = 0.9
@@ -160,3 +208,45 @@ def test_inference_routes_features_through_the_shared_builder_with_coarse_prob(
         coarse_prob.unsqueeze(0), bbox=(14, 14, 36, 36), output_size=8, mode="bilinear")
     assert torch.allclose(seen[0], expected_coarse_crop)
     assert not torch.allclose(seen[0], refined_prob)
+
+
+def test_graph_merge_threshold_is_decoupled_from_mask_threshold(
+    monkeypatch,
+) -> None:
+    coarse_prob = _two_blob_coarse_prob()
+    model = _rescue_model(
+        _two_fragment_refined_prob(), edge_logits=[float(np.log(0.8 / 0.2))])
+    thresholds: list[float] = []
+    real = decode_module.merge_local_components
+
+    def spy(**kwargs):
+        thresholds.append(float(kwargs["threshold"]))
+        return real(**kwargs)
+
+    monkeypatch.setattr(decode_module, "merge_local_components", spy)
+
+    _updated, refine_count, graph_count = apply_local_rescue(
+        model=model,
+        variant_name="base_rgbd_1024_refine_ref_graph",
+        sample={},
+        full_input=torch.rand(4, 64, 64),
+        feature_map=torch.rand(16, 16, 16),
+        predictions=[
+            {
+                "query_index": 0,
+                "score": 0.9,
+                "binary_mask": (coarse_prob >= 0.5).float(),
+                "mask_probs": coarse_prob,
+            }
+        ],
+        crop_size=16,
+        crop_pad=2,
+        mask_threshold=0.9,
+        graph_merge_threshold=0.6,
+        boundary_band_width=2,
+        reference_source=None,
+    )
+
+    assert refine_count == 1
+    assert graph_count == 1
+    assert thresholds == [0.6]

@@ -188,6 +188,7 @@ def _run_epoch_eval(
         output_dir=run.output_dir,
         score_threshold=float(run.args.eval_score_threshold),
         mask_threshold=float(run.args.mask_threshold),
+        graph_merge_threshold=float(run.args.graph_merge_threshold),
         crop_size=int(run.args.crop_size),
         crop_pad=int(run.args.crop_pad),
         boundary_band_width=int(run.args.boundary_band_width),

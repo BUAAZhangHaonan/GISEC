@@ -6,6 +6,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+# Decision boundary of the trained edge scorer: an edge with a probability
+# at or above this value votes that its two fragments belong to the same
+# instance. It is a property of the graph head's training targets, not of
+# the mask binarization, so callers must not couple it to mask_threshold.
+GRAPH_MERGE_THRESHOLD = 0.5
+
 
 def connected_components(mask: np.ndarray) -> np.ndarray:
     mask_u8 = (mask > 0).astype(np.uint8)
@@ -152,7 +158,7 @@ def merge_local_components(
     component_map: np.ndarray,
     edge_index: torch.Tensor,
     edge_scores: torch.Tensor,
-    threshold: float = 0.5,
+    threshold: float = GRAPH_MERGE_THRESHOLD,
 ) -> np.ndarray:
     labels = [int(x) for x in np.unique(component_map).tolist() if int(x) > 0]
     if len(labels) <= 1 or edge_index.numel() == 0:

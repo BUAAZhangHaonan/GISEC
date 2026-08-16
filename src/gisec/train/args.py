@@ -98,6 +98,7 @@ def _common_parser(*, mode: str, argv: list[str] | None) -> argparse.ArgumentPar
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--score-threshold", type=float, default=0.5)
     parser.add_argument("--mask-threshold", type=float, default=0.5)
+    parser.add_argument("--graph-merge-threshold", type=float, default=0.5)
     parser.add_argument("--pretrained-model-name", type=str,
                         default=_DEFAULT_PRETRAINED_MODEL)
     parser.add_argument("--hidden-dim", type=int, default=64)

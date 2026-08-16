@@ -46,6 +46,7 @@ def evaluate_gisec(
     output_dir: Path,
     score_threshold: float,
     mask_threshold: float,
+    graph_merge_threshold: float,
     crop_size: int,
     crop_pad: int,
     boundary_band_width: int,
@@ -134,6 +135,7 @@ def evaluate_gisec(
                         crop_size=int(crop_size),
                         crop_pad=int(crop_pad),
                         mask_threshold=float(mask_threshold),
+                        graph_merge_threshold=float(graph_merge_threshold),
                         boundary_band_width=int(boundary_band_width),
                         reference_source=reference_source,
                     )
@@ -291,6 +293,7 @@ def _run_checkpoint_inference(args: argparse.Namespace, *, save_raw: bool) -> No
         output_dir=output_dir,
         score_threshold=score_threshold,
         mask_threshold=float(args.mask_threshold),
+        graph_merge_threshold=float(args.graph_merge_threshold),
         crop_size=int(args.crop_size),
         crop_pad=int(args.crop_pad),
         boundary_band_width=int(args.boundary_band_width),
@@ -313,6 +316,7 @@ def _run_checkpoint_inference(args: argparse.Namespace, *, save_raw: bool) -> No
         decode_config={
             "score_threshold": score_threshold,
             "mask_threshold": float(args.mask_threshold),
+            "graph_merge_threshold": float(args.graph_merge_threshold),
         },
     )
     write_json(output_dir / "run_summary.json", summary)
