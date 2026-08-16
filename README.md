@@ -21,7 +21,7 @@ Mask2Former Swin-T with RGB-D early concat, trained on the 32254-image dataset (
 
 Measurement protocol notes:
 
-1. Every repo-internal AP number above was produced with a score>=0.5 candidate truncation at decode time, which makes AP a conservative lower bound rather than standard COCO AP. After the 2026-08-16 measurement fixes, `gisec eval` uses the standard protocol (score>=0.05 candidate set, COCOeval maxDets 100). Numbers from before and after the fix are not directly comparable, and neither protocol matches the detectron2 stack that produced the 90.63 headline.
+1. Every repo-internal AP number above was produced with a score>=0.5 candidate truncation at decode time, which makes AP a conservative lower bound rather than standard COCO AP. After the 2026-08-16 measurement fixes, `gisec eval` uses the standard protocol (score>=0.05 candidate set, COCOeval maxDets 100), and the trainer selects `model_best.pth` with the same epoch-val threshold. Numbers from before and after the fix are not directly comparable, and neither protocol matches the detectron2 stack that produced the 90.63 headline.
 2. `boundary_band_iou` is a repo-defined metric, not the Boundary IoU of Cheng et al.: it takes the union of all instance boundary bands (each band is the mask minus its 1-px erosion), computes an image-level IoU between the predicted and ground-truth union maps, and averages per image. Historical artifacts keep the old `boundary/IoU` key for the same quantity.
 3. The 0.6267 rerun row was trained and evaluated on the `0831_1K` dataset, which lives outside the repo at `../magformer_datasets/0831_1K` and is not covered by the in-repo dataset table.
 4. The Historical Ladder numbers below have no surviving artifacts: the checkpoints were deleted during cleanup and the values are transcribed from historical documents, not re-derived from runnable outputs.
@@ -151,7 +151,7 @@ Inference uses the same checkpoint loading path as eval and writes raw predictio
 - `src/gisec/eval/`: COCO export, boundary metrics, run summaries
 - `scripts/experiments/run_gisec.sh`: stage-group runner
 
-Training writes `model_best.pth`, `model_final.pth`, `resume_last.pth`, `run_summary.json`, `metrics_log.jsonl`, `wall_time_sec.txt`, `peak_memory_mb.txt`, and `params_trainable.txt` into the output directory. Eval and infer write `coco_instances_results.json`, `metrics.cocoeval.json`, `inference_speed.json`, and `run_summary.json`.
+Training writes `model_best.pth`, `model_final.pth`, `resume_last.pth`, `run_summary.json`, `metrics_log.jsonl`, `wall_time_sec.txt`, `peak_memory_mb.txt`, and `params_trainable.txt` into the output directory. Resumed runs (`--resume-checkpoint`) append to the existing `metrics_log.jsonl` instead of truncating it, and refine variants no longer need `--init-checkpoint` when resuming. Eval and infer write `coco_instances_results.json`, `metrics.cocoeval.json`, `inference_speed.json`, and `run_summary.json`.
 
 ## Model Variants
 
