@@ -104,6 +104,14 @@ def evaluate_gisec(
                         score_threshold=float(score_threshold),
                         mask_threshold=float(mask_threshold),
                     )
+                    if not decoded_masks and device.type == "cuda":
+                        # An empty candidate set returns before any mask is
+                        # copied to the host, so the backbone's async CUDA
+                        # tail would still be running when the latency
+                        # clock stops; a non-empty decode synchronizes
+                        # implicitly through its mask transfer. Give the
+                        # empty set the same treatment.
+                        torch.cuda.synchronize(device)
                     predictions = [
                         {
                             "query_index": int(index),

@@ -220,3 +220,50 @@ def test_exported_bbox_matches_pycocotools_rle_bbox() -> None:
         # +1 would shrink every predicted box by a pixel relative to both
         # pycocotools and the dataset GT boxes.
         assert row["bbox"] == [float(v) for v in mask_utils.toBbox(rle)]
+
+
+def test_empty_candidate_set_still_produces_artifacts(
+    tmp_path, monkeypatch,
+) -> None:
+    from gisec.train import evaluate as evaluate_module
+
+    def _fake_run_backbone(**kwargs):
+        return SimpleNamespace()
+
+    def _fake_decode(outputs, *, processor, target_size, score_threshold,
+                     mask_threshold):
+        return [], []
+
+    monkeypatch.setattr(evaluate_module, "run_backbone", _fake_run_backbone)
+    monkeypatch.setattr(
+        evaluate_module, "outputs_to_instance_masks", _fake_decode)
+
+    ann_file = tmp_path / "instances_val.json"
+    _write_minimal_coco_annotations(ann_file)
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    metrics, speed = evaluate_module.evaluate_gisec(
+        model=_StubModel(),
+        loader=[[{"image": torch.zeros(1, 8, 8), "image_id": 1}]],
+        device=torch.device("cpu"),
+        variant_name="base_rgb_1024",
+        reference_source=None,
+        ann_file=ann_file,
+        output_dir=out_dir,
+        score_threshold=0.05,
+        mask_threshold=0.5,
+        graph_merge_threshold=0.5,
+        crop_size=256,
+        crop_pad=16,
+        boundary_band_width=4,
+        max_images=0,
+        save_raw=False,
+        depth_mode="rgb",
+        component_class_index=1,
+    )
+
+    assert metrics["note"] == "no predictions"
+    assert speed["scope"] == "full_pipeline"
+    assert json.loads(
+        (out_dir / "coco_instances_results.json").read_text(
+            encoding="utf-8")) == []
