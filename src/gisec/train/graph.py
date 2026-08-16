@@ -91,6 +91,27 @@ def build_local_graph_inputs(
     )
 
 
+def build_rescue_graph_inputs(
+    *,
+    component_map: np.ndarray,
+    feature_crop: torch.Tensor,
+    coarse_mask_prob: torch.Tensor,
+    depth_crop: torch.Tensor | None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Graph-rescue inputs whose probability statistics come from the coarse
+    mask probability. Training and inference share this single path so the
+    graph head never sees refined probabilities at eval time that it never
+    saw during training: the per-component mean probability (last node
+    feature and fourth edge feature) is always computed from the coarse
+    mask, the source the loss was trained on."""
+    return build_local_graph_inputs(
+        component_map=component_map,
+        feature_crop=feature_crop,
+        mask_prob_crop=coarse_mask_prob.detach().float(),
+        depth_crop=depth_crop,
+    )
+
+
 def _graph_rescue_edge_targets(
     *,
     component_map: np.ndarray,
@@ -177,10 +198,10 @@ def graph_rescue_training_loss(
     component_map = connected_components((coarse_prob >= 0.5).cpu().numpy())
     if int(component_map.max()) <= 1:
         return crop_features.sum() * 0.0
-    node_features, edge_index, edge_features = build_local_graph_inputs(
+    node_features, edge_index, edge_features = build_rescue_graph_inputs(
         component_map=component_map,
         feature_crop=crop_features,
-        mask_prob_crop=coarse_prob,
+        coarse_mask_prob=coarse_prob,
         depth_crop=depth_crop,
     )
     if edge_index.numel() == 0:

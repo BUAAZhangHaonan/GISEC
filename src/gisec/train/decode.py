@@ -18,7 +18,7 @@ from gisec.models.gisec_model import (
 )
 from gisec.datasets.reference_bank import ReferenceBankSource, prepare_reference_tensors
 from gisec.runtime import select_refinement_instances
-from gisec.train.graph import build_local_graph_inputs, connected_components, merge_local_components
+from gisec.train.graph import build_rescue_graph_inputs, connected_components, merge_local_components
 
 
 def _upscale_mask_logits(mask_logits: torch.Tensor, *, image_shape: tuple[int, int]) -> torch.Tensor:
@@ -248,10 +248,10 @@ def apply_local_rescue(
             component_map = connected_components(
                 refined_binary.detach().cpu().numpy())
             if int(component_map.max()) > 1:
-                node_features, edge_index, edge_features = build_local_graph_inputs(
+                node_features, edge_index, edge_features = build_rescue_graph_inputs(
                     component_map=component_map,
                     feature_crop=refined["crop_features"][0],
-                    mask_prob_crop=refined_prob,
+                    coarse_mask_prob=coarse_mask_crop[0, 0],
                     depth_crop=None if query_crop.shape[1] <= 3 else query_crop[0, 3:4],
                 )
                 if edge_index.numel() > 0:
