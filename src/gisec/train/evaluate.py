@@ -108,7 +108,7 @@ def evaluate_gisec(
                 image_shape = (
                     int(sample["image"].shape[-2]), int(sample["image"].shape[-1]))
                 if uses_baseline_decode:
-                    pred_masks, pred_scores = outputs_to_instance_masks(
+                    decoded_masks, decoded_scores = outputs_to_instance_masks(
                         outputs,
                         processor=processor,
                         target_size=image_shape,
@@ -123,7 +123,8 @@ def evaluate_gisec(
                             "binary_mask": torch.from_numpy(mask.astype(np.float32)),
                             "mask_probs": torch.from_numpy(mask.astype(np.float32)),
                         }
-                        for index, (mask, score) in enumerate(zip(pred_masks, pred_scores))
+                        for index, (mask, score) in enumerate(
+                            zip(decoded_masks, decoded_scores))
                     ]
                     refine_count = 0
                     graph_count = 0
@@ -149,9 +150,16 @@ def evaluate_gisec(
                         boundary_band_width=int(boundary_band_width),
                         reference_source=reference_source,
                     )
-                    pred_masks = [row["binary_mask"].detach().cpu(
-                    ).numpy().astype(np.uint8) for row in predictions]
-                    pred_scores = [float(row["score"]) for row in predictions]
+                # The probability map is the single source of truth: derive
+                # the binary mask by thresholding it here instead of trusting
+                # a pre-binarized field whose bilinear paste may have left
+                # fractional edge values for a uint8 cast to truncate.
+                pred_masks = [
+                    (row["mask_probs"] >= float(mask_threshold)).detach().cpu(
+                    ).numpy().astype(np.uint8)
+                    for row in predictions
+                ]
+                pred_scores = [float(row["score"]) for row in predictions]
                 refinement_invocations += int(refine_count)
                 graph_invocations += int(graph_count)
                 total_predictions += len(pred_masks)

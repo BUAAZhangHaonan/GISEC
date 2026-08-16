@@ -150,6 +150,26 @@ def run_local_refiner_float32(
     return refined
 
 
+def paste_refined_mask(
+    refined_prob: torch.Tensor,
+    *,
+    bbox: tuple[int, int, int, int],
+    image_shape: tuple[int, int],
+    mask_threshold: float,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Paste the refined probability crop back onto the full-image canvas.
+
+    The pasted probability is the single source of truth: the binary mask is
+    derived by thresholding the pasted probability, so the two can never drift
+    apart and bilinear edge values are never truncated by a downstream uint8
+    cast.
+    """
+    pasted_prob = paste_mask_from_crop(
+        refined_prob, bbox=bbox, image_shape=image_shape)
+    pasted_binary = (pasted_prob >= float(mask_threshold)).float()
+    return pasted_prob, pasted_binary
+
+
 def apply_local_rescue(
     *,
     model: GISECModel,
@@ -247,12 +267,18 @@ def apply_local_rescue(
                         edge_scores=edge_scores,
                         threshold=0.5,
                     )
-                    refined_binary = torch.from_numpy(
-                        (merged > 0).astype(np.float32)).to(refined_binary.device)
+                    # Merge in probability space: inside the merged union keep
+                    # the member probability (per-pixel max over the members
+                    # of the shared probability field), outside it drop to
+                    # zero. The binary below is re-derived from this
+                    # probability, so the merge never leaves binary and
+                    # probability inconsistent.
+                    merged_union = torch.from_numpy(
+                        (merged > 0).astype(np.float32)).to(refined_prob.device)
+                    refined_prob = refined_prob * merged_union
                     graph_invocations += 1
-        row["mask_probs"] = paste_mask_from_crop(
-            refined_prob, bbox=bbox, image_shape=image_shape)
-        row["binary_mask"] = paste_mask_from_crop(
-            refined_binary, bbox=bbox, image_shape=image_shape)
+        row["mask_probs"], row["binary_mask"] = paste_refined_mask(
+            refined_prob, bbox=bbox, image_shape=image_shape,
+            mask_threshold=float(mask_threshold))
         updated[int(index)] = row
     return updated, refinement_invocations, graph_invocations

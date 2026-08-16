@@ -118,6 +118,14 @@ def paste_mask_from_crop(
     bbox: tuple[int, int, int, int],
     image_shape: tuple[int, int],
 ) -> torch.Tensor:
+    """Bilinearly resize a crop back to its bbox and paste it on the canvas.
+
+    Feed this a probability map, never a 0/1 binary mask: bilinear
+    resampling of a binary mask produces fractional edge values that a
+    downstream uint8 cast silently truncates, thinning the mask by 1-2 px.
+    Derive binaries by thresholding the pasted probability instead (see
+    ``gisec.train.decode.paste_refined_mask``).
+    """
     if crop_mask.ndim != 2:
         raise ValueError(
             f"Expected HW crop mask, got {tuple(crop_mask.shape)}")
