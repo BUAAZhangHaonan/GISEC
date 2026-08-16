@@ -182,9 +182,17 @@ def _validate_variant_requirements(parser: argparse.ArgumentParser, args: argpar
     if variant_spec.requires_reference_root and getattr(args, "reference_root", "") in ("", None):
         parser.error(
             f"--reference-root is required for GISEC variant {variant_spec.name}")
-    if (not is_eval) and variant_spec.use_local_refine and getattr(args, "init_checkpoint", "") in ("", None):
+    resuming = str(getattr(args, "resume_checkpoint", "") or "").strip() != ""
+    if (
+        (not is_eval)
+        and variant_spec.use_local_refine
+        and not resuming
+        and getattr(args, "init_checkpoint", "") in ("", None)
+    ):
         parser.error(
-            f"--init-checkpoint is required for GISEC variant {variant_spec.name}")
+            f"--init-checkpoint is required for GISEC variant {variant_spec.name} "
+            "when not resuming; --resume-checkpoint already carries all weights"
+        )
     if is_eval and getattr(args, "checkpoint", "") in ("", None):
         parser.error("--checkpoint is required for eval/infer")
 

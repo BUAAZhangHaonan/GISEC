@@ -141,3 +141,17 @@ def test_parse_train_args_rejects_negative_eval_every_epochs() -> None:
                 "--eval-every-epochs", "-1",
             ]
         )
+
+
+def test_parse_train_args_relaxes_init_checkpoint_when_resuming() -> None:
+    args = parse_train_args(
+        [
+            "--dataset-root", "/tmp/dataset",
+            "--output-dir", "/tmp/output",
+            "--variant", "base_rgb_1024_refine",
+            "--resume-checkpoint", "/tmp/resume/resume_last.pth",
+        ]
+    )
+
+    assert args.init_checkpoint == ""
+    assert args.resume_checkpoint == "/tmp/resume/resume_last.pth"

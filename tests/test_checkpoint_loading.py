@@ -7,6 +7,7 @@ import torch
 from torch import nn
 
 from gisec.train.model_builder import (
+    configure_model_for_stage,
     load_module_state_dict,
     validate_checkpoint_model_args,
 )
@@ -96,3 +97,23 @@ def test_checkpoint_without_stored_model_args_is_accepted() -> None:
 
     validate_checkpoint_model_args(
         payload={"state_dict": {}}, args=args, context="eval")
+
+
+class _StubStageModel(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.backbone = nn.Linear(2, 2)
+
+
+def test_configure_model_for_stage_skips_init_load_when_resuming() -> None:
+    model = _StubStageModel()
+    args = argparse.Namespace(
+        variant="base_rgb_1024_refine",
+        init_checkpoint="",
+        allow_partial_checkpoint_load=False,
+    )
+
+    configure_model_for_stage(model, args)
+
+    assert all(
+        not param.requires_grad for param in model.backbone.parameters())

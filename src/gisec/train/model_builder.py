@@ -202,7 +202,12 @@ def configure_model_for_stage(model: nn.Module, args: argparse.Namespace) -> Non
         return
     for param in model.backbone.parameters():
         param.requires_grad = False
-    init_checkpoint = Path(str(args.init_checkpoint)).resolve()
+    init_checkpoint_value = str(getattr(args, "init_checkpoint", "") or "").strip()
+    if not init_checkpoint_value:
+        # Resume runs receive every weight from --resume-checkpoint in
+        # train_gisec; no init checkpoint is needed on top of it.
+        return
+    init_checkpoint = Path(init_checkpoint_value).resolve()
     if not init_checkpoint.exists():
         raise FileNotFoundError(init_checkpoint)
     checkpoint_payload = torch.load(
