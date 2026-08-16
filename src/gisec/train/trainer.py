@@ -98,6 +98,13 @@ def _backward_gisec_loss(
     scaler.update()
 
 
+def _peak_memory_mb(device: torch.device) -> float:
+    if device.type == "cuda" and torch.cuda.is_available():
+        return float(
+            torch.cuda.max_memory_allocated(device) / (1024.0 * 1024.0))
+    return 0.0
+
+
 @dataclass
 class _TrainingRun:
     """State shared by the prepare / loop / finalize stages of a training run."""
@@ -120,6 +127,10 @@ class _TrainingRun:
     best_checkpoint: Path
     params_trainable: int
     start: float
+    # Wall time / peak memory already spent by earlier segments of a
+    # resumed run; set when the resume payload loads.
+    prior_elapsed_sec: float = 0.0
+    prior_peak_memory_mb: float = 0.0
 
 
 def _prepare_training(args: argparse.Namespace) -> _TrainingRun:
@@ -281,7 +292,14 @@ def _run_training_loop(
     running_step_time_total = 0.0
     non_blocking = bool(run.device.type == "cuda")
     if bool(str(getattr(args, "resume_checkpoint", "")).strip()):
-        completed_epoch, step_count, best_ap, running_step_time_total = load_resume_payload(
+        (
+            completed_epoch,
+            step_count,
+            best_ap,
+            running_step_time_total,
+            run.prior_elapsed_sec,
+            run.prior_peak_memory_mb,
+        ) = load_resume_payload(
             model=run.model,
             optimizer=run.optimizer,
             scaler=run.scaler,
@@ -367,7 +385,8 @@ def _run_training_loop(
             running_step_time_total += step_time_sec
             running_avg_step_time_sec = float(
                 running_step_time_total / max(step_count, 1))
-            elapsed_sec = float(time.perf_counter() - run.start)
+            elapsed_sec = run.prior_elapsed_sec + \
+                float(time.perf_counter() - run.start)
             remaining_steps = max(
                 int(planned_total_steps) - int(step_count), 0)
             eta_sec = float(running_avg_step_time_sec * remaining_steps)
@@ -439,6 +458,9 @@ def _run_training_loop(
                 global_step=int(step_count),
                 best_metric=float(best_ap),
                 running_step_time_total=float(running_step_time_total),
+                elapsed_sec=run.prior_elapsed_sec
+                + float(time.perf_counter() - run.start),
+                peak_memory_mb=_peak_memory_mb(run.device),
             )
             save_torch_payload(run.resume_last_checkpoint, resume_state)
         if stopping_early:
@@ -474,11 +496,10 @@ def _finalize_run(
     if final_eval_pending:
         best_ap, final_metrics, final_speed = _run_epoch_eval(
             run, epoch=int(last_epoch), best_ap_in=best_ap)
-    peak_memory_mb = 0.0
-    if run.device.type == "cuda" and torch.cuda.is_available():
-        peak_memory_mb = float(
-            torch.cuda.max_memory_allocated(run.device) / (1024.0 * 1024.0))
-    wall_time_sec = int(time.perf_counter() - run.start)
+    peak_memory_mb = max(
+        run.prior_peak_memory_mb, _peak_memory_mb(run.device))
+    wall_time_sec = int(
+        run.prior_elapsed_sec + (time.perf_counter() - run.start))
     (run.output_dir /
      "peak_memory_mb.txt").write_text(f"{peak_memory_mb:.4f}\n", encoding="utf-8")
     (run.output_dir /

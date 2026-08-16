@@ -11,8 +11,11 @@ from gisec.train.model_builder import (
     configure_model_for_stage,
     load_module_state_dict,
     load_resume_payload,
+    resume_payload,
+    save_torch_payload,
     validate_checkpoint_model_args,
 )
+from gisec.train.args import parse_train_args
 
 
 class _TwoLayer(nn.Module):
@@ -166,3 +169,38 @@ def test_load_resume_payload_rejects_missing_completed_epoch(tmp_path) -> None:
             scaler=GradScaler(enabled=False),
             args=_resume_args(checkpoint),
         )
+
+
+def test_resume_payload_round_trips_elapsed_and_peak(tmp_path) -> None:
+    args = parse_train_args([
+        "--dataset-root", str(tmp_path),
+        "--output-dir", str(tmp_path),
+        "--variant", "base_rgb_1024",
+        "--resume-checkpoint", str(tmp_path / "resume_last.pth"),
+    ])
+    checkpoint = tmp_path / "resume_last.pth"
+    save_torch_payload(checkpoint, resume_payload(
+        model=_TwoLayer(),
+        optimizer=torch.optim.AdamW(_TwoLayer().parameters()),
+        scaler=GradScaler(enabled=False),
+        args=args,
+        completed_epoch=3,
+        global_step=42,
+        best_metric=0.5,
+        running_step_time_total=1.5,
+        elapsed_sec=1234.0,
+        peak_memory_mb=567.0,
+    ))
+
+    restored = load_resume_payload(
+        model=_TwoLayer(),
+        optimizer=torch.optim.AdamW(_TwoLayer().parameters()),
+        scaler=GradScaler(enabled=False),
+        args=args,
+    )
+
+    assert restored[0] == 3
+    assert restored[1] == 42
+    assert restored[2] == 0.5
+    assert restored[4] == 1234.0
+    assert restored[5] == 567.0

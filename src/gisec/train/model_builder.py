@@ -241,6 +241,8 @@ def resume_payload(
     global_step: int,
     best_metric: float,
     running_step_time_total: float,
+    elapsed_sec: float,
+    peak_memory_mb: float,
 ) -> dict[str, Any]:
     return {
         **checkpoint_payload(model, args),
@@ -250,6 +252,8 @@ def resume_payload(
         "global_step": int(global_step),
         "best_metric": float(best_metric),
         "running_step_time_total": float(running_step_time_total),
+        "elapsed_sec": float(elapsed_sec),
+        "peak_memory_mb": float(peak_memory_mb),
     }
 
 
@@ -259,7 +263,7 @@ def load_resume_payload(
     optimizer: torch.optim.Optimizer,
     scaler: GradScaler,
     args: argparse.Namespace,
-) -> tuple[int, int, float, float]:
+) -> tuple[int, int, float, float, float, float]:
     resume_checkpoint = Path(str(args.resume_checkpoint)).resolve()
     if not resume_checkpoint.exists():
         raise FileNotFoundError(resume_checkpoint)
@@ -301,6 +305,8 @@ def load_resume_payload(
         int(payload.get("global_step", 0)),
         float(payload.get("best_metric", float("-inf"))),
         float(payload.get("running_step_time_total", 0.0)),
+        float(payload.get("elapsed_sec", 0.0)),
+        float(payload.get("peak_memory_mb", 0.0)),
     )
 
 
