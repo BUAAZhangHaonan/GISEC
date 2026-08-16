@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import random
 import time
 from dataclasses import dataclass
@@ -105,6 +106,40 @@ def _peak_memory_mb(device: torch.device) -> float:
     return 0.0
 
 
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Owned by another user, but definitely running.
+        return True
+    return True
+
+
+def _acquire_run_lock(output_dir: Path) -> None:
+    """Refuse to start when a live process already owns the output dir."""
+    lock_path = output_dir / ".run_lock"
+    if lock_path.exists():
+        try:
+            pid = int(lock_path.read_text(encoding="utf-8").strip())
+        except ValueError:
+            pid = 0
+        if pid > 0 and _pid_alive(pid):
+            raise RuntimeError(
+                f"output directory {output_dir} is already in use by gisec "
+                f"train pid {pid}; a second launch would truncate the same "
+                "metrics_log.jsonl. Stop that process or pick another "
+                "--output-dir."
+            )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    lock_path.write_text(f"{os.getpid()}\n", encoding="utf-8")
+
+
+def _release_run_lock(output_dir: Path) -> None:
+    (output_dir / ".run_lock").unlink(missing_ok=True)
+
+
 @dataclass
 class _TrainingRun:
     """State shared by the prepare / loop / finalize stages of a training run."""
@@ -141,7 +176,7 @@ def _prepare_training(args: argparse.Namespace) -> _TrainingRun:
     torch.manual_seed(seed)
     device = build_device(str(args.device))
     output_dir = Path(args.output_dir).resolve()
-    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    _acquire_run_lock(output_dir)
     include_depth = str(args.depth_mode) != "rgb"
     train_loader = build_loader(
         dataset_root=str(args.dataset_root),
@@ -543,13 +578,16 @@ def train_gisec(args: argparse.Namespace) -> None:
         print(json.dumps(payload, ensure_ascii=False))
         return
     run = _prepare_training(args)
-    last_epoch, best_ap, final_metrics, final_speed, final_eval_pending = _run_training_loop(
-        run)
-    _finalize_run(
-        run,
-        last_epoch=last_epoch,
-        best_ap=best_ap,
-        final_metrics=final_metrics,
-        final_speed=final_speed,
-        final_eval_pending=final_eval_pending,
-    )
+    try:
+        last_epoch, best_ap, final_metrics, final_speed, final_eval_pending = _run_training_loop(
+            run)
+        _finalize_run(
+            run,
+            last_epoch=last_epoch,
+            best_ap=best_ap,
+            final_metrics=final_metrics,
+            final_speed=final_speed,
+            final_eval_pending=final_eval_pending,
+        )
+    finally:
+        _release_run_lock(run.output_dir)
