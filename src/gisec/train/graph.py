@@ -21,6 +21,19 @@ def connected_components(mask: np.ndarray) -> np.ndarray:
     return labels.astype(np.int32)
 
 
+def rescue_component_map(
+    *,
+    coarse_prob: torch.Tensor,
+    threshold: float = GRAPH_MERGE_THRESHOLD,
+) -> np.ndarray:
+    """Fragments the graph head scores: connected components of the coarse
+    mask probability. Training and inference must both extract fragments
+    through this single path so the head never scores fragments drawn from
+    a probability source it never saw in the loss targets."""
+    coarse = coarse_prob.detach().float().cpu().numpy()
+    return connected_components(coarse >= float(threshold))
+
+
 def build_local_graph_inputs(
     *,
     component_map: np.ndarray,
@@ -201,7 +214,7 @@ def graph_rescue_training_loss(
     instance_mask_crops: torch.Tensor,
 ) -> torch.Tensor:
     coarse_prob = coarse_mask_prob.detach().float()
-    component_map = connected_components((coarse_prob >= 0.5).cpu().numpy())
+    component_map = rescue_component_map(coarse_prob=coarse_prob)
     if int(component_map.max()) <= 1:
         return crop_features.sum() * 0.0
     node_features, edge_index, edge_features = build_rescue_graph_inputs(

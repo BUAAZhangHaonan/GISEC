@@ -89,6 +89,22 @@ def _coarse_prediction(image_shape: tuple[int, int]) -> dict[str, object]:
     }
 
 
+def _two_fragment_coarse_prediction(
+    image_shape: tuple[int, int],
+) -> dict[str, object]:
+    # The graph head scores coarse-probability fragments, so the coarse
+    # prediction itself must contain two components for the branch to fire.
+    prob = torch.full(image_shape, 0.1, dtype=torch.float32)
+    prob[16:48, 8:24] = 0.9
+    prob[16:48, 40:56] = 0.9
+    return {
+        "query_index": 0,
+        "score": 0.9,
+        "binary_mask": (prob >= 0.5).float(),
+        "mask_probs": prob,
+    }
+
+
 def _build_model(*, use_graph_rescue: bool, refined_prob: torch.Tensor) -> GISECModel:
     torch.manual_seed(7)
     model = GISECModel(
@@ -139,7 +155,7 @@ def test_apply_local_rescue_graph_merge_keeps_binary_consistent():
         sample={},
         full_input=torch.rand(4, *image_shape),
         feature_map=torch.rand(16, 16, 16),
-        predictions=[_coarse_prediction(image_shape)],
+        predictions=[_two_fragment_coarse_prediction(image_shape)],
         crop_size=8,
         crop_pad=2,
         mask_threshold=0.5,

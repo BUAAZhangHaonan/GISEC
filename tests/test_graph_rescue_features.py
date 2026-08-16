@@ -158,7 +158,8 @@ def test_inference_routes_features_through_the_shared_builder_with_coarse_prob(
 ) -> None:
     image_shape = (64, 64)
     coarse_prob = torch.full(image_shape, 0.1, dtype=torch.float32)
-    coarse_prob[16:48, 16:48] = 0.9
+    coarse_prob[16:48, 8:24] = 0.9
+    coarse_prob[16:48, 40:56] = 0.9
     refined_prob = torch.full((8, 8), 0.1, dtype=torch.float32)
     refined_prob[0:4, 0:2] = 0.9
     refined_prob[0:4, 5:7] = 0.9
@@ -171,6 +172,7 @@ def test_inference_routes_features_through_the_shared_builder_with_coarse_prob(
         use_graph_rescue=True,
     )
     model.refiner = _FixedRefiner(refined_prob, feature_channels=32)
+    model.graph_head = _FixedEdgeScores([4.0])
     seen: list[torch.Tensor] = []
     real = decode_module.build_rescue_graph_inputs
 
@@ -203,9 +205,79 @@ def test_inference_routes_features_through_the_shared_builder_with_coarse_prob(
 
     assert refine_count == 1
     assert graph_count == 1
+    assert len(updated) == 1
     assert len(seen) == 1
     expected_coarse_crop = crop_and_resize(
-        coarse_prob.unsqueeze(0), bbox=(14, 14, 36, 36), output_size=8, mode="bilinear")
+        coarse_prob.unsqueeze(0), bbox=(6, 14, 52, 36), output_size=8, mode="bilinear")
+    assert torch.allclose(seen[0], expected_coarse_crop)
+    assert not torch.allclose(seen[0], refined_prob)
+
+
+def test_training_extracts_components_with_the_shared_coarse_extractor(
+    monkeypatch,
+) -> None:
+    coarse, _component_map = _two_component_setup()
+    seen: list[torch.Tensor] = []
+    real = graph_module.rescue_component_map
+
+    def spy(**kwargs):
+        seen.append(kwargs["coarse_prob"])
+        return real(**kwargs)
+
+    monkeypatch.setattr(graph_module, "rescue_component_map", spy)
+
+    graph_rescue_training_loss(
+        graph_head=_ZeroGraphHead(),
+        crop_features=torch.zeros((4, 8, 8)),
+        coarse_mask_prob=coarse,
+        depth_crop=None,
+        instance_mask_crops=torch.ones((1, 8, 8)),
+    )
+
+    assert len(seen) == 1
+    assert torch.equal(seen[0], coarse)
+
+
+def test_inference_extracts_components_with_the_shared_coarse_extractor(
+    monkeypatch,
+) -> None:
+    coarse_prob = _two_blob_coarse_prob()
+    refined_prob = _two_fragment_refined_prob()
+    model = _rescue_model(refined_prob, edge_logits=[4.0])
+    seen: list[torch.Tensor] = []
+    real = decode_module.rescue_component_map
+
+    def spy(**kwargs):
+        seen.append(kwargs["coarse_prob"])
+        return real(**kwargs)
+
+    monkeypatch.setattr(decode_module, "rescue_component_map", spy)
+
+    _updated, _refine_count, graph_count = apply_local_rescue(
+        model=model,
+        variant_name="base_rgbd_1024_refine_ref_graph",
+        sample={},
+        full_input=torch.rand(4, 64, 64),
+        feature_map=torch.rand(16, 16, 16),
+        predictions=[
+            {
+                "query_index": 0,
+                "score": 0.9,
+                "binary_mask": (coarse_prob >= 0.5).float(),
+                "mask_probs": coarse_prob,
+            }
+        ],
+        crop_size=16,
+        crop_pad=2,
+        mask_threshold=0.5,
+        boundary_band_width=2,
+        reference_source=None,
+    )
+
+    assert graph_count == 1
+    assert len(seen) == 1
+    expected_coarse_crop = crop_and_resize(
+        coarse_prob.unsqueeze(0), bbox=(4, 22, 56, 20), output_size=16, mode="bilinear")
     assert torch.allclose(seen[0], expected_coarse_crop)
     assert not torch.allclose(seen[0], refined_prob)
 

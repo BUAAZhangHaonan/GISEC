@@ -22,8 +22,8 @@ from gisec.datasets.reference_bank import ReferenceBankSource, prepare_reference
 from gisec.train.graph import (
     GRAPH_MERGE_THRESHOLD,
     build_rescue_graph_inputs,
-    connected_components,
     merge_local_components,
+    rescue_component_map,
 )
 
 # Refinement budget: per image refine at most 8 instances — the top
@@ -304,11 +304,11 @@ def apply_local_rescue(
             reference_mask=reference_mask,
         )
         refined_prob = torch.sigmoid(refined["refined_mask_logits"][0, 0])
-        refined_binary = (refined_prob >= float(mask_threshold)).float()
         refinement_invocations += 1
         if variant_spec.use_graph_rescue and model.graph_head is not None:
-            component_map = connected_components(
-                refined_binary.detach().cpu().numpy())
+            component_map = rescue_component_map(
+                coarse_prob=coarse_mask_crop[0, 0],
+                threshold=float(graph_merge_threshold))
             if int(component_map.max()) > 1:
                 node_features, edge_index, edge_features = build_rescue_graph_inputs(
                     component_map=component_map,
