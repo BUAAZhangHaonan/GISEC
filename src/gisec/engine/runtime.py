@@ -47,12 +47,18 @@ def evaluate_json(ann_file: Path, results_json: Path) -> dict[str, Any]:
     return payload
 
 
-def build_benchmark_payload(latencies_ms: list[float], device: torch.device) -> dict[str, Any]:
+def build_benchmark_payload(
+    latencies_ms: list[float],
+    device: torch.device,
+    *,
+    scope: str = "backbone_forward",
+) -> dict[str, Any]:
     values = np.asarray(latencies_ms, dtype=np.float32)
     if values.size == 0:
-        return {"device": device.type, "images": 0, "latency_ms_mean": 0.0, "latency_ms_p50": 0.0, "latency_ms_p90": 0.0}
+        return {"device": device.type, "scope": str(scope), "images": 0, "latency_ms_mean": 0.0, "latency_ms_p50": 0.0, "latency_ms_p90": 0.0}
     return {
         "device": device.type,
+        "scope": str(scope),
         "images": int(values.size),
         "latency_ms_mean": float(values.mean()),
         "latency_ms_p50": float(np.quantile(values, 0.50)),

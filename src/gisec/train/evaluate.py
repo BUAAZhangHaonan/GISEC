@@ -100,10 +100,14 @@ def evaluate_gisec(
             pixel_values = prepare_gisec_input_batch(
                 images=images, depths=depths, depth_mode=depth_mode)
             pixel_mask = build_pixel_mask(pixel_values)
+            # Latency covers the whole per-image pipeline: backbone forward,
+            # candidate decode, local/reference/graph rescue, and mask
+            # binarization. COCO export and metric computation stay outside
+            # the timed region.
             start = time.perf_counter()
             outputs = run_backbone(
                 model=model, pixel_values=pixel_values, pixel_mask=pixel_mask)
-            latencies_ms.append((time.perf_counter() - start) * 1000.0)
+            batch_decoded: list[dict[str, Any]] = []
             for sample_offset, sample in enumerate(samples):
                 image_shape = (
                     int(sample["image"].shape[-2]), int(sample["image"].shape[-1]))
@@ -160,8 +164,25 @@ def evaluate_gisec(
                     for row in predictions
                 ]
                 pred_scores = [float(row["score"]) for row in predictions]
-                refinement_invocations += int(refine_count)
-                graph_invocations += int(graph_count)
+                batch_decoded.append(
+                    {
+                        "sample": sample,
+                        "image_shape": image_shape,
+                        "predictions": predictions,
+                        "pred_masks": pred_masks,
+                        "pred_scores": pred_scores,
+                        "refine_count": int(refine_count),
+                        "graph_count": int(graph_count),
+                    }
+                )
+            latencies_ms.append((time.perf_counter() - start) * 1000.0)
+            for decoded in batch_decoded:
+                sample = decoded["sample"]
+                predictions = decoded["predictions"]
+                pred_masks = decoded["pred_masks"]
+                pred_scores = decoded["pred_scores"]
+                refinement_invocations += decoded["refine_count"]
+                graph_invocations += decoded["graph_count"]
                 total_predictions += len(pred_masks)
                 results.extend(
                     masks_to_coco_results(
@@ -192,7 +213,7 @@ def evaluate_gisec(
                     compute_boundary_iou(
                         pred_masks,
                         gt_masks,
-                        image_shape=image_shape,
+                        image_shape=decoded["image_shape"],
                     )
                 )
     results_json = output_dir / "coco_instances_results.json"
@@ -210,7 +231,8 @@ def evaluate_gisec(
         refinement_invocations) / float(total_predictions)
     metrics["local_graph_invocation_rate"] = 0.0 if total_predictions == 0 else float(
         graph_invocations) / float(total_predictions)
-    speed = build_benchmark_payload(latencies_ms, device)
+    speed = build_benchmark_payload(
+        latencies_ms, device, scope="full_pipeline")
     write_json(output_dir / "metrics.cocoeval.json", metrics)
     write_json(output_dir / "inference_speed.json", speed)
     return metrics, speed
