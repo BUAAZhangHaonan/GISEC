@@ -6,7 +6,11 @@ from typing import Any
 from gisec.config.variants import get_gisec_variant_spec
 
 
-def gisec_benchmark_payload(variant_name: str, depth_mode: str) -> dict[str, Any]:
+def gisec_benchmark_payload(
+    variant_name: str,
+    depth_mode: str,
+    image_size: int,
+) -> dict[str, Any]:
     variant_spec = get_gisec_variant_spec(variant_name)
     refine_mode = "none"
     if variant_spec.use_local_refine:
@@ -18,7 +22,7 @@ def gisec_benchmark_payload(variant_name: str, depth_mode: str) -> dict[str, Any
     return {
         "model_family": "mask2former",
         "backbone_name": "swin_t",
-        "resolution": 1024,
+        "resolution": int(image_size),
         "input_mode": str(depth_mode),
         "fusion_mode": str(depth_mode),
         "refine_mode": refine_mode,

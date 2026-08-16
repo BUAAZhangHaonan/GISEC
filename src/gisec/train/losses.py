@@ -97,6 +97,7 @@ def train_local_modules_with_metrics(
     boundary_loss_weight: float = 0.5,
     graph_loss_weight: float = 0.1,
     reference_match_loss_weight: float = 0.05,
+    mask_threshold: float = 0.5,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     variant_spec = get_gisec_variant_spec(variant_name)
     if not variant_spec.use_local_refine or model.refiner is None:
@@ -142,7 +143,7 @@ def train_local_modules_with_metrics(
             ),
             image_shape=image_shape,
             score_threshold=0.0,
-            mask_threshold=0.5,
+            mask_threshold=float(mask_threshold),
             component_class_index=int(component_class_index),
         )
         matches = match_query_predictions_to_gt(

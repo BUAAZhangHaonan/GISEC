@@ -9,6 +9,10 @@ import torch.nn.functional as F
 
 from gisec.models.graph_head import GraphEdgeScorer
 
+# Channel count the 1x1 feature projection squeezes the pixel-decoder
+# feature map to before the local refiner consumes it.
+REFINE_FEATURE_CHANNELS = 16
+
 
 def normalize_descriptor_tensor(descriptor: torch.Tensor, *, dim: int, eps: float = 1.0e-6) -> torch.Tensor:
     return F.normalize(descriptor.float(), dim=dim, eps=float(eps))
@@ -279,11 +283,12 @@ class GISECModel(nn.Module):
         self.use_local_refine = bool(use_local_refine)
         self.use_reference_rescue = bool(use_reference_rescue)
         self.use_graph_rescue = bool(use_graph_rescue)
-        self.feature_proj = nn.Conv2d(int(feature_channels), 16, kernel_size=1)
+        self.feature_proj = nn.Conv2d(
+            int(feature_channels), REFINE_FEATURE_CHANNELS, kernel_size=1)
         self.refiner = (
             LocalRefinementModule(
                 query_channels=int(input_channels),
-                feature_channels=16,
+                feature_channels=REFINE_FEATURE_CHANNELS,
                 hidden_dim=int(refiner_hidden_dim),
                 use_reference=bool(use_reference_rescue),
             )

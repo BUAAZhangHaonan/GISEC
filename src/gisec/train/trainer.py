@@ -315,6 +315,7 @@ def _run_training_loop(
                 graph_loss_weight=float(args.graph_loss_weight),
                 reference_match_loss_weight=float(
                     args.reference_match_loss_weight),
+                mask_threshold=float(args.mask_threshold),
             )
             loss = backbone_loss + local_loss
             loss_dict = getattr(outputs, "loss_dict", None)
@@ -454,7 +455,7 @@ def _finalize_run(
         training_peak_memory_mb=peak_memory_mb,
         wall_time_sec=wall_time_sec,
         benchmark=gisec_benchmark_payload(
-            run.variant_spec.name, str(args.depth_mode)),
+            run.variant_spec.name, str(args.depth_mode), int(args.image_size)),
         decode_config={
             "score_threshold": float(args.score_threshold),
             "mask_threshold": float(args.mask_threshold),

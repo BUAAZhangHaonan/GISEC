@@ -309,7 +309,7 @@ def _run_checkpoint_inference(args: argparse.Namespace, *, save_raw: bool) -> No
         checkpoint=checkpoint_path,
         dataset_root=str(Path(args.dataset_root).resolve()),
         benchmark=gisec_benchmark_payload(
-            variant_spec.name, str(args.depth_mode)),
+            variant_spec.name, str(args.depth_mode), int(args.image_size)),
         decode_config={
             "score_threshold": score_threshold,
             "mask_threshold": float(args.mask_threshold),

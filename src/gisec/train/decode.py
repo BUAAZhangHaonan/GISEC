@@ -21,6 +21,11 @@ from gisec.models.gisec_model import (
 from gisec.datasets.reference_bank import ReferenceBankSource, prepare_reference_tensors
 from gisec.train.graph import build_rescue_graph_inputs, connected_components, merge_local_components
 
+# Refinement budget: per image refine at most 8 instances — the top
+# ceil(25% of candidates) ranked by boundary uncertainty, whichever is fewer.
+MAX_REFINEMENT_INSTANCES = 8
+REFINEMENT_BUDGET_FRACTION = 0.25
+
 
 def _upscale_mask_logits(mask_logits: torch.Tensor, *, image_shape: tuple[int, int]) -> torch.Tensor:
     return F.interpolate(
@@ -58,7 +63,10 @@ def select_refinement_instances(
     instance_count = int(mask_probs.shape[0])
     if instance_count == 0:
         return []
-    budget = min(8, int(math.ceil(0.25 * float(instance_count))))
+    budget = min(
+        MAX_REFINEMENT_INSTANCES,
+        int(math.ceil(REFINEMENT_BUDGET_FRACTION * float(instance_count))),
+    )
     if budget <= 0:
         return []
 
@@ -313,7 +321,7 @@ def apply_local_rescue(
                         component_map=component_map,
                         edge_index=edge_index.detach().cpu(),
                         edge_scores=edge_scores,
-                        threshold=0.5,
+                        threshold=float(mask_threshold),
                     )
                     # Merge in probability space: inside the merged union keep
                     # the member probability (per-pixel max over the members
