@@ -13,7 +13,7 @@ import torch
 from torch.amp import GradScaler, autocast
 
 from gisec.config.variants import get_gisec_variant_spec
-from gisec.engine.runtime import build_device, write_json
+from gisec.engine import build_device, write_json
 from gisec.eval.export import build_run_summary_payload
 from gisec.models.gisec_model import prepare_gisec_input_batch
 from gisec.train.args import model_payload

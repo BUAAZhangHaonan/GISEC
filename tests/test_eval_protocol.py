@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from gisec.engine.runtime import evaluate_json
+from gisec.eval.coco_eval import evaluate_json
 from gisec.train.args import (
     EVAL_SCORE_THRESHOLD_DEFAULT,
     parse_eval_args,

@@ -3,8 +3,15 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+from pycocotools import mask as mask_utils
 
-from gisec.engine.runtime import encode_binary_mask
+
+def encode_binary_mask(mask: np.ndarray) -> dict[str, Any] | list[list[float]]:
+    rle = mask_utils.encode(np.asfortranarray(mask.astype(np.uint8)))
+    counts = rle["counts"]
+    if isinstance(counts, bytes):
+        counts = counts.decode("utf-8")
+    return {"size": list(rle["size"]), "counts": counts}
 
 
 def masks_to_coco_results(

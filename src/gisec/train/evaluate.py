@@ -13,11 +13,12 @@ from torch.utils.data import DataLoader
 from gisec.backbones.mask2former.adapter import build_mask2former_processor, outputs_to_instance_masks
 from gisec.config.variants import get_gisec_variant_spec
 from gisec.datasets.reference_bank import ReferenceBankSource
-from gisec.engine.runtime import build_benchmark_payload, build_device, evaluate_json, write_json
+from gisec.engine import build_benchmark_payload, build_device, write_json
 from gisec.eval.boundary_metrics import compute_boundary_band_iou
+from gisec.eval.coco_eval import evaluate_json
 from gisec.eval.coco_export import masks_to_coco_results
 from gisec.eval.export import build_run_summary_payload
-from gisec.metrics import compute_split_merge_counts
+from gisec.eval.split_merge import compute_split_merge_counts
 from gisec.models.gisec_model import GISECModel, prepare_gisec_input_batch
 from gisec.train.data import build_loader, build_reference_source
 from gisec.train.decode import apply_local_rescue, query_instances_from_outputs

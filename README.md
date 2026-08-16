@@ -144,11 +144,9 @@ Inference uses the same checkpoint loading path as eval and writes raw predictio
 - `src/gisec/datasets/`: `BaselineInstanceDataset`, COCO utilities, reference bank loader
 - `src/gisec/backbones/`: Mask2Former adapter
 - `src/gisec/models/`: the GISEC model and graph head
-- `src/gisec/engine/`: shared COCO evaluation and mask encoding runtime
-- `src/gisec/runtime.py`: `select_refinement_instances` and mask-boundary helpers used by the rescue stages
-- `src/gisec/metrics.py`: split/merge instance-count metrics
+- `src/gisec/engine.py`: shared run machinery (device selection, JSON artifact writing, latency benchmark payload)
 - `src/gisec/train/`: training orchestration, split into single-responsibility modules (`args`, `data`, `model_builder`, `graph`, `decode`, `losses`, `evaluate`, `trainer`)
-- `src/gisec/eval/`: COCO export, boundary metrics, run summaries
+- `src/gisec/eval/`: COCO evaluation and export, boundary and split/merge metrics, run summaries
 - `scripts/experiments/run_gisec.sh`: stage-group runner
 
 Training writes `model_best.pth`, `model_final.pth`, `resume_last.pth`, `run_summary.json`, `metrics_log.jsonl`, `wall_time_sec.txt`, `peak_memory_mb.txt`, and `params_trainable.txt` into the output directory. Resumed runs (`--resume-checkpoint`) append to the existing `metrics_log.jsonl` instead of truncating it, and refine variants no longer need `--init-checkpoint` when resuming. Eval and infer write `coco_instances_results.json`, `metrics.cocoeval.json`, `inference_speed.json`, and `run_summary.json`.
