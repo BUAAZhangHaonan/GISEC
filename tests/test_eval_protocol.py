@@ -3,7 +3,11 @@ from __future__ import annotations
 import json
 
 from gisec.engine.runtime import evaluate_json
-from gisec.train.args import parse_eval_args
+from gisec.train.args import (
+    EVAL_SCORE_THRESHOLD_DEFAULT,
+    parse_eval_args,
+    parse_train_args,
+)
 
 
 def _write_minimal_coco_annotations(path) -> None:
@@ -39,3 +43,24 @@ def test_eval_defaults_to_standard_coco_score_threshold() -> None:
     )
     assert float(args.eval_score_threshold) == 0.05
     assert float(args.score_threshold) == 0.5
+
+
+def test_train_epoch_val_shares_the_eval_score_threshold_default() -> None:
+    train_args = parse_train_args(
+        [
+            "--dataset-root", "datasets/x",
+            "--output-dir", "output/x",
+            "--variant", "base_rgb_1024",
+        ]
+    )
+    eval_args = parse_eval_args(
+        [
+            "--dataset-root", "datasets/x",
+            "--output-dir", "output/x",
+            "--checkpoint", "model_best.pth",
+        ]
+    )
+
+    assert float(train_args.eval_score_threshold) == EVAL_SCORE_THRESHOLD_DEFAULT
+    assert float(eval_args.eval_score_threshold) == EVAL_SCORE_THRESHOLD_DEFAULT
+    assert float(train_args.score_threshold) == 0.5

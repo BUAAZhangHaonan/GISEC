@@ -9,6 +9,9 @@ from gisec.config.variants import get_gisec_variant_spec, gisec_variant_names
 
 
 GISEC_DEPTH_MODES = ("rgb", "rgbd_concat")
+# Standard COCO candidate protocol: one shared default for `gisec eval` and
+# the trainer's epoch-val, so best-model selection matches eval exactly.
+EVAL_SCORE_THRESHOLD_DEFAULT = 0.05
 _DEFAULT_VARIANT = "base_rgb_1024"
 _DEFAULT_PRETRAINED_MODEL = "facebook/mask2former-swin-tiny-coco-instance"
 
@@ -127,6 +130,14 @@ def _common_parser(*, mode: str, argv: list[str] | None) -> argparse.ArgumentPar
         parser.add_argument("--eval-every-epochs", type=int, default=1)
         parser.add_argument("--log-every-steps", type=int, default=50)
         parser.add_argument("--resume-save-every-epochs", type=int, default=1)
+        parser.add_argument(
+            "--eval-score-threshold",
+            type=float,
+            default=EVAL_SCORE_THRESHOLD_DEFAULT,
+            help="score threshold for the epoch-val candidate set; the same "
+                 "standard COCO protocol gisec eval uses, not the 0.5 of "
+                 "--score-threshold",
+        )
     else:
         parser.add_argument("--checkpoint", type=str, default="")
         parser.add_argument("--split", choices=["train", "val"], default="val")
@@ -134,7 +145,7 @@ def _common_parser(*, mode: str, argv: list[str] | None) -> argparse.ArgumentPar
         parser.add_argument(
             "--eval-score-threshold",
             type=float,
-            default=0.05,
+            default=EVAL_SCORE_THRESHOLD_DEFAULT,
             help="score threshold for the eval candidate set (standard COCO "
                  "protocol); infer still saves predictions above "
                  "--score-threshold",

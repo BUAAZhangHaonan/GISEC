@@ -170,7 +170,7 @@ def train_gisec(args: argparse.Namespace) -> None:
             reference_source=reference_source,
             ann_file=ann_file,
             output_dir=output_dir,
-            score_threshold=float(args.score_threshold),
+            score_threshold=float(args.eval_score_threshold),
             mask_threshold=float(args.mask_threshold),
             crop_size=int(args.crop_size),
             crop_pad=int(args.crop_pad),
@@ -181,8 +181,10 @@ def train_gisec(args: argparse.Namespace) -> None:
             component_class_index=component_class_index,
         )
         eval_sec = float(time.perf_counter() - eval_start)
-        segm_ap = float(metrics.get("segm/AP", 0.0))
-        best_updated = bool(segm_ap >= best_ap_in)
+        # The epoch-val candidate set uses the same threshold as `gisec eval`;
+        # a metrics payload without segm/AP is a bug, not a zero-AP run.
+        segm_ap = float(metrics["segm/AP"])
+        best_updated = bool(segm_ap > best_ap_in)
         if best_updated:
             best_ap_in = segm_ap
             save_torch_payload(best_ckpt, checkpoint_payload(model, args))
