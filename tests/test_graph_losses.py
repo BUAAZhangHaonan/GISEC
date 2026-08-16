@@ -2,18 +2,8 @@ from __future__ import annotations
 
 import torch
 
+from conftest import _ZeroGraphHead
 from gisec.train.graph import graph_rescue_training_loss
-
-
-class _ZeroGraphHead(torch.nn.Module):
-    def forward(
-        self,
-        *,
-        node_features: torch.Tensor,
-        edge_index: torch.Tensor,
-        edge_features: torch.Tensor,
-    ) -> torch.Tensor:
-        return torch.zeros((edge_index.shape[1],), dtype=node_features.dtype, device=node_features.device)
 
 
 def test_graph_rescue_training_loss_is_zero_when_only_one_component_exists() -> None:
