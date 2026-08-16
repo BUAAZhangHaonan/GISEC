@@ -53,6 +53,35 @@ def _emit_gisec_log(metrics_log_path: Path, payload: dict[str, Any]) -> None:
     print(_gisec_log_line(payload), flush=True)
 
 
+def _drop_stale_metrics_rows(path: Path, completed_epoch: int) -> int:
+    """Rewrite the metrics log without rows a crash left behind; returns the
+    number of dropped rows.
+
+    A killed run leaves train_step rows of the half-trained epoch (and
+    possibly a half-written trailing line); rows beyond the resumed
+    completed_epoch go away so appended history never duplicates.
+    """
+    if not path.exists():
+        return 0
+    kept_rows: list[dict[str, Any]] = []
+    dropped = 0
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            dropped += 1
+            continue
+        epoch = row.get("epoch") if isinstance(row, dict) else None
+        if isinstance(epoch, int) and epoch > int(completed_epoch):
+            dropped += 1
+            continue
+        kept_rows.append(row)
+    with path.open("w", encoding="utf-8") as handle:
+        for row in kept_rows:
+            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+    return dropped
+
+
 def _backward_gisec_loss(
     *,
     optimizer: torch.optim.Optimizer,
@@ -258,6 +287,14 @@ def _run_training_loop(
             scaler=run.scaler,
             args=args,
         )
+        dropped_rows = _drop_stale_metrics_rows(
+            run.metrics_log_path, int(completed_epoch))
+        if dropped_rows:
+            print(
+                f"[gisec-train] dropped {dropped_rows} stale metrics rows "
+                f"beyond resumed epoch {int(completed_epoch)}",
+                flush=True,
+            )
         _emit_gisec_log(
             run.metrics_log_path,
             {
