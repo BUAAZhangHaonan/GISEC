@@ -21,54 +21,6 @@ def build_mask2former_processor() -> Mask2FormerImageProcessor:
     )
 
 
-def sample_to_instance_map(sample: dict[str, Any], *, ignore_index: int) -> tuple[np.ndarray, dict[int, int]]:
-    image = sample["image"]
-    height = int(image.shape[-2])
-    width = int(image.shape[-1])
-    instance_map = np.full((height, width), int(ignore_index), dtype=np.int64)
-    mapping: dict[int, int] = {}
-    for instance_id, (mask, label) in enumerate(zip(sample["masks"], sample["labels"]), start=1):
-        binary = mask.detach().cpu().numpy().astype(np.uint8) > 0
-        if int(binary.sum()) <= 0:
-            continue
-        instance_map[binary] = int(instance_id)
-        mapping[int(instance_id)] = int(label)
-    return instance_map, mapping
-
-
-def batch_to_mask2former_inputs(
-    samples: list[dict[str, Any]],
-    *,
-    processor: Mask2FormerImageProcessor,
-) -> dict[str, Any]:
-    ignore_index = getattr(processor, "ignore_index", 255)
-    instance_maps = []
-    mappings = []
-    images = []
-    for sample in samples:
-        instance_map, mapping = sample_to_instance_map(
-            sample, ignore_index=int(ignore_index))
-        instance_maps.append(instance_map)
-        mappings.append(mapping)
-        images.append(sample["image"])
-    return processor(
-        images=images,
-        segmentation_maps=instance_maps,
-        instance_id_to_semantic_id=mappings,
-        return_tensors="pt",
-    )
-
-
-def move_mask2former_inputs_to_device(encoded: dict[str, Any], device: torch.device) -> dict[str, Any]:
-    moved = {
-        "pixel_values": encoded["pixel_values"].to(device),
-        "pixel_mask": encoded["pixel_mask"].to(device),
-        "mask_labels": [mask.to(device) for mask in encoded["mask_labels"]],
-        "class_labels": [labels.to(device) for labels in encoded["class_labels"]],
-    }
-    return moved
-
-
 def _adapt_patch_projection(projection: nn.Conv2d, input_channels: int) -> nn.Conv2d:
     if int(projection.in_channels) == int(input_channels):
         return projection

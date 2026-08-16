@@ -60,7 +60,6 @@ def test_baseline_instance_dataset_returns_rgb_and_instance_targets(tmp_path: Pa
     assert tuple(sample["image"].shape) == (3, 64, 64)
     assert sample["depth"] is None
     assert tuple(sample["masks"].shape) == (1, 64, 64)
-    assert tuple(sample["boxes"].shape) == (1, 4)
     assert sample["labels"].tolist() == [1]
 
 

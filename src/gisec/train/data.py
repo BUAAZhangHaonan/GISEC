@@ -41,7 +41,6 @@ def build_loader(
         image_size=image_size,
         include_depth=include_depth,
         include_annotations=True,
-        include_instance_map=True,
     )
     loader_kwargs: dict[str, Any] = {
         "batch_size": max(int(batch_size), 1),
