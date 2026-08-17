@@ -48,7 +48,7 @@ def load_split(split: str):
     coco = LiteCOCO(DATA / "annotations" / f"instances_{split}.json")
     items = []
     for img_id in sorted(coco.getImgIds()):
-        info = coco.loadIms([img_id])[0]
+        info = coco.loadImgs([img_id])[0]
         stem = info["file_name"].rsplit(".", 1)[0]
         dpath = DATA / "depth" / split / f"{stem}.npy"
         if not dpath.exists():
@@ -233,6 +233,7 @@ def main() -> None:
     ap.add_argument("--ckpt", default=str(RUNS / "best.pth"))
     ap.add_argument("--tau1", type=float, default=None,
                     help="if unset, sweep grid on val and pick best segm AP")
+    ap.add_argument("--tau2", type=float, default=0.01)
     args = ap.parse_args()
 
     model = smp.Unet(encoder_name="resnet18", encoder_weights=None,
@@ -281,14 +282,14 @@ def main() -> None:
         tau1, tau2 = best["tau1"], best["tau2"]
         print(f"chosen tau1={tau1} tau2={tau2}")
     else:
-        tau1, tau2 = args.tau1, 0.02
+        tau1, tau2 = args.tau1, args.tau2
 
     report = {"tau1": tau1, "tau2": tau2}
 
     # no-merge baseline
     insts_nm = [[(f["mask"], f["area"]) for f in frags]
                 for frags in frags_by_img]
-    ev_nm, n_nm, _, _, _ = export_and_eval(items, insts_nm, ann_file)
+    ev_nm, n_nm, _ = export_and_eval(items, insts_nm, ann_file)
     report["no_merge"] = {"segm_AP": ev_nm["segm/AP"],
                           "bbox_AP": ev_nm["bbox/AP"], "n_inst": n_nm}
     print("no_merge", report["no_merge"])
@@ -309,7 +310,7 @@ def main() -> None:
     o_groups = [conservative_merge(f, tau1, tau2)[0] for f in oracle_frags]
     o_insts = [groups_to_instances(f, g)
                for f, g in zip(oracle_frags, o_groups, strict=True)]
-    ev_o, n_o, _, _, results_o = export_and_eval(items, o_insts, ann_file)
+    ev_o, n_o, results_o = export_and_eval(items, o_insts, ann_file)
     report["oracle_semantic"] = {"segm_AP": ev_o["segm/AP"],
                                  "bbox_AP": ev_o["bbox/AP"], "n_inst": n_o}
     print("oracle_semantic", report["oracle_semantic"])

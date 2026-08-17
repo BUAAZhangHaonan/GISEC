@@ -4,7 +4,7 @@
 |---|---|---|---|---|---|
 | E1 identity_signal | Measure whether fragment-pair identity features alone separate same-part pairs from different-part pairs | done | PASS: depth+spatial AUC 0.991 (centroid_dist alone 0.982); appearance ~chance; never-merge baseline 0.9916 so merge rules must be conservative | pair AUC 0.991 | 2026-08-15 |
 | E2 scoring_sim | Simulate the full scoring pipeline on ground-truth fragments to get the AP upper bound under a perfect detector | done | PASS: scoring free (const 0.5 segm 0.9901, area best bbox 0.9001); CC fragmentation is the killer 0.9901->0.4083, oracle merge recovers fully, wrong merge 0.3559 worse than no merge | segm AP 0.4083 CC-split | 2026-08-15 |
-| E3 unet_dense | Train a U-Net (SMP) on the 1566 dataset to produce fragment masks; evaluate mask quality | running | - | - | - |
+| E3 unet_dense | Train a U-Net (SMP) on the 1566 dataset to produce fragment masks; evaluate mask quality | done | FAIL: segm AP 0.0287 << 0.20, route closed. Semantic is fine (mIoU 0.945, oracle-semantic control only 0.0385): union-mask CC fuses 91% of parts (864 CCs vs 9494 GT inst); merging has no input, splitting is the real problem | segm AP 0.0287 | 2026-08-18 |
 | E4 fragment_gnn | Train a GNN (PyG) over fragment graphs to score pair identity; evaluate end-to-end AP | pending | - | - | - |
 | E5 verdict | Combine E1-E4 evidence and decide go/no-go for the U-Net+GNN route | pending | - | - | - |
 
