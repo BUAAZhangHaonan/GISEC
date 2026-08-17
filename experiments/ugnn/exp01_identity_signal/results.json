@@ -1,0 +1,39 @@
+{
+  "n_images": 149,
+  "n_instances": 9456,
+  "n_multi_component_instances": 1850,
+  "multi_component_fraction": 0.1956429780033841,
+  "n_components": 12789,
+  "n_pairs": 735366,
+  "n_pos_pairs": 6192,
+  "pos_rate": 0.008420296831781726,
+  "single_feature_auc": {
+    "centroid_dist": 0.9816954216332878,
+    "min_dist": 0.9415953756450016,
+    "bbox_gap": 0.9360067906541861,
+    "d_median": 0.9101149914725287,
+    "d_mean": 0.9033115651004323,
+    "d_q10": 0.8835181643869748,
+    "d_q90": 0.8749717597524547,
+    "norm_centroid_dist": 0.7346340269630353,
+    "color_l1": 0.5460156641241911,
+    "log_area_ratio": 0.5196889810548722,
+    "hist_intersect": 0.4910236097674258,
+    "d_std": 0.48775086538398776
+  },
+  "combo_auc": {
+    "depth": 0.9101183348587483,
+    "spatial": 0.9867393122473798,
+    "appearance": 0.5841090616278632,
+    "depth+spatial": 0.9913539229813271,
+    "depth+appearance": 0.9126327342411436,
+    "spatial+appearance": 0.9867300456783454,
+    "all": 0.9913408531223414
+  },
+  "depth_rule": {
+    "best_tau": 0.001,
+    "best_accuracy": 0.9775526744505457,
+    "auc_of_d_mean": 0.9033115651004323
+  },
+  "pass": true
+}
