@@ -33,9 +33,14 @@ from gisec.datasets.coco_utils import ann_to_mask, load_depth_array
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "exp03_unet_dense"))
 
-from train_unet import (  # noqa: E402
-    DEPTH_HI, DEPTH_LO, DenseDataset, dice_loss,
-)
+from train_unet import DEPTH_HI, DEPTH_LO, DenseDataset  # noqa: E402
+
+
+def dice_loss(logits, targets):
+    p = torch.sigmoid(logits)
+    inter = (p * targets).sum(dim=(1, 2, 3))
+    union = p.sum(dim=(1, 2, 3)) + targets.sum(dim=(1, 2, 3))
+    return 1.0 - ((2 * inter + 1) / (union + 1)).mean()
 
 RUNS = HERE / "runs"
 SIGMA = 4.0

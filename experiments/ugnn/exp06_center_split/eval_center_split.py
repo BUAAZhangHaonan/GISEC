@@ -11,7 +11,7 @@ Configs:
            greedy top-N seeding, not GT centers)
   hm/md{K} heatmap peak_local_max (sigmoid, threshold 0.3) at
            min_distance K in {3,5,9,15}
-  depth15  E4 reproduction (smoothed-depth peaks, md15, merge)
+  depth15  E4 reproduction (-grad(depth) flat peaks, md15, merge)
   union    heatmap peaks + depth peaks at best hm md
 
 Ablations: seed placement precision (marker -> nearest GT centroid,
@@ -81,9 +81,13 @@ def hm_markers(hm, sem, min_distance):
 
 
 def depth_markers(depth, sem, min_distance):
-    sm = ndi.gaussian_filter(depth.astype(np.float32), 2.0)
+    # E4's winning depth_grad seed: local maxima of -|grad(depth)|
+    # (depth-flat areas), NOT smoothed depth (that was the neg_depth
+    # variant which collapsed to 0.017).
+    elev = elevation_map(depth, None, "depth_grad")
     coords = peak_local_max(
-        sm, min_distance=min_distance, labels=sem, exclude_border=False)
+        -elev, min_distance=min_distance, labels=sem,
+        exclude_border=False)
     return [tuple(c) for c in coords]
 
 
@@ -178,7 +182,8 @@ def main() -> None:
 
     def run(coords_fn):
         per_img = []
-        for it, sem, hm in zip(items, sems, hms, strict=True):
+        hm_iter = hms if hms is not None else [None] * len(items)
+        for it, sem, hm in zip(items, sems, hm_iter, strict=True):
             coords = coords_fn(it, sem, hm)
             per_img.append(watershed_from_markers(
                 sem, it["depth"], it["img"], coords))

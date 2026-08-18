@@ -1,0 +1,10 @@
+/home/k100/miniconda3/envs/gisec/lib/python3.13/site-packages/segmentation_models_pytorch/encoders/__init__.py:136: UserWarning: Error loading resnet18 `imagenet` weights from Hugging Face Hub, trying loading from original url...
+  warnings.warn(message, UserWarning)
+train 1261 imgs, val 149 imgs
+epoch 0: val mIoU 0.8792 (4.6 min)
+epoch 1: val mIoU 0.9126 (8.8 min)
+epoch 2: val mIoU 0.9229 (13.1 min)
+epoch 3: val mIoU 0.9214 (17.2 min)
+epoch 4: val mIoU 0.9281 (21.4 min)
+epoch 5: val mIoU 0.9314 (25.6 min)
+epoch 6: val mIoU 0.9325 (29.7 min)
