@@ -22,3 +22,4 @@ Parsed from the 149 val filenames in `datasets/20260318_1K_1566/images/val`
 Implication: report clustered bootstrap CIs at the scene level (87 units), not
 the image level; treating the 149 images as independent would slightly
 underestimate variance.
+| E6 center_split | Learned center-heatmap seeds for depth watershed (E5-approved conditional) | done | PASS: segm AP 0.4797 >= 0.42, CI lower 0.4364 >= 0.38 (md9). +0.172 over E4 depth seeds, 89% of M2F at 1/3 params; oracle GT centers 0.5558 defines remaining seed-placement headroom; heatmap wins by coverage (238 markers/img) not per-seed accuracy (median 22.9px worse than depth 17.9px) | segm AP 0.4797 | 2026-08-18 |
