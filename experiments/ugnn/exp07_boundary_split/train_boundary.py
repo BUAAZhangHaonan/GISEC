@@ -8,10 +8,11 @@ Adjacent instances each contribute their own contour column on a
 contact seam, which is exactly the knife the watershed needs.
 
 Loss: BCE+Dice (semantic) + MSE (heatmap, E6) + BCE with pos_weight
-(boundary). Boundary pixels are 1.1% of image area (measured on 50 val imgs), so pos_weight
-is set to 60 — the inverse frequency at ~1.6% positives, stated
-because it is an assumption, not tuned. Recipe otherwise identical
-to E6: AdamW 3e-4 cosine, 20 epochs, batch 8@1024.
+(boundary). Boundary pixels are 1.1% of image area (measured on
+50 val imgs), so pos_weight is set to 90 — the inverse frequency
+at the measured rate, stated as an assumption, not tuned. Recipe
+otherwise identical to E6: AdamW 3e-4 cosine, 20 epochs, batch
+8@1024.
 """
 
 from __future__ import annotations

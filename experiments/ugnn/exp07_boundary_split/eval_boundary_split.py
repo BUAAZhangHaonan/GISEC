@@ -173,7 +173,7 @@ def alignment(items, bnds):
             n_neg = min(200_000, gt_c.size - pos[0].size)
             neg = rng.choice(gt_c.size, size=n_neg, replace=False)
             neg = np.unravel_index(neg, gt_c.shape)
-            y = np.concatenate([np.ones(pos[0].size), np.zeros(n_neg[0].size)])
+            y = np.concatenate([np.ones(pos[0].size), np.zeros(n_neg)])
             sc = np.concatenate([s[pos], s[neg]])
             agg[k]["y"].append(y)
             agg[k]["s"].append(sc)
@@ -195,7 +195,7 @@ def alignment(items, bnds):
                     s = e[k]
                     thr = np.percentile(s[it["gt_sem"] > 0], 90)
                     seam[k]["rec"].append(float((s[band_pos] >= thr).mean()))
-    out = {}
+    out = {k: {} for k in ("depth", "bnd", "fuse")}
     for k in ("depth", "bnd"):
         y = np.concatenate(agg[k]["y"])
         s = np.concatenate(agg[k]["s"])
@@ -210,6 +210,8 @@ def alignment(items, bnds):
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--ckpt", default=str(RUNS / "best.pth"))
+    ap.add_argument("--skip-grid", action="store_true",
+                    help="only run alignment + best-tag bootstrap")
     args = ap.parse_args()
 
     sd = torch.load(args.ckpt, map_location="cpu")
@@ -226,6 +228,8 @@ def main() -> None:
     print(f"val images: {len(items)}")
 
     report = {"grid": [], "md": MD}
+    if args.skip_grid and (RUNS / "eval_report.json").exists():
+        report = json.loads((RUNS / "eval_report.json").read_text())
 
     def run(kind):
         per_img = []
@@ -237,6 +241,8 @@ def main() -> None:
         return per_img
 
     for kind in ("depth", "bnd", "fuse"):
+        if args.skip_grid:
+            break
         per_img = run(kind)
         row, _ = full_eval(items, per_img, ann_file)
         row["tag"] = kind
@@ -248,7 +254,8 @@ def main() -> None:
     print("alignment", report["alignment"], flush=True)
 
     # bootstrap CI on best elevation (87 scenes x 200)
-    best = max(report["grid"], key=lambda r: r["segm_AP"])
+    best = max(report["grid"] or [{"tag": "fuse", "segm_AP": 0}],
+               key=lambda r: r["segm_AP"])
     per_img = run(best["tag"])
     from eval_pipeline import score_area, CAT_ID
     from gisec.eval.coco_export import masks_to_coco_results
