@@ -42,9 +42,9 @@ Controls (all at grad-depth, md15, merge):
 
 | config | segm AP | pieces/img | read |
 |---|---|---|---|
-| a. GT semantic + depth ws | 0.4933 | 97.2 | depth can express boundaries, but only to ~0.49, not 0.99 |
-| b. GT seed count (top-N peaks) | 0.1798 | 60.9 | knowing N does not help; greedy top-N peak placement is worse than natural peaks |
-| c. RGB-gradient elevation | 0.0260 | 209.8 | appearance is useless as elevation; depth is the whole signal |
+| a. GT semantic + depth ws | 0.4933 | 97.2 | depth expresses boundaries, but only to ~0.49, not 0.99 |
+| b. GT seed count (top-N peaks) | 0.1798 | 60.9 | knowing N does not help; greedy top-N peak picks worse markers than natural peaks |
+| c. RGB-gradient elevation | 0.0260 | 209.8 | appearance is useless as elevation; depth is the signal |
 
 Split statistics (FINAL): fusion resolved - undersplit pieces (>= 2
 GTs at >= 50% coverage each) drop from ~91% of parts fused in the
