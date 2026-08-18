@@ -14,10 +14,10 @@ changes vs E6 — only the data root and this experiment output dir
 - python PID: 1522756 (launched 2026-08-18 20:21 CST)
 - log: experiments/ugnn/exp08_scale_32254/runs/train.log
 - smoke (30 steps): loss 2.0830 -> 0.5201, no NaN, smoke.pth written,
-  ~1.17 s/step measured (44 s / 30 steps incl ~9 s startup)
-- ETA: 3206 steps/ep x 20 ep = 64120 steps x ~1.2 s ~= 21.4 h train
-  + 20 val passes (3276 imgs, ~5 min each) ~= +1.7 h -> ~23 h total,
-  finish around 2026-08-19 19:20 CST. (Longer than the 12 h guess
+  measured steady 1.3 s/step at 10-min check (450 steps in 590 s)
+- ETA: 3206 steps/ep x 20 ep = 64120 steps x ~1.2 s ~= 23.2 h train
+  + 20 val passes (3276 imgs, ~5 min each) ~= +1.7 h -> ~24.5 h total,
+  finish around 2026-08-19 20:50 CST. (Longer than the 12 h guess
   because step time matches E6, dataset is 20x.)
 
 ## Check progress
