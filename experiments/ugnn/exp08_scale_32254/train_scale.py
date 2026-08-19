@@ -46,7 +46,6 @@ def dice_loss(logits, targets):
     union = p.sum(dim=(1, 2, 3)) + targets.sum(dim=(1, 2, 3))
     return 1.0 - ((2 * inter + 1) / (union + 1)).mean()
 
-RUNS = HERE / "runs"  # E8: this experiment's runs dir
 SIGMA = 4.0
 HM_W = 1.0  # heatmap loss weight
 
@@ -125,37 +124,58 @@ def main() -> None:
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--max_steps", type=int, default=0,
                     help="E8 smoke: >0 runs N train steps then exits")
+    ap.add_argument("--resume-checkpoint", type=str, default="",
+                    help="E8-resume: state_dict to warm-start from")
+    ap.add_argument("--start-epoch", type=int, default=0,
+                    help="E8-resume: epoch index to continue from")
+    ap.add_argument("--out-dir", type=str, default="runs",
+                    help="E8-resume: output dir name under this experiment")
     args = ap.parse_args()
 
     torch.manual_seed(0)
-    RUNS.mkdir(parents=True, exist_ok=True)
+    runs = HERE / args.out_dir  # E8-resume: configurable output dir
+    runs.mkdir(parents=True, exist_ok=True)
     train_ds = CenterDataset("train")
     val_ds = CenterDataset("val")
     print(f"train {len(train_ds)} imgs, val {len(val_ds)} imgs")
 
-    dl = DataLoader(
-        train_ds, batch_size=args.batch, shuffle=True, num_workers=4,
+    dl = DataLoader(  # E8-resume: 4->16 workers + prefetch
+        train_ds, batch_size=args.batch, shuffle=True, num_workers=16,
         pin_memory=True, drop_last=True, persistent_workers=True,
+        prefetch_factor=4,
     )
-    vdl = DataLoader(
-        val_ds, batch_size=args.batch, shuffle=False, num_workers=2,
+    vdl = DataLoader(  # E8-resume: 2->8 workers + prefetch
+        val_ds, batch_size=args.batch, shuffle=False, num_workers=8,
         pin_memory=True, persistent_workers=True,
+        prefetch_factor=4,
     )
 
     model = smp.Unet(
         encoder_name="resnet18", encoder_weights="imagenet",
         in_channels=4, classes=2,
     ).cuda()
+    if args.resume_checkpoint:  # E8-resume: warm-start weights
+        state = torch.load(args.resume_checkpoint, map_location="cpu",
+                           weights_only=True)
+        model.load_state_dict(state)
+        print(f"resumed weights from {args.resume_checkpoint}, "
+              f"starting at epoch {args.start_epoch}", flush=True)
+    # E8-resume: fresh AdamW (momentum not restored; loss is already in
+    # the 0.003 tail so optimizer-state transient is negligible)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(
         opt, T_max=args.epochs * len(dl))
+    # E8-resume: advance cosine to the resume point (per-step schedule)
+    for _ in range(args.start_epoch * len(dl)):
+        sched.step()
     bce = torch.nn.BCEWithLogitsLoss()
     mse = torch.nn.MSELoss()
 
     log = []
     best = -1.0
     t0 = time.time()
-    for epoch in range(args.epochs):
+    done = 0  # E8-resume: executed-step counter for --max_steps
+    for epoch in range(args.start_epoch, args.epochs):  # E8-resume
         model.train()
         for step, (x, y) in enumerate(dl):
             x, y = x.cuda(non_blocking=True), y.cuda(non_blocking=True)
@@ -167,12 +187,13 @@ def main() -> None:
             loss.backward()
             opt.step()
             sched.step()
+            done += 1  # E8-resume
             if step % 50 == 0:  # E8: step loss logging
                 print(f"ep {epoch} step {step}/{len(dl)} "
                       f"loss {float(loss):.4f} "
                       f"({time.time() - t0:.0f}s)", flush=True)
-            if args.max_steps and epoch * len(dl) + step + 1 >= args.max_steps:
-                torch.save(model.state_dict(), RUNS / "smoke.pth")
+            if args.max_steps and done >= args.max_steps:
+                torch.save(model.state_dict(), runs / "smoke.pth")
                 print(f"smoke done at {args.max_steps} steps, "
                       f"last loss {float(loss):.4f}, "
                       f"{time.time() - t0:.0f}s total", flush=True)
@@ -191,9 +212,9 @@ def main() -> None:
               f"({(time.time() - t0) / 60:.1f} min)", flush=True)
         if m > best:
             best = m
-            torch.save(model.state_dict(), RUNS / "best.pth")
-    torch.save(model.state_dict(), RUNS / "last.pth")
-    (RUNS / "train_log.json").write_text(json.dumps(log, indent=2))
+            torch.save(model.state_dict(), runs / "best.pth")
+    torch.save(model.state_dict(), runs / "last.pth")
+    (runs / "train_log.json").write_text(json.dumps(log, indent=2))
     print(f"done, best mIoU {best:.4f}, total {(time.time() - t0) / 60:.1f} min")
 
 
