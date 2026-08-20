@@ -28,9 +28,12 @@ flight) is a legitimate ~65-75G steady state. 48G was simply too
 small; workers are NOT cut (16 keeps us off the IO bottleneck).
 
 ## Current run (ugnn-e9-train2)
-- MemoryMax=96G = measured components (24G main + ~36G worker
-  anon + ~10G prefetch + COW slack ~5G = ~75G) x 1.3; the cap is
-  a runaway guard, not a target (box has 372G free)
+- MemoryMax raised 96G -> 160G at ep1 step ~2500: memory.current
+  hit 95G but memory.stat shows anon 47.5G / file cache 53.8G
+  (image+npy reads, reclaimable); 96G left no headroom for COW
+  divergence of the 24G annotation pages as the 24 persistent
+  workers touch them across epochs. 160G guards runaway while
+  anon (~48G, growing slowly) has >100G headroom (372G free)
 - CPUQuota=3200%, resumed from runs/best.pth (ep0 val mIoU
   0.9635) at epoch 1, cosine advanced to step 3206
 - resume smoke (30 steps): ep1 step0 loss 0.161 / focal 0.096 -
