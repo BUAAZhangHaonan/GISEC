@@ -135,8 +135,12 @@ def _stamp_bank(hm, off, cys, cxs, bs, bank):
         ix = int(math.floor(cx + 0.5))
         if iy < 0 or iy >= h4 or ix < 0 or ix >= w4:
             continue
-        # sigma=SIGMA_MIN+b*SIGMA_STEP -> radius 3*sigma
+        # sigma=SIGMA_MIN+b*SIGMA_STEP -> radius 3*sigma,
+        # capped at KMAX (numba has bounds checking off, an
+        # over-radius index reads garbage memory)
         rad = int(math.floor(3.0 * (2.0 + b * 0.5))) + 1
+        if rad > KMAX:
+            rad = KMAX
         y0 = iy - rad
         if y0 < 0:
             y0 = 0

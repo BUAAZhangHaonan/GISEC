@@ -80,10 +80,13 @@ class SeedNet(nn.Module):
         self.unet = smp.Unet(
             encoder_name="resnet18", encoder_weights="imagenet",
             in_channels=4, classes=1)
+        # avg-pool to stride 4 first, then convs at 256 (the v1
+        # head ran the first conv at 1024 and cost ~0.12 s/step)
         self.seed_head = nn.Sequential(
-            nn.Conv2d(16, 64, 3, stride=2, padding=1),
+            nn.AvgPool2d(kernel_size=4),
+            nn.Conv2d(16, 64, 3, padding=1),
             nn.BatchNorm2d(64), nn.ReLU(inplace=True),
-            nn.Conv2d(64, 64, 3, stride=2, padding=1),
+            nn.Conv2d(64, 64, 3, padding=1),
             nn.BatchNorm2d(64), nn.ReLU(inplace=True),
             nn.Conv2d(64, 3, 3, padding=1),
         )
@@ -231,6 +234,9 @@ def main() -> None:
                 return
 
         model.eval()
+        if epoch % 2 == 1:  # every 2nd epoch: val is 4 min and mIoU
+            torch.save(model.state_dict(), runs / "last.pth")  # flat
+            continue  # after ~ep5 (E8: 0.9984-0.9989 band)
         ious = []
         with torch.no_grad():
             for x, y_sem, _ in vdl:
