@@ -47,3 +47,46 @@ small; workers are NOT cut (16 keeps us off the IO bottleneck).
 
 ## After training
     python eval_centernet.py    # FINAL + oracle + seed precision
+
+## 2026-08-21 04:00 E9b: compact per-image GT records (root fix)
+
+### Root cause (confirmed)
+Persistent workers touch the ~24G LiteCOCO annotation dict every
+sample (loadAnns refcount writes) -> COW pages privatized per
+worker -> anon 47.5G (ep1) -> 130G+ (ep7), no plateau. 160G cap
+reached 159.8G at ep8; train2 stopped cleanly after the ep8 val
+updated best.pth (mIoU 0.9952).
+
+### Fix (E9b, `# E9b:` comments)
+- build_gt_records.py (one-shot, 12 min): per split, gt_records/
+  - {split}_items.pkl  (img_id, file_name) depth-filtered sorted
+  - {split}_stats.pkl  ids/offsets/flat (M,3) exact (fy,fx,n)
+    centroid+area from the numba RLE kernel
+  - {split}_sem.dat    uint8 memmap (N,131072) packbits union
+    semantic mask (3.4G train + 0.4G val disk)
+- CNDataset.__getitem__ reads records + image/depth files only;
+  annotation dicts never exist in a training process
+- build_seed_targets_from_stats() in centernet_gt.py stamps from
+  records, bitwise-identical to the old path
+- Correctness: 40 imgs/split (20 at build + 20 independent verify)
+  heatmap/offset/semantic GT bitwise identical
+
+### Smoke (ugnn-e9-smoke2, MemoryMax=32G, 100 steps + 8 val bks)
+- loss band matches train2 ep8 (0.012-0.070; bce .006 dice .003
+  focal .003-.060 off .0007), smoke val mIoU 0.9958, all head
+  grads finite >0
+- cgroup peak 17.5G then 14.8G (prefetch fill + reclaim), <30G
+
+### Current run (ugnn-e9-train3)
+- MemoryMax 64G->96G at ep9+25min (anon plateau 4.4G; the 64G cap
+  was pure file-cache reclaim throttling 0.40->0.46 s/step),
+  CPUQuota=3200%, resumed from
+  runs/best.pth = ep8 weights (val mIoU 0.9952) at --start-epoch 9
+- ~0.34 s/step (0.40 before: no per-sample RLE rasterization)
+- ETA: 11 ep x ~18 min + 5 vals x ~4.6 min ~= 3.8 h (~07:50 CST)
+- Memory sampler: runs/mem3.log (60 s cadence); log runs/train3.log
+
+### Check
+    tail -5 runs/train3.log
+    systemctl --user status ugnn-e9-train3
+    tail -5 runs/mem3.log

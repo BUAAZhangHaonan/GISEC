@@ -176,6 +176,30 @@ def _ann_rle(ann: dict, h: int, w: int):
     raise TypeError(f"Unsupported segmentation type: {type(seg)}")
 
 
+def build_seed_targets_from_stats(stats, img_shape=(1024, 1024)):
+    """E9b: stamp targets from precomputed (fy, fx, n) records.
+
+    Bitwise-identical to build_seed_targets on the same anns: the
+    per-ann (fy, fx, n) triplets are the only inputs the stamp
+    consumes. Workers use this so they never touch the annotation
+    dicts (the train2 COW-growth root cause).
+    """
+    h, w = int(img_shape[0]), int(img_shape[1])
+    h4, w4 = h // STRIDE, w // STRIDE
+    hm = np.zeros((h4, w4), dtype=np.float32)
+    off = np.zeros((2, h4, w4), dtype=np.float32)
+    if stats is None or len(stats) == 0:
+        return hm, off
+    cys = [float(fy) / STRIDE for fy in stats[:, 0]]
+    cxs = [float(fx) / STRIDE for fx in stats[:, 1]]
+    bs = [sigma_bucket(float(n)) for n in stats[:, 2]]
+    _stamp_bank(hm, off,
+                np.array(cys, dtype=np.float64),
+                np.array(cxs, dtype=np.float64),
+                np.array(bs, dtype=np.int64), _BANK)
+    return hm, off
+
+
 # in-process ann-id -> (fy, fx, n) cache (team_c self-warming scheme;
 # persistent workers amortize the cold rasterization over 20 epochs)
 _stat_cache: dict = {}

@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import pickle
 import sys
 import time
 from pathlib import Path
@@ -35,16 +36,17 @@ from torch.utils.data import DataLoader
 
 import segmentation_models_pytorch as smp
 
-from gisec.datasets.coco_utils import (  # noqa: E402
-    LiteCOCO, ann_to_mask, load_depth_array)
+from gisec.datasets.coco_utils import load_depth_array  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "exp03_unet_dense"))
 
 from train_unet import DEPTH_HI, DEPTH_LO, DenseDataset  # noqa: E402
-from centernet_gt import build_seed_targets  # noqa: E402
+from centernet_gt import build_seed_targets_from_stats  # noqa: E402
 
 DATA = HERE.parents[2] / "datasets" / "20260318_1K_32254"
+SIDE = 1024  # E9b: all images in the 32254 root are 1024x1024
+PACK = SIDE * SIDE // 8
 HM_W = 1.0  # focal weight
 OFF_W = 1.0  # offset L1 weight
 
@@ -100,40 +102,53 @@ class SeedNet(nn.Module):
 
 
 class CNDataset(DenseDataset):
-    """DenseDataset on the 32254 root + CenterNet seed targets."""
+    """DenseDataset on the 32254 root + CenterNet seed targets.
+
+    E9b: GT comes from the compact precomputed records written by
+    build_gt_records.py (see gt_records/). __getitem__ touches only
+    image/depth files, the tiny items list, the flat stats array
+    and a read-only semantic memmap — never the LiteCOCO annotation
+    dicts, so persistent workers stop privatizing the ~24G shared
+    annotation pages (the train2 anon 47.5G->130G COW growth).
+    """
 
     def __init__(self, split: str) -> None:
         self.split = split
-        self.coco = LiteCOCO(
-            DATA / "annotations" / f"instances_{split}.json")
+        rec = HERE / "gt_records"
+        if not (rec / f"{split}_items.pkl").exists():
+            raise FileNotFoundError(
+                f"{rec}/{split}_items.pkl missing; "
+                "run build_gt_records.py once")
+        with open(rec / f"{split}_items.pkl", "rb") as f:
+            self.items = pickle.load(f)
+        with open(rec / f"{split}_stats.pkl", "rb") as f:
+            ids, self.offsets, self.flat = pickle.load(f)
+        assert list(ids) == [i for i, _ in self.items]
+        self.sem = np.memmap(  # E9b: read-only, shared pages
+            rec / f"{split}_sem.dat", dtype=np.uint8, mode="r",
+            shape=(len(self.items), PACK))
         self.img_dir = DATA / "images" / split
         self.depth_dir = DATA / "depth" / "depth_npy" / split
-        self.ids = sorted(
-            i for i in self.coco.getImgIds()
-            if (self.depth_dir / f"{self.coco.loadImgs([i])[0]['file_name'].rsplit('.', 1)[0]}.npy").exists()
-        )
+        self.ids = [i for i, _ in self.items]
+
+    def __len__(self) -> int:
+        return len(self.items)
 
     def __getitem__(self, idx: int):
-        img_id = self.ids[idx]
-        info = self.coco.loadImgs([img_id])[0]
-        stem = info["file_name"].rsplit(".", 1)[0]
-        img = cv2.imread(str(self.img_dir / info["file_name"]))
+        img_id, file_name = self.items[idx]
+        img = cv2.imread(str(self.img_dir / file_name))
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        depth = load_depth_array(self.depth_dir / f"{stem}.npy")
+        depth = load_depth_array(
+            self.depth_dir / f"{file_name.rsplit('.', 1)[0]}.npy")
         depth = np.clip((depth - DEPTH_LO) / (DEPTH_HI - DEPTH_LO),
                         -1.0, 2.0)
         x = np.concatenate(
             [img.astype(np.float32) / 255.0, depth[..., None].astype(
                 np.float32)], axis=-1)
-        gt = np.zeros(img.shape[:2], dtype=np.float32)
-        anns = []
-        for ann in self.coco.loadAnns(self.coco.getAnnIds(imgIds=[img_id])):
-            m = ann_to_mask(ann, info["height"], info["width"])
-            if m.sum() <= 0:
-                continue
-            gt[m > 0] = 1.0
-            anns.append(ann)
-        hm, off = build_seed_targets(anns, img.shape[:2])
+        gt = np.unpackbits(  # E9b: precomputed union mask
+            self.sem[idx]).astype(np.float32).reshape(SIDE, SIDE)
+        hm, off = build_seed_targets_from_stats(  # E9b
+            self.flat[self.offsets[idx]:self.offsets[idx + 1]])
         x = torch.from_numpy(np.ascontiguousarray(x.transpose(2, 0, 1)))
         y_sem = torch.from_numpy(gt)
         y_seed = torch.from_numpy(np.concatenate([hm[None], off]))
@@ -164,6 +179,8 @@ def main() -> None:
     ap.add_argument("--start-epoch", type=int, default=0,
                     help="resume: epoch index to continue from")
     ap.add_argument("--out-dir", type=str, default="runs")
+    ap.add_argument("--smoke-val", type=int, default=0,
+                    help="smoke: also run N val batches + mIoU")
     args = ap.parse_args()
 
     torch.manual_seed(0)
@@ -183,6 +200,8 @@ def main() -> None:
         pin_memory=True, persistent_workers=True,
         prefetch_factor=4,
     )
+    # E9b: no big annotation object exists to del — CNDataset reads
+    # only the compact gt_records (train2's COW root cause removed)
 
     model = SeedNet().cuda()
     if args.resume_checkpoint:  # resume: load ep0 weights
@@ -230,6 +249,19 @@ def main() -> None:
                       f"focal {float(l_focal):.4f} off {float(l_off):.4f} "
                       f"({time.time() - t0:.0f}s)", flush=True)
             if args.max_steps and done >= args.max_steps:
+                if args.smoke_val:  # E9b: smoke covers val path too
+                    model.eval()
+                    ious = []
+                    with torch.no_grad():
+                        for vi, (x, y_sem, _) in enumerate(vdl):
+                            if vi >= args.smoke_val:
+                                break
+                            ious.append(miou(
+                                model(x.cuda())[0],
+                                y_sem.cuda()[:, None]))
+                    print(f"smoke val mIoU ({args.smoke_val} batches) "
+                          f"{float(np.mean(ious)):.4f}", flush=True)
+                    model.train()
                 # smoke: verify all three head groups carry gradient
                 sh = sum(_gnorm(p) for p in model.seed_head.parameters())
                 seg_h = sum(_gnorm(p)
