@@ -159,6 +159,10 @@ def main() -> None:
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--max_steps", type=int, default=0,
                     help="smoke: >0 runs N train steps then exits")
+    ap.add_argument("--resume-checkpoint", type=str, default="",
+                    help="resume: state_dict to warm-start from")
+    ap.add_argument("--start-epoch", type=int, default=0,
+                    help="resume: epoch index to continue from")
     ap.add_argument("--out-dir", type=str, default="runs")
     args = ap.parse_args()
 
@@ -181,9 +185,20 @@ def main() -> None:
     )
 
     model = SeedNet().cuda()
+    if args.resume_checkpoint:  # resume: load ep0 weights
+        state = torch.load(args.resume_checkpoint, map_location="cpu",
+                           weights_only=True)
+        model.load_state_dict(state)
+        print(f"resumed weights from {args.resume_checkpoint}, "
+              f"starting at epoch {args.start_epoch}", flush=True)
+    # resume: fresh AdamW (momentum not restored; ep0 tail loss is
+    # already ~0.1 so the optimizer-state transient is negligible)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(
         opt, T_max=args.epochs * len(dl))
+    # resume: advance cosine to the resume point (per-step schedule)
+    for _ in range(args.start_epoch * len(dl)):
+        sched.step()
     bce = torch.nn.BCEWithLogitsLoss()
     l1 = torch.nn.L1Loss()
 
@@ -191,7 +206,7 @@ def main() -> None:
     best = -1.0
     t0 = time.time()
     done = 0
-    for epoch in range(args.epochs):
+    for epoch in range(args.start_epoch, args.epochs):
         model.train()
         for step, (x, y_sem, y_seed) in enumerate(dl):
             x = x.cuda(non_blocking=True)
