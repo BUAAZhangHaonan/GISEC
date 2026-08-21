@@ -90,3 +90,8 @@ updated best.pth (mIoU 0.9952).
     tail -5 runs/train3.log
     systemctl --user status ugnn-e9-train3
     tail -5 runs/mem3.log
+
+## 2026-08-21 E9 eval launched (unit ugnn-e9-eval, PID 2409271)
+- Full 3276-img val: FINAL(centernet) + oracle + seed precision + 100x scene bootstrap, Pool(6), MemoryMax=64G CPUQuota=3200%
+- Smoke 100 imgs (runs/eval_smoke100.json): seed median 2.16 px, <8px rate 99.4% (E8: 46 px / 6.7%) -> CenterNet head works; bootstrap segm 0.810; oracle==centernet; peak RSS 9.1G
+- Log runs/eval.log; ETA ~4 h (imaging ~1 h + bootstrap ~3 h)
