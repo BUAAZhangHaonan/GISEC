@@ -411,7 +411,9 @@ def main() -> None:
         report["seed_precision"] = None  # fast: diagnostic skipped
     del final_results
 
-    (RUNS / args.out).write_text(json.dumps(report, indent=2))
+    out_path = Path(args.out).resolve()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(report, indent=2))
     print(f"rss_final={rss_gb():.2f} GB", flush=True)
 
 

@@ -36,3 +36,25 @@ budget at train start). Preregistered pass lines in RESULT.md.
   CPUQuota=3200%, PID 2715658, out runs/eval_report.json.
   Pace 0.49 s/img -> pipeline ~27 min + bootstrap, ETA ~05:00.
 - Orphans: only the known-dead git-push bash PID 782919 (harmless).
+
+## Eval done 2026-08-22 05:07 (crashed only at final JSON write)
+- Bug: eval_centernet.py writes (RUNS/args.out), so ../exp10... resolves
+  under exp09/runs -> dir missing -> FileNotFoundError. All metrics printed
+  in journalctl --user -u ugnn-e10-eval before crash; eval_report.json MISSING.
+- Numbers: oracle segm AP 0.7734 / AP50 0.8750 / AP75 0.7798, bbox AP 0.6928;
+  FINAL (centernet) AP 0.7697 / AP50 0.8656 / AP75 0.7787, bbox 0.6890;
+  bootstrap segm CI95 [0.7529, 0.7904]; seeds median 2.30px p90 4.92px
+  <8px 96.36%; n_pred 50.77/img; undersplit 7.03%.
+- Verdict: P1 FAIL (0.7734<0.79, gray zone), P2 PASS, P3 PASS (0.7697>=0.75), P4 PASS.
+- Fix for rerun if canonical json needed: pass absolute --out path AND mkdir,
+  or patch script to mkdir parents. ~9h CPU rerun; not restarted (per orders).
+
+## Eval2 canonical rerun 2026-08-22 (report recovered)
+- Fixed eval_centernet.py out-path bug: (RUNS / args.out) broke for ../
+  relative --out; now Path(args.out).resolve() + mkdir(parents=True).
+  Also pass -p WorkingDirectory to systemd-run (it ignores shell cwd).
+- ugnn-e10-eval2 (MemoryMax=64G, CPUQuota=3200%, HF_HUB_OFFLINE=1):
+  05:17-07:05, 0.30 s/img, rss_final 8.6G, unit stopped after finish.
+- runs/eval_report.json written; all metrics digit-identical to the 05:07
+  journal run (FINAL 0.7697, oracle 0.7734, CI95 [0.7529,0.7904]).
+- RESULT.md numbers/verdict filled, LEDGER row added.
