@@ -53,7 +53,10 @@ from eval_scale import (  # noqa: E402
     scene_key,
     seed_precision,
 )
-from train_centernet import SeedNet  # noqa: E402
+from train_centernet import SeedNet as SeedNetE9  # noqa: E402
+
+sys.path.insert(0, str(HERE.parent / "exp10_semantic_capacity"))
+from train_capacity import SeedNet as SeedNetE10  # noqa: E402
 
 ep.DATA = DATA
 
@@ -255,6 +258,13 @@ def main() -> None:
     ap.add_argument("--max-images", type=int, default=None)
     ap.add_argument("--out", default="eval_report.json")
     ap.add_argument(
+        "--arch",
+        choices=("e9", "e10"),
+        default="e9",
+        help="model architecture matching the checkpoint (e10 = "
+        "widened decoder + 3-layer semantic head)",
+    )
+    ap.add_argument(
         "--profile",
         choices=("full", "fast"),
         default="full",
@@ -271,7 +281,8 @@ def main() -> None:
         N_WORKERS, initializer=_worker_init, initargs=(args.profile,)
     )
     sd = torch.load(args.ckpt, map_location="cpu")
-    model = SeedNet()
+    model_cls = SeedNetE10 if args.arch == "e10" else SeedNetE9
+    model = model_cls()
     model.load_state_dict(sd)
     model.cuda().eval()
     _gpu_divisors()

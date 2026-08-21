@@ -26,3 +26,13 @@ budget at train start). Preregistered pass lines in RESULT.md.
         --ckpt ../exp10_semantic_capacity/runs/best.pth \
         --out ../exp10_semantic_capacity/runs/eval_report.json
     # then add bootstrap CI (eval_centernet already does 100x scene bootstrap)
+
+## Done + eval
+- Train finished 2026-08-22 02:03 (399.4 min, 20 ep). Best val
+  mIoU 0.9984 @ ep18 (ep0 0.9752 -> ep18 0.9984, monotone up).
+- eval_centernet.py gained --arch e9|e10 (default e9; E10 ckpt
+  needs --arch e10, widened decoder shapes).
+- Eval unit ugnn-e10-eval started 03:20:35, MemoryMax=64G,
+  CPUQuota=3200%, PID 2715658, out runs/eval_report.json.
+  Pace 0.49 s/img -> pipeline ~27 min + bootstrap, ETA ~05:00.
+- Orphans: only the known-dead git-push bash PID 782919 (harmless).
