@@ -47,3 +47,35 @@ eval_report_postproc_fast.json, unit c2-integ-eval):
   Pipeline stage ~16.3 min for 3276 imgs; bootstrap dominates the rest.
 - Determinism: 200-img double run (two fresh processes), per-image
   CRC32 of instances bitwise identical (determinism_check.py).
+
+## 评测分档与提速 (2026-08-21, 调度层)
+
+三项改动（算法/模型零改动）：
+
+1. `--profile fast|full`（默认 full = 原完整口径：FINAL+oracle+种子精度+GT
+   统计+bootstrap，E10 cron 判定依赖它，默认行为不变）。fast = 纯推理口径：
+   只跑 FINAL config，worker 不做 oracle/gt_centers/gt_masks，COCO 评分走
+   pycocotools 标注文件，seed_precision 置 null、无 bootstrap。
+2. RGB 预解码缓存：`build_rgb_cache.py` 把 3276 张 val PNG 解码为 u8 npy
+   （9.7G，`cache_rgb/val/`，gitignore 已挡）。index.json 记录源 PNG 路径
+   +md5，加载时校验，不匹配回退现场解码。
+3. pre_cpu 挪 GPU：u8 RGB + f32 depth 直接上传，float32/255、depth 归一化、
+   4ch 拼接在 GPU 上原地做。关键坑：torch 对 python 标量除法走乘倒数
+   fast path，与 numpy 逐位差 1 ulp；除数改 0-dim f32 tensor 走真 IEEE 除法
+   后逐位一致（diag3 5/5 图 x 张量全等）。
+
+数值一致性门（check_bitwise_100.py，100 图）：旧路径（PNG 解码+CPU 预处理）
+vs 新路径（缓存+GPU 预处理），头部张量逐位相等 100/100，FINAL RLE CRC32
+相同（b7d8ad48），forward 43.6 -> 16.7 ms/img。
+
+全量 3276 fast 复测（E9 best.pth，systemd-run c2-evalfast，CPUQuota 400%，
+与 E10 训练共享 GPU0）：
+
+- FINAL segm_AP = 0.7254077045823377，与 full 档 eval_report_postproc_fast.json
+  完全一致（AP50/AP75/bbox_AP/n_pred=166788 逐字段相等）。
+- wall 0.246 s/img（旧 full 0.299）：forward 0.042 -> 0.018，worker 摊销
+  ~0.037（fast 无 GT/oracle 工作），rgb_load 0.032（md5+np.load），
+  depth_load 0.195（被 E10 抢占放大；平稳段整体 ~0.20-0.25 s/img，
+  高争用段 1.2 s/img——E10 训练 IO/CPU 争用主导，与剖析期 noop 地板
+  581 ms 同源）。E10 空闲时 fast 档纯管线 ~0.09 s/img 量级
+  （fwd 18 + rgb 25 + depth ~15 + worker 37 摊销）。

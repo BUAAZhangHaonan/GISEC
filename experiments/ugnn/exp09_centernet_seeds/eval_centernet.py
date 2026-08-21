@@ -1,23 +1,27 @@
 """E9: CenterNet-seed evaluation on the full 32254 val (3276 imgs).
 
-Copied from exp08/eval_fast.py (E8c two-stage structure kept: main
-process loads RGB/depth + GPU forward, Pool(6) does all CPU work,
-FINAL + oracle configs only, 100x scene bootstrap). The only change
-is the seed decode: the stride-4 head is decoded CenterNet-style
-(3x3 max-pool equality peak NMS -> threshold -> cell*4 + regressed
-offset) instead of peak_local_max on a 1024 heatmap. Scoring and
-bootstrap are byte-identical to E8c. Watershed/merge/RLE run through
-postproc_fast (colosseum round-2 champion, numba CPU route; see
-postproc_colosseum/ARENA.md) — same semantics, 4/250 imgs differ by
-one watershed tie instance (|dAP|=0.00012). Precompute the rank
-cache first: python postproc_fast.py.
+Two profiles (scheduling layer only; algorithms untouched):
+  full (default) — identical to the original contract: FINAL +
+    oracle configs, seed precision, GT split stats, scene bootstrap.
+    The E10 cron judgment runs without flags and needs oracle +
+    seed metrics, so full must stay the default output contract.
+  fast — pure-inference timing口径: FINAL config only, workers do
+    no GT work (no oracle / gt_centers / gt_masks); COCO scoring
+    goes through pycocotools + the annotation file, seed_precision
+    is null and bootstrap is skipped.
 
-Not run at launch time (training first); entry point is ready.
+Also two latency fruits: RGB pre-decode cache under cache_rgb/val
+(u8 npy keyed image_id, md5-verified against the source PNG) and
+the pre-forward float32 cast/normalize/concat moved onto the GPU
+(bit-equivalent op order, gated by 100-img RLE CRC32).
+
+Precompute the rank cache first: python postproc_fast.py.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import itertools
 import json
 import multiprocessing as mp
@@ -55,9 +59,20 @@ ep.DATA = DATA
 
 N_WORKERS = 6
 RUNS = HERE / "runs"
-TAGS = ["oracle_gt_centers", "centernet"]
 STRIDE = 4
+RGB_CACHE = HERE / "cache_rgb"
+DEPTH_LO, DEPTH_HI = ep.DEPTH_LO, ep.DEPTH_HI
+_F255 = _FLO = _FRANGE = None
 
+
+def _gpu_divisors() -> None:
+    global _F255, _FLO, _FRANGE
+    _F255 = torch.tensor(255.0, dtype=torch.float32, device="cuda")
+    _FLO = torch.tensor(DEPTH_LO, dtype=torch.float32, device="cuda")
+    _FRANGE = torch.tensor(DEPTH_HI - DEPTH_LO, dtype=torch.float32, device="cuda")
+
+
+W_PROFILE = "full"
 W_COCO = None
 BT_GT = BT_DT = BT_SCENES = None
 
@@ -74,19 +89,64 @@ def _cn_markers(hm, off, thr=HM_THR):
     return list(zip(y.tolist(), x.tolist(), strict=True))
 
 
-def _worker_init():
-    global W_COCO
-    import eval_pipeline as _ep
+def load_rgb_cached(meta):
+    """u8 RGB (H,W,3) from the pre-decode cache; md5 of the source
+    PNG is verified so a changed image falls back to live decode."""
+    cdir = RGB_CACHE / "val"
+    npy = cdir / f"{meta['image_id']}.npy"
+    if npy.exists():
+        entry = _RGB_INDEX.get(meta["image_id"])
+        if entry is not None:
+            src = DATA / "images" / "val" / meta["file_name"]
+            if _md5(src) == entry["md5"]:
+                return np.load(npy)
+    img = ep.cv2.imread(str(DATA / "images" / "val" / meta["file_name"]))
+    return ep.cv2.cvtColor(img, ep.cv2.COLOR_BGR2RGB)
 
-    _ep.DATA = DATA
-    W_COCO = _ep.LiteCOCO(DATA / "annotations" / "instances_val.json")
+
+_RGB_INDEX: dict = {}
+
+
+def _md5(path: Path) -> str:
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def load_rgb_index() -> None:
+    meta_file = RGB_CACHE / "val" / "index.json"
+    if meta_file.exists():
+        _RGB_INDEX.update(json.loads(meta_file.read_text()))
+
+
+def _worker_init(profile):
+    global W_PROFILE
+    W_PROFILE = profile
+    if profile == "full":
+        global W_COCO
+        import eval_pipeline as _ep
+
+        _ep.DATA = DATA
+        W_COCO = _ep.LiteCOCO(DATA / "annotations" / "instances_val.json")
 
 
 def _worker_one(payload):
-    """CPU side of one image: both configs' RLE results, split
-    counts, seed-precision pairs (identical contract to E8c)."""
+    """CPU side of one image. full: both configs + GT stats +
+    seed-precision pairs (original E9 contract). fast: FINAL config
+    only, no GT work at all."""
     meta, sem, hm, off = payload
+    t0 = time.perf_counter()
+    coords = _cn_markers(hm, off)
     depth = ep.load_depth_array(Path(meta["dpath"]))
+    if W_PROFILE == "fast":
+        insts, coco = postproc_fast.process(meta["image_id"], coords, sem, depth)
+        return {
+            "results": {"centernet": coco},
+            "counts": {"centernet": {"n_pred": len(insts)}},
+            "t_worker": time.perf_counter() - t0,
+        }
     gt_insts = [
         ep.ann_to_mask(a, meta["height"], meta["width"])
         for a in W_COCO.loadAnns(meta["ann_ids"])
@@ -94,16 +154,14 @@ def _worker_one(payload):
     gc = gt_centers(gt_insts)
     coords_by_tag = {
         "oracle_gt_centers": gt_center_markers(gt_insts),
-        "centernet": _cn_markers(hm, off)
-        if hm is not None
-        else gt_center_markers(gt_insts),
+        "centernet": coords,
     }
     out = {
-        "results": {t: [] for t in TAGS},
+        "results": {t: [] for t in ("oracle_gt_centers", "centernet")},
         "counts": {},
         "hm_seed": (gc, coords_by_tag["centernet"]),
     }
-    for tag in TAGS:
+    for tag in ("oracle_gt_centers", "centernet"):
         insts, coco = postproc_fast.process(
             meta["image_id"], coords_by_tag[tag], sem, depth
         )
@@ -116,19 +174,24 @@ def _worker_one(payload):
             "n_under": st.n_under,
         }
         out["results"][tag] = coco
+    out["t_worker"] = time.perf_counter() - t0
     return out
 
 
 @torch.no_grad()
 def _forward(model, img, depth):
-    x = np.concatenate(
-        [
-            img.astype(np.float32) / 255.0,
-            ep.norm_depth(depth)[..., None].astype(np.float32),
-        ],
-        axis=-1,
-    )
-    x = torch.from_numpy(np.ascontiguousarray(x.transpose(2, 0, 1)))[None].cuda()
+    """GPU-side pre-forward: u8 RGB + f32 depth go up as-is; the
+    float32 cast /255, depth normalize and 4ch concat run on GPU in
+    the same op order as the old CPU path (sub -> div -> clamp),
+    which is bit-equivalent for elementwise f32 ops."""
+    img_t = torch.from_numpy(np.ascontiguousarray(img)).cuda()  # u8 HWC copy
+    d_t = torch.from_numpy(depth).cuda()  # f32 HW copy
+    # divisors as 0-dim f32 tensors: torch's python-scalar div takes
+    # a multiply-by-reciprocal fast path (1-ulp off vs numpy); the
+    # tensor/tensor division is true IEEE and bit-matches the CPU path.
+    rgbf = img_t.to(torch.float32).div(_F255)
+    dn = d_t.sub(_FLO).div(_FRANGE).clamp(-1.0, 2.0)
+    x = torch.cat([rgbf, dn[..., None]], dim=-1).permute(2, 0, 1)[None].contiguous()
     sem, seed = model(x)
     sem = (torch.sigmoid(sem[0, 0]) > 0.5).cpu().numpy().astype(np.uint8)
     hm = torch.sigmoid(seed[0, 0]).cpu().numpy()
@@ -191,13 +254,27 @@ def main() -> None:
     ap.add_argument("--ckpt", default=str(RUNS / "best.pth"))
     ap.add_argument("--max-images", type=int, default=None)
     ap.add_argument("--out", default="eval_report.json")
+    ap.add_argument(
+        "--profile",
+        choices=("full", "fast"),
+        default="full",
+        help="full = FINAL+oracle+seed+GT stats (default, E10 cron "
+        "judgment depends on it); fast = FINAL-only timing口径",
+    )
     args = ap.parse_args()
+    tags = (
+        ("oracle_gt_centers", "centernet") if args.profile == "full" else ("centernet",)
+    )
 
-    pool = mp.get_context("fork").Pool(N_WORKERS, initializer=_worker_init)
+    load_rgb_index()
+    pool = mp.get_context("fork").Pool(
+        N_WORKERS, initializer=_worker_init, initargs=(args.profile,)
+    )
     sd = torch.load(args.ckpt, map_location="cpu")
     model = SeedNet()
     model.load_state_dict(sd)
     model.cuda().eval()
+    _gpu_divisors()
 
     from eval_scale import load_split
 
@@ -205,28 +282,33 @@ def main() -> None:
     if args.max_images:
         metas = metas[: args.max_images]
     ann_file = DATA / "annotations" / "instances_val.json"
-    report = {"grid": []}
+    report = {"profile": args.profile, "grid": []}
 
-    results = {t: [] for t in TAGS}
-    counts = {t: {"n_gt": 0, "n_pred": 0, "n_over": 0, "n_under": 0} for t in TAGS}
+    results = {t: [] for t in tags}
+    if args.profile == "full":
+        counts = {t: {"n_gt": 0, "n_pred": 0, "n_over": 0, "n_under": 0} for t in tags}
+    else:
+        counts = {"centernet": {"n_pred": 0}}
     hm_seed = []
-    t_fwd = 0.0
+    t_fwd = t_rgb = t_depth = t_worker = 0.0
     t0 = time.perf_counter()
 
     with pool:
 
         def payloads():
+            nonlocal t_rgb, t_depth, t_fwd
             for meta in metas:
-                info_img = ep.cv2.imread(
-                    str(DATA / "images" / "val" / meta["file_name"])
-                )
-                info_img = ep.cv2.cvtColor(info_img, ep.cv2.COLOR_BGR2RGB)
-                depth = ep.load_depth_array(Path(meta["dpath"]))
                 tp = time.perf_counter()
-                sem, hm, off = _forward(model, info_img, depth)
-                t_fwd_local = time.perf_counter() - tp
-                del info_img, depth
-                yield (meta, sem, hm, off), t_fwd_local
+                img = load_rgb_cached(meta)
+                t_rgb += time.perf_counter() - tp
+                tp = time.perf_counter()
+                depth = ep.load_depth_array(Path(meta["dpath"]))
+                t_depth += time.perf_counter() - tp
+                tp = time.perf_counter()
+                sem, hm, off = _forward(model, img, depth)
+                t_fwd += time.perf_counter() - tp
+                del img, depth
+                yield (meta, sem, hm, off)
 
         pending = []
         it_ = iter(payloads())
@@ -234,25 +316,26 @@ def main() -> None:
         def submit_more(n=8):
             for _ in range(n):
                 try:
-                    payload, tf = next(it_)
-                    pending.append((pool.apply_async(_worker_one, (payload,)), tf))
+                    payload = next(it_)
+                    pending.append(pool.apply_async(_worker_one, (payload,)))
                 except StopIteration:
                     break
 
         submit_more()
         done = 0
         while pending:
-            async_res, tf = pending.pop(0)
+            async_res = pending.pop(0)
             out = async_res.get()
-            t_fwd += tf
-            for t in TAGS:
+            t_worker += out.pop("t_worker")
+            for t in tags:
                 results[t] += out["results"][t]
                 for k in counts[t]:
                     counts[t][k] += out["counts"][t][k]
-            hm_seed.append(out["hm_seed"])
+            if args.profile == "full":
+                hm_seed.append(out["hm_seed"])
             done += 1
             del out
-            if done % 250 == 0 or done == len(metas):
+            if done % 25 == 0 or done == len(metas):
                 import ctypes
 
                 ctypes.CDLL("libc.so.6").malloc_trim(0)
@@ -265,13 +348,20 @@ def main() -> None:
                 )
             submit_more()
 
+    wall = (time.perf_counter() - t0) / len(metas)
     report["latency_s_per_img"] = {
         "forward": t_fwd / len(metas),
-        "wall_total": (time.perf_counter() - t0) / len(metas),
+        "rgb_load": t_rgb / len(metas),
+        "depth_load": t_depth / len(metas),
+        "worker_compute": t_worker / N_WORKERS / len(metas),
+        "wall_total": wall,
+        "dispatch_residual": wall
+        - (t_fwd + t_rgb + t_depth) / len(metas)
+        - t_worker / N_WORKERS / len(metas),
     }
 
     final_results = None
-    for tag in TAGS:
+    for tag in tags:
         from gisec.eval.coco_eval import evaluate_json
 
         ev = evaluate_json(Path(ann_file), results[tag])
@@ -286,22 +376,28 @@ def main() -> None:
             "bbox_AP75": ev["bbox/AP75"],
             "n_pred": c["n_pred"],
             "n_pred_per_img": c["n_pred"] / len(metas),
-            "oversplit_gt_rate": c["n_over"] / max(c["n_gt"], 1),
-            "undersplit_piece_rate": c["n_under"] / max(c["n_pred"], 1),
         }
+        if args.profile == "full":
+            row.update(
+                {
+                    "oversplit_gt_rate": c["n_over"] / max(c["n_gt"], 1),
+                    "undersplit_piece_rate": c["n_under"] / max(c["n_pred"], 1),
+                }
+            )
         print(row, flush=True)
         report["grid"].append(row)
         if tag == "centernet":
             final_results = results[tag]
         results[tag] = None
 
-    report["seed_precision"] = {"heatmap": seed_precision(hm_seed)}
-    print("seed_precision", report["seed_precision"])
-    hm_seed = None
-
-    report["final_tag"] = "centernet"
-    report["bootstrap_CI"] = scene_bootstrap_fast(metas, final_results)
-    print("bootstrap", report["bootstrap_CI"])
+    if args.profile == "full":
+        report["seed_precision"] = {"heatmap": seed_precision(hm_seed)}
+        print("seed_precision", report["seed_precision"])
+        hm_seed = None
+        report["bootstrap_CI"] = scene_bootstrap_fast(metas, final_results)
+        print("bootstrap", report["bootstrap_CI"])
+    else:
+        report["seed_precision"] = None  # fast: diagnostic skipped
     del final_results
 
     (RUNS / args.out).write_text(json.dumps(report, indent=2))
