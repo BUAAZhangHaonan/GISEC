@@ -180,11 +180,22 @@ class CNDataset(DenseDataset):
         return x, y_sem, y_seed
 
 
-def miou(logits: torch.Tensor, targets: torch.Tensor) -> float:
+def iou_pair(logits: torch.Tensor, targets: torch.Tensor):
     pred = (torch.sigmoid(logits) > 0.5).float()
     inter = (pred * targets).sum(dim=(1, 2, 3))
     union = ((pred + targets) > 0).float().sum(dim=(1, 2, 3))
-    return float((inter / union.clamp(min=1)).mean())
+    return inter.sum(), union.sum()
+
+
+def miou(inter_total: float, union_total: float) -> float:
+    return float(inter_total / max(union_total, 1))
+
+
+def offset_l1(off_pred, off_gt, hm_gt):
+    diff = (off_pred - off_gt).abs()
+    mask = hm_gt == 1
+    cnt = int(mask.sum())
+    return (diff * mask).sum() / max(cnt, 1)
 
 
 def _gnorm(p: torch.nn.Parameter) -> float:
@@ -222,13 +233,7 @@ def main() -> None:
         "--resume-checkpoint",
         type=str,
         default="",
-        help="resume: state_dict to warm-start from",
-    )
-    ap.add_argument(
-        "--start-epoch",
-        type=int,
-        default=0,
-        help="resume: epoch index to continue from",
+        help="resume: {'model','step'} checkpoint to continue from",
     )
     ap.add_argument("--out-dir", type=str, default="runs")
     ap.add_argument(
@@ -265,28 +270,26 @@ def main() -> None:
 
     model = SeedNet().cuda()
     report_params(model)  # E10: measured param count vs P4 budget
+    start_step = 0
     if args.resume_checkpoint:
-        state = torch.load(
-            args.resume_checkpoint, map_location="cpu", weights_only=True
-        )
-        model.load_state_dict(state)
+        ckpt = torch.load(args.resume_checkpoint, map_location="cpu", weights_only=True)
+        model.load_state_dict(ckpt["model"])
+        start_step = int(ckpt["step"])
         print(
-            f"resumed weights from {args.resume_checkpoint}, "
-            f"starting at epoch {args.start_epoch}",
+            f"resumed from {args.resume_checkpoint} at global step {start_step}",
             flush=True,
         )
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.epochs * len(dl))
-    for _ in range(args.start_epoch * len(dl)):
+    for _ in range(start_step):
         sched.step()
     bce = torch.nn.BCEWithLogitsLoss()
-    l1 = torch.nn.L1Loss()
 
     log = []
     best = -1.0
     t0 = time.time()
-    done = 0
-    for epoch in range(args.start_epoch, args.epochs):
+    done = start_step
+    for epoch in range(start_step // len(dl), args.epochs):
         model.train()
         for step, (x, y_sem, y_seed) in enumerate(dl):
             x = x.cuda(non_blocking=True)
@@ -296,7 +299,7 @@ def main() -> None:
             l_bce = bce(sem, y_sem[:, None])
             l_dice = dice_loss(sem, y_sem[:, None])
             l_focal = focal_loss(seed[:, 0:1], y_seed[:, 0:1])
-            l_off = l1(seed[:, 1:3], y_seed[:, 1:3])
+            l_off = offset_l1(seed[:, 1:3], y_seed[:, 1:3], y_seed[:, 0:1])
             loss = (
                 SEM_W * (l_bce + l_dice)  # E10: sem weight 2
                 + HM_W * l_focal
@@ -319,15 +322,16 @@ def main() -> None:
             if args.max_steps and done >= args.max_steps:
                 if args.smoke_val:
                     model.eval()
-                    ious = []
+                    it, ut = 0.0, 0.0
                     with torch.no_grad():
                         for vi, (x, y_sem, _) in enumerate(vdl):
                             if vi >= args.smoke_val:
                                 break
-                            ious.append(miou(model(x.cuda())[0], y_sem.cuda()[:, None]))
+                            i, u = iou_pair(model(x.cuda())[0], y_sem.cuda()[:, None])
+                            it += float(i)
+                            ut += float(u)
                     print(
-                        f"smoke val mIoU ({args.smoke_val} batches) "
-                        f"{float(np.mean(ious)):.4f}",
+                        f"smoke val mIoU ({args.smoke_val} batches) {miou(it, ut):.4f}",
                         flush=True,
                     )
                     model.train()
@@ -344,7 +348,9 @@ def main() -> None:
                 assert (
                     all(map(math.isfinite, (sh, seg_h, enc))) and sh > 0 and seg_h > 0
                 ), "dead head group"
-                torch.save(model.state_dict(), runs / "smoke.pth")
+                torch.save(
+                    {"model": model.state_dict(), "step": done}, runs / "smoke.pth"
+                )
                 print(
                     f"smoke done at {args.max_steps} steps, "
                     f"last loss {float(loss):.4f} "
@@ -357,13 +363,15 @@ def main() -> None:
 
         model.eval()
         if epoch % 2 == 1:
-            torch.save(model.state_dict(), runs / "last.pth")
+            torch.save({"model": model.state_dict(), "step": done}, runs / "last.pth")
             continue
-        ious = []
+        it, ut = 0.0, 0.0
         with torch.no_grad():
             for x, y_sem, _ in vdl:
-                ious.append(miou(model(x.cuda())[0], y_sem.cuda()[:, None]))
-        m = float(np.mean(ious))
+                i, u = iou_pair(model(x.cuda())[0], y_sem.cuda()[:, None])
+                it += float(i)
+                ut += float(u)
+        m = miou(it, ut)
         log.append(
             {
                 "epoch": epoch,
@@ -378,8 +386,8 @@ def main() -> None:
         )
         if m > best:
             best = m
-            torch.save(model.state_dict(), runs / "best.pth")
-    torch.save(model.state_dict(), runs / "last.pth")
+            torch.save({"model": model.state_dict(), "step": done}, runs / "best.pth")
+    torch.save({"model": model.state_dict(), "step": done}, runs / "last.pth")
     (runs / "train_log.json").write_text(json.dumps(log, indent=2))
     print(f"done, best mIoU {best:.4f}, total {(time.time() - t0) / 60:.1f} min")
 

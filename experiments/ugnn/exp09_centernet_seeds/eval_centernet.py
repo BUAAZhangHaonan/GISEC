@@ -80,11 +80,18 @@ W_COCO = None
 BT_GT = BT_DT = BT_SCENES = None
 
 
+MAX_MARKERS = 512
+
+
 def _cn_markers(hm, off, thr=HM_THR):
-    """CenterNet decode: 3x3 max-pool NMS -> thr -> *4 + offset."""
+    """CenterNet decode: 3x3 max-pool NMS -> thr -> *4 + offset;
+    top-512 by heatmap value (stable sort, raster tie order)."""
     mx = ndi.maximum_filter(hm, size=3, mode="nearest")
     peaks = (hm >= mx) & (hm > thr)
     ys, xs = np.nonzero(peaks)
+    if ys.size > MAX_MARKERS:
+        order = np.argsort(-hm[ys, xs], kind="stable")[:MAX_MARKERS]
+        ys, xs = ys[order], xs[order]
     y = ys * STRIDE + off[0, ys, xs]
     x = xs * STRIDE + off[1, ys, xs]
     y = np.clip(np.round(y), 0, hm.shape[0] * STRIDE - 1).astype(int)
@@ -102,12 +109,15 @@ def load_rgb_cached(meta):
         if entry is not None:
             src = DATA / "images" / "val" / meta["file_name"]
             if _md5(src) == entry["md5"]:
+                _RGB_HITS["hit"] += 1
                 return np.load(npy)
+    _RGB_HITS["miss"] += 1
     img = ep.cv2.imread(str(DATA / "images" / "val" / meta["file_name"]))
     return ep.cv2.cvtColor(img, ep.cv2.COLOR_BGR2RGB)
 
 
 _RGB_INDEX: dict = {}
+_RGB_HITS = {"hit": 0, "miss": 0}
 
 
 def _md5(path: Path) -> str:
@@ -121,7 +131,8 @@ def _md5(path: Path) -> str:
 def load_rgb_index() -> None:
     meta_file = RGB_CACHE / "val" / "index.json"
     if meta_file.exists():
-        _RGB_INDEX.update(json.loads(meta_file.read_text()))
+        raw = json.loads(meta_file.read_text())
+        _RGB_INDEX.update({int(k): v for k, v in raw.items()})
 
 
 def _worker_init(profile):
@@ -139,15 +150,15 @@ def _worker_one(payload):
     """CPU side of one image. full: both configs + GT stats +
     seed-precision pairs (original E9 contract). fast: FINAL config
     only, no GT work at all."""
-    meta, sem, hm, off = payload
+    meta, sem, hm, off, depth = payload
     t0 = time.perf_counter()
     coords = _cn_markers(hm, off)
-    depth = ep.load_depth_array(Path(meta["dpath"]))
     if W_PROFILE == "fast":
         insts, coco = postproc_fast.process(meta["image_id"], coords, sem, depth)
         return {
             "results": {"centernet": coco},
             "counts": {"centernet": {"n_pred": len(insts)}},
+            "n_markers": len(coords),
             "t_worker": time.perf_counter() - t0,
         }
     gt_insts = [
@@ -177,6 +188,7 @@ def _worker_one(payload):
             "n_under": st.n_under,
         }
         out["results"][tag] = coco
+    out["n_markers"] = len(coords_by_tag["centernet"])
     out["t_worker"] = time.perf_counter() - t0
     return out
 
@@ -221,8 +233,9 @@ def _boot_one(img_ids):
 
 
 def scene_bootstrap_fast(metas, results, n_boot=100, seed=0):
-    """Identical scheme to E8c (210 part+scene clusters, 100 draws,
-    same rng sequence), run 6-way parallel."""
+    """Scene-cluster bootstrap: n_boot draws (default 100) of one
+    scene per scene-slot with replacement, seed=0, run 6-way
+    parallel."""
     scenes = {}
     for it in metas:
         scenes.setdefault(scene_key(it["file_name"]), []).append(it["image_id"])
@@ -280,10 +293,10 @@ def main() -> None:
     pool = mp.get_context("fork").Pool(
         N_WORKERS, initializer=_worker_init, initargs=(args.profile,)
     )
-    sd = torch.load(args.ckpt, map_location="cpu")
+    ckpt = torch.load(args.ckpt, map_location="cpu")
     model_cls = SeedNetE10 if args.arch == "e10" else SeedNetE9
     model = model_cls()
-    model.load_state_dict(sd)
+    model.load_state_dict(ckpt["model"])
     model.cuda().eval()
     _gpu_divisors()
 
@@ -301,6 +314,7 @@ def main() -> None:
     else:
         counts = {"centernet": {"n_pred": 0}}
     hm_seed = []
+    max_markers = 0
     t_fwd = t_rgb = t_depth = t_worker = 0.0
     t0 = time.perf_counter()
 
@@ -318,8 +332,8 @@ def main() -> None:
                 tp = time.perf_counter()
                 sem, hm, off = _forward(model, img, depth)
                 t_fwd += time.perf_counter() - tp
-                del img, depth
-                yield (meta, sem, hm, off)
+                del img
+                yield (meta, sem, hm, off, depth)
 
         pending = []
         it_ = iter(payloads())
@@ -338,6 +352,7 @@ def main() -> None:
             async_res = pending.pop(0)
             out = async_res.get()
             t_worker += out.pop("t_worker")
+            max_markers = max(max_markers, out.pop("n_markers"))
             for t in tags:
                 results[t] += out["results"][t]
                 for k in counts[t]:
@@ -360,6 +375,12 @@ def main() -> None:
             submit_more()
 
     wall = (time.perf_counter() - t0) / len(metas)
+    report["max_markers_per_img"] = max_markers
+    print(
+        f"max_markers/img={max_markers} "
+        f"rgb_cache hit={_RGB_HITS['hit']} miss={_RGB_HITS['miss']}",
+        flush=True,
+    )
     report["latency_s_per_img"] = {
         "forward": t_fwd / len(metas),
         "rgb_load": t_rgb / len(metas),

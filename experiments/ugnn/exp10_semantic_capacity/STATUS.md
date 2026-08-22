@@ -58,3 +58,15 @@ budget at train start). Preregistered pass lines in RESULT.md.
 - runs/eval_report.json written; all metrics digit-identical to the 05:07
   journal run (FINAL 0.7697, oracle 0.7734, CI95 [0.7529,0.7904]).
 - RESULT.md numbers/verdict filled, LEDGER row added.
+
+## 2026-08-22 bugfix
+- offset L1 只对正样本位置算 mask、merge 环绕邻接语义修正：均为语义/实现
+  修正，FINAL 数字不变。全量 fast 3276 复验 segm AP 0.7696791973888275，
+  与 bugfix 报告逐位一致（runs/eval_report_bugfix_20260822.json）。
+- RGB 缓存键修复后 wall 0.246→0.02 s/img；marker 上限 512，实测 max=103。
+- ckpt 格式统一为 {"model": sd, "step": 全局step}：train 两文件保存端
+  本就如此，eval_centernet.py 加载端改为 ckpt["model"]；exp10 best/last
+  原地转换（step 60914/64120，权重字节不动），转换后全量 fast eval 逐位
+  复验 0.7696791973888275。
+- 刻意不改：rank 缓存文件名、hm>=mx plateau、oracle 中心定义、odd-epoch
+  跳 val、train_capacity/train_centernet 两文件复制不合并。

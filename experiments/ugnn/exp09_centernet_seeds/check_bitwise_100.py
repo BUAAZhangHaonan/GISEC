@@ -52,9 +52,9 @@ def forward_cpu(model, img, depth):
 
 def main() -> None:
     ec.load_rgb_index()
-    sd = torch.load(ec.RUNS / "best.pth", map_location="cpu")
+    ckpt = torch.load(ec.RUNS / "best.pth", map_location="cpu")
     model = SeedNet()
-    model.load_state_dict(sd)
+    model.load_state_dict(ckpt["model"])
     model.cuda().eval()
     ec._gpu_divisors()
 

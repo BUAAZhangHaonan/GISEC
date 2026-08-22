@@ -39,16 +39,15 @@ from pycocotools import mask as mask_utils
 
 STRIDE = 4
 SIGMA_MIN, SIGMA_MAX, SIGMA_STEP = 2.0, 8.0, 0.5
-N_BUCKETS = int(round((SIGMA_MAX - SIGMA_MIN) / SIGMA_STEP)) + 1  # 13
+N_BUCKETS = round((SIGMA_MAX - SIGMA_MIN) / SIGMA_STEP) + 1  # 13
 KMAX = int(3 * SIGMA_MAX)  # 24 -> kernels padded to 49x49
 
 
 def _make_bank() -> np.ndarray:
-    bank = np.zeros((N_BUCKETS, 2 * KMAX + 1, 2 * KMAX + 1),
-                    dtype=np.float32)
+    bank = np.zeros((N_BUCKETS, 2 * KMAX + 1, 2 * KMAX + 1), dtype=np.float32)
     d = np.arange(-KMAX, KMAX + 1, dtype=np.float32)
-    yy, xx = np.mgrid[0:2 * KMAX + 1, 0:2 * KMAX + 1]
-    rr2 = (d[yy] ** 2 + d[xx] ** 2)
+    yy, xx = np.mgrid[0 : 2 * KMAX + 1, 0 : 2 * KMAX + 1]
+    rr2 = d[yy] ** 2 + d[xx] ** 2
     for b in range(N_BUCKETS):
         s = SIGMA_MIN + b * SIGMA_STEP
         k = np.exp(-rr2 / (2 * s * s))
@@ -63,7 +62,7 @@ _BANK = _make_bank()
 def sigma_bucket(area_1024: float) -> int:
     """Nearest sigma bucket for a mask of `area_1024` pixels."""
     s = math.sqrt(max(area_1024, 1.0)) / 12.0  # = sqrt(A/16)/3
-    b = int(round((s - SIGMA_MIN) / SIGMA_STEP))
+    b = round((s - SIGMA_MIN) / SIGMA_STEP)
     return min(max(b, 0), N_BUCKETS - 1)
 
 
@@ -102,10 +101,10 @@ def _rle_stats(c, h, w):
             e = pos + x
             sf, sr = divmod(pos, h)
             ef, er = divmod(e, h)
-            sy += (ef * T + er * (er - 1) // 2
-                   - (sf * T + sr * (sr - 1) // 2))
-            sx += (h * (ef * (ef - 1) // 2) + ef * er
-                   - h * (sf * (sf - 1) // 2) - sf * sr)
+            sy += ef * T + er * (er - 1) // 2 - (sf * T + sr * (sr - 1) // 2)
+            sx += (
+                h * (ef * (ef - 1) // 2) + ef * er - h * (sf * (sf - 1) // 2) - sf * sr
+            )
             n += x
             pos = e
         else:
@@ -131,14 +130,14 @@ def _stamp_bank(hm, off, cys, cxs, bs, bank):
         b = bs[t]
         cy = cys[t]
         cx = cxs[t]
-        iy = int(math.floor(cy + 0.5))
-        ix = int(math.floor(cx + 0.5))
+        iy = math.floor(cy + 0.5)
+        ix = math.floor(cx + 0.5)
         if iy < 0 or iy >= h4 or ix < 0 or ix >= w4:
             continue
         # sigma=SIGMA_MIN+b*SIGMA_STEP -> radius 3*sigma,
         # capped at KMAX (numba has bounds checking off, an
         # over-radius index reads garbage memory)
-        rad = int(math.floor(3.0 * (2.0 + b * 0.5))) + 1
+        rad = math.floor(3.0 * (2.0 + b * 0.5)) + 1
         if rad > KMAX:
             rad = KMAX
         y0 = iy - rad
@@ -193,20 +192,15 @@ def build_seed_targets_from_stats(stats, img_shape=(1024, 1024)):
     cys = [float(fy) / STRIDE for fy in stats[:, 0]]
     cxs = [float(fx) / STRIDE for fx in stats[:, 1]]
     bs = [sigma_bucket(float(n)) for n in stats[:, 2]]
-    _stamp_bank(hm, off,
-                np.array(cys, dtype=np.float64),
-                np.array(cxs, dtype=np.float64),
-                np.array(bs, dtype=np.int64), _BANK)
+    _stamp_bank(
+        hm,
+        off,
+        np.array(cys, dtype=np.float64),
+        np.array(cxs, dtype=np.float64),
+        np.array(bs, dtype=np.int64),
+        _BANK,
+    )
     return hm, off
-
-
-# in-process ann-id -> (fy, fx, n) cache (team_c self-warming scheme;
-# persistent workers amortize the cold rasterization over 20 epochs)
-_stat_cache: dict = {}
-
-
-def clear_cache() -> None:
-    _stat_cache.clear()
 
 
 def build_seed_targets(anns, img_shape=(1024, 1024)):
@@ -221,27 +215,23 @@ def build_seed_targets(anns, img_shape=(1024, 1024)):
     off = np.zeros((2, h4, w4), dtype=np.float32)
     if not anns:
         return hm, off
-    cache = _stat_cache
     cys, cxs, bs = [], [], []
     for ann in anns:
-        key = ann.get("id")
-        hit = cache.get(key) if key is not None else None
-        if hit is None:
-            rle = _ann_rle(ann, h, w)
-            c = np.frombuffer(rle["counts"], dtype=np.uint8)
-            sy, sx, n = _rle_stats(c, h, w)
-            hit = (sy / n, sx / n, n) if n > 0 else None
-            if key is not None:
-                cache[key] = hit
-        if hit is None:
+        rle = _ann_rle(ann, h, w)
+        c = np.frombuffer(rle["counts"], dtype=np.uint8)
+        sy, sx, n = _rle_stats(c, h, w)
+        if n == 0:
             continue
-        fy, fx, n = hit
-        cys.append(fy / STRIDE)
-        cxs.append(fx / STRIDE)
+        cys.append(sy / n / STRIDE)
+        cxs.append(sx / n / STRIDE)
         bs.append(sigma_bucket(n))
     if cys:
-        _stamp_bank(hm, off,
-                    np.array(cys, dtype=np.float64),
-                    np.array(cxs, dtype=np.float64),
-                    np.array(bs, dtype=np.int64), _BANK)
+        _stamp_bank(
+            hm,
+            off,
+            np.array(cys, dtype=np.float64),
+            np.array(cxs, dtype=np.float64),
+            np.array(bs, dtype=np.int64),
+            _BANK,
+        )
     return hm, off

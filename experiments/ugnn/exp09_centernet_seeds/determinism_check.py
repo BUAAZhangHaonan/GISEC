@@ -1,8 +1,8 @@
-"""Post-integration determinism check: 200 val images, forward once,
-postproc_fast.process twice per image in-process, plus a cross-process
-rerun; per-image CRC32 of the serialized instances must be identical.
+"""Post-integration determinism check: N val images (default 200),
+forward once, postproc_fast.process twice per image in the same process;
+per-image CRC32 of the serialized instances must be identical.
 
-Usage: python determinism_check.py OUT_JSON
+Usage: python determinism_check.py OUT_JSON [N_IMAGES]
 """
 
 from __future__ import annotations
@@ -41,9 +41,9 @@ def insts_crc(insts) -> int:
 
 def main() -> None:
     n = int(sys.argv[2]) if len(sys.argv) > 2 else 200
-    sd = torch.load(HERE / "runs" / "best.pth", map_location="cpu")
+    ckpt = torch.load(HERE / "runs" / "best.pth", map_location="cpu")
     model = SeedNet()
-    model.load_state_dict(sd)
+    model.load_state_dict(ckpt["model"])
     model.cuda().eval()
     metas, _ = load_split("val")
     rows = []
@@ -52,8 +52,7 @@ def main() -> None:
         img = ep.cv2.cvtColor(img, ep.cv2.COLOR_BGR2RGB)
         depth = ep.load_depth_array(Path(meta["dpath"]))
         sem, hm, off = _forward(model, img, depth)
-        coords = _cn_markers(hm, off, HM_THR) if hm is not None else None
-        assert coords is not None
+        coords = _cn_markers(hm, off, HM_THR)
         r1 = postproc_fast.process(meta["image_id"], coords, sem, depth)
         r2 = postproc_fast.process(meta["image_id"], coords, sem, depth)
         rows.append(

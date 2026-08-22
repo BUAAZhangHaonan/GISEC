@@ -105,15 +105,11 @@ def load_or_compute_rank(image_id, depth):
     f = base.with_suffix(".rank.npy")
     m = base.with_suffix(".rank.md5")
     nr = base.with_suffix(".rank.nrank.npy")
-    if f.exists():
-        try:
-            if m.read_text() == _depth_md5(depth):
-                return (
-                    np.load(f, allow_pickle=False),
-                    int(np.load(nr, allow_pickle=False)),
-                )
-        except Exception:
-            pass
+    if f.exists() and m.read_text() == _depth_md5(depth):
+        return (
+            np.load(f, allow_pickle=False),
+            int(np.load(nr, allow_pickle=False)),
+        )
     return compute_elevation_rank(depth)
 
 
@@ -216,12 +212,14 @@ def _merge(labels, nlab):
             a = labels[i, j]
             if a == 0:
                 continue
-            b = labels[i, j + 1] if j + 1 < w else labels[i, 0]  # np.roll wrap
-            if b != a:
-                adj[a, b] += 1
-            b = labels[i + 1, j] if i + 1 < h else labels[0, j]
-            if b != a:
-                adj[a, b] += 1
+            if j + 1 < w:
+                b = labels[i, j + 1]
+                if b != a:
+                    adj[a, b] += 1
+            if i + 1 < h:
+                b = labels[i + 1, j]
+                if b != a:
+                    adj[a, b] += 1
     remap = np.arange(nlab + 1, dtype=np.int32)
     for a in range(1, nlab + 1):
         if 0 < counts[a] < SMALL_AREA:
