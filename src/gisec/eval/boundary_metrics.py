@@ -58,13 +58,15 @@ def compute_boundary_band_iou(
     sides have empty boundaries.
     """
     pred_boundary = instance_masks_to_boundary_map(
-        pred_masks, image_shape=image_shape, band_px=band_px)
+        pred_masks, image_shape=image_shape, band_px=band_px
+    )
     gt_boundary = instance_masks_to_boundary_map(
-        gt_masks, image_shape=pred_boundary.shape, band_px=band_px)
-    union = np.logical_or(pred_boundary > 0, gt_boundary >
-                          0).sum(dtype=np.int64)
+        gt_masks, image_shape=pred_boundary.shape, band_px=band_px
+    )
+    union = np.logical_or(pred_boundary > 0, gt_boundary > 0).sum(dtype=np.int64)
     if int(union) <= 0:
         return 1.0
-    intersection = np.logical_and(
-        pred_boundary > 0, gt_boundary > 0).sum(dtype=np.int64)
+    intersection = np.logical_and(pred_boundary > 0, gt_boundary > 0).sum(
+        dtype=np.int64
+    )
     return float(intersection) / float(union)

@@ -37,8 +37,7 @@ def test_paste_does_not_thin_mask_edges_like_bilinear_binary_paste() -> None:
     # The historical bug: paste the pre-thresholded binary bilinearly, then let
     # the consumer's astype(uint8) truncate the fractional edge pixels.
     legacy = (
-        paste_mask_from_crop((prob >= 0.5).float(),
-                             bbox=bbox, image_shape=(16, 16))
+        paste_mask_from_crop((prob >= 0.5).float(), bbox=bbox, image_shape=(16, 16))
         .numpy()
         .astype(np.uint8)
     )

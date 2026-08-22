@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from pathlib import Path
 
@@ -38,12 +37,15 @@ from skimage.segmentation import watershed
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "exp03_unet_dense"))
 
-from eval_pipeline import (  # noqa: E402
-    DATA, MIN_AREA, export_and_eval, load_split, predict_semantic,
-    scene_bootstrap, score_area,
-)
-
 import segmentation_models_pytorch as smp  # noqa: E402
+from eval_pipeline import (  # noqa: E402
+    DATA,
+    MIN_AREA,
+    export_and_eval,
+    load_split,
+    predict_semantic,
+    scene_bootstrap,
+)
 
 RUNS = HERE / "runs"
 SMALL_AREA = 32  # post-process threshold
@@ -68,9 +70,12 @@ def elevation_map(depth, img, kind):
 def make_markers(seed_img, sem, min_distance, num_peaks=None):
     """Markers = local maxima of -elevation inside the semantic mask."""
     coords = peak_local_max(
-        seed_img, min_distance=min_distance, labels=sem,
+        seed_img,
+        min_distance=min_distance,
+        labels=sem,
         exclude_border=False,
-        num_peaks=num_peaks if num_peaks else np.inf)
+        num_peaks=num_peaks if num_peaks else np.inf,
+    )
     markers = np.zeros(sem.shape, dtype=np.int32)
     for k, (y, x) in enumerate(coords, start=1):
         markers[y, x] = k
@@ -94,8 +99,15 @@ def postprocess(labels, mode):
     for i in small:
         m = labels == i
         nb = np.zeros_like(labels)
-        nb[(np.roll(m, 1, 0) | np.roll(m, -1, 0)
-            | np.roll(m, 1, 1) | np.roll(m, -1, 1)) & ~m] = 1
+        nb[
+            (
+                np.roll(m, 1, 0)
+                | np.roll(m, -1, 0)
+                | np.roll(m, 1, 1)
+                | np.roll(m, -1, 1)
+            )
+            & ~m
+        ] = 1
         vals = labels[nb == 1]
         vals = vals[(vals > 0) & ~np.isin(vals, list(small))]
         if len(vals) == 0:
@@ -106,8 +118,7 @@ def postprocess(labels, mode):
     return out
 
 
-def watershed_instances(sem, depth, img, elev_kind, min_distance,
-                        post, num_peaks=None):
+def watershed_instances(sem, depth, img, elev_kind, min_distance, post, num_peaks=None):
     elev = elevation_map(depth, img, elev_kind)
     # seed on -elevation (depth plateaus for depth kinds, flat RGB
     # areas for rgb_grad)
@@ -145,8 +156,9 @@ def split_stats(items, per_img_instances):
             if gys.size == 0:
                 gt_bboxes.append(None)
                 continue
-            gt_bboxes.append((gys.min(), gys.max(), gxs.min(),
-                              gxs.max(), int(gm.sum())))
+            gt_bboxes.append(
+                (gys.min(), gys.max(), gxs.min(), gxs.max(), int(gm.sum()))
+            )
         claims = [0] * len(it["gt_insts"])
         for m, a in insts:
             ys, xs = np.nonzero(m)
@@ -158,9 +170,12 @@ def split_stats(items, per_img_instances):
                 gy0, gy1, gx0, gx1, garea = bb
                 if y1 < gy0 or y0 > gy1 or x1 < gx0 or x0 > gx1:
                     continue
-                inter = int((m[y0:y1 + 1, x0:x1 + 1]
-                             & it["gt_insts"][gi][y0:y1 + 1,
-                                                 x0:x1 + 1]).sum())
+                inter = int(
+                    (
+                        m[y0 : y1 + 1, x0 : x1 + 1]
+                        & it["gt_insts"][gi][y0 : y1 + 1, x0 : x1 + 1]
+                    ).sum()
+                )
                 if inter / max(garea, 1) >= 0.5:
                     cover.append(gi)
             for gi in cover:
@@ -169,20 +184,20 @@ def split_stats(items, per_img_instances):
                 n_under += 1
         n_over += sum(1 for c in claims if c >= 2)
     return {
-        "n_gt": n_gt, "n_pred": n_pred,
+        "n_gt": n_gt,
+        "n_pred": n_pred,
         "oversplit_gt_rate": n_over / max(n_gt, 1),
         "undersplit_piece_rate": n_under / max(n_pred, 1),
     }
 
 
-def run_config(items, sem_by_img, elev_kind, min_distance, post,
-               num_peaks_fn=None):
+def run_config(items, sem_by_img, elev_kind, min_distance, post, num_peaks_fn=None):
     per_img, n_marks = [], 0
     for it, sem in zip(items, sem_by_img, strict=True):
         npk = num_peaks_fn(it) if num_peaks_fn else None
         insts, k = watershed_instances(
-            sem, it["depth"], it["img"], elev_kind, min_distance,
-            post, npk)
+            sem, it["depth"], it["img"], elev_kind, min_distance, post, npk
+        )
         n_marks += k
         per_img.append(insts)
     return per_img, n_marks
@@ -190,13 +205,14 @@ def run_config(items, sem_by_img, elev_kind, min_distance, post,
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ckpt",
-                    default=str(HERE.parent / "exp03_unet_dense" / "runs"
-                                / "best.pth"))
+    ap.add_argument(
+        "--ckpt", default=str(HERE.parent / "exp03_unet_dense" / "runs" / "best.pth")
+    )
     args = ap.parse_args()
 
-    model = smp.Unet(encoder_name="resnet18", encoder_weights=None,
-                     in_channels=4, classes=1)
+    model = smp.Unet(
+        encoder_name="resnet18", encoder_weights=None, in_channels=4, classes=1
+    )
     model.load_state_dict(torch.load(args.ckpt, map_location="cpu"))
     model.cuda()
 
@@ -210,18 +226,25 @@ def main() -> None:
     report = {"grid": []}
 
     def evaluate(per_img, tag):
-        print(f"[eval] {tag} (n_pieces/img "
-              f"{sum(len(p) for p in per_img) / len(per_img):.0f})",
-              flush=True)
+        print(
+            f"[eval] {tag} (n_pieces/img "
+            f"{sum(len(p) for p in per_img) / len(per_img):.0f})",
+            flush=True,
+        )
         # AP protocol scores only the top-100 dets/image (maxDets=100)
         # and scores are area-normalized, so keep the 100 largest
         # pieces per image: identical AP, ~3x faster COCOeval.
         capped = [sorted(p, key=lambda t: -t[1])[:100] for p in per_img]
         ev, n_inst, results = export_and_eval(items, capped, ann_file)
-        row = {"tag": tag, "segm_AP": ev["segm/AP"],
-               "segm_AP50": ev["segm/AP50"], "segm_AP75": ev["segm/AP75"],
-               "bbox_AP": ev["bbox/AP"], "n_inst": n_inst,
-               "n_inst_per_img": n_inst / len(items)}
+        row = {
+            "tag": tag,
+            "segm_AP": ev["segm/AP"],
+            "segm_AP50": ev["segm/AP50"],
+            "segm_AP75": ev["segm/AP75"],
+            "bbox_AP": ev["bbox/AP"],
+            "n_inst": n_inst,
+            "n_inst_per_img": n_inst / len(items),
+        }
         row.update(split_stats(items, per_img))
         print(row, flush=True)
         report["grid"].append(row)
@@ -235,8 +258,7 @@ def main() -> None:
                 evaluate(per_img, f"main/{elev_kind}/md{md}/{post}")
 
     best = max(report["grid"], key=lambda r: r["segm_AP"])
-    bkind, bmd = best["tag"].split("/")[1], int(
-        best["tag"].split("/")[2][2:])
+    bkind, bmd = best["tag"].split("/")[1], int(best["tag"].split("/")[2][2:])
     bpost = best["tag"].split("/")[3]
     print(f"best main config: {best['tag']}")
 
@@ -247,8 +269,9 @@ def main() -> None:
 
     # control b: model semantic + GT instance-count markers
     for post in ("drop", "merge"):
-        per_img, _ = run_config(items, preds, bkind, bmd, post,
-                                num_peaks_fn=lambda it: len(it["gt_insts"]))
+        per_img, _ = run_config(
+            items, preds, bkind, bmd, post, num_peaks_fn=lambda it: len(it["gt_insts"])
+        )
         evaluate(per_img, f"ctrl_b_gtcount/{bkind}/md{bmd}/{post}")
 
     # control c: RGB gradient elevation (markers on flat RGB areas)

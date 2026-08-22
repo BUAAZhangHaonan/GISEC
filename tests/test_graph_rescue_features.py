@@ -50,8 +50,7 @@ def _two_fragment_refined_prob() -> torch.Tensor:
     return refined_prob
 
 
-def _rescue_model(refined_prob: torch.Tensor,
-                  edge_logits: list[float]) -> GISECModel:
+def _rescue_model(refined_prob: torch.Tensor, edge_logits: list[float]) -> GISECModel:
     model = GISECModel(
         backbone=nn.Identity(),
         feature_channels=16,
@@ -169,7 +168,8 @@ def test_inference_routes_features_through_the_shared_builder_with_coarse_prob(
     assert len(updated) == 1
     assert len(seen) == 1
     expected_coarse_crop = crop_and_resize(
-        coarse_prob.unsqueeze(0), bbox=(6, 14, 52, 36), output_size=8, mode="bilinear")
+        coarse_prob.unsqueeze(0), bbox=(6, 14, 52, 36), output_size=8, mode="bilinear"
+    )
     assert torch.allclose(seen[0], expected_coarse_crop)
     assert not torch.allclose(seen[0], refined_prob)
 
@@ -238,7 +238,8 @@ def test_inference_extracts_components_with_the_shared_coarse_extractor(
     assert graph_count == 1
     assert len(seen) == 1
     expected_coarse_crop = crop_and_resize(
-        coarse_prob.unsqueeze(0), bbox=(4, 22, 56, 20), output_size=16, mode="bilinear")
+        coarse_prob.unsqueeze(0), bbox=(4, 22, 56, 20), output_size=16, mode="bilinear"
+    )
     assert torch.allclose(seen[0], expected_coarse_crop)
     assert not torch.allclose(seen[0], refined_prob)
 
@@ -248,7 +249,8 @@ def test_graph_merge_threshold_is_decoupled_from_mask_threshold(
 ) -> None:
     coarse_prob = _two_blob_coarse_prob()
     model = _rescue_model(
-        _two_fragment_refined_prob(), edge_logits=[float(np.log(0.8 / 0.2))])
+        _two_fragment_refined_prob(), edge_logits=[float(np.log(0.8 / 0.2))]
+    )
     thresholds: list[float] = []
     real = decode_module.merge_local_components
 
@@ -293,7 +295,8 @@ def test_grouped_probability_fields_fuse_members_largest_first() -> None:
     refined_prob = (torch.arange(64, dtype=torch.float32) + 1.0).reshape(8, 8) / 65.0
 
     fields = grouped_probability_fields(
-        merged_map=merged_map, refined_prob=refined_prob)
+        merged_map=merged_map, refined_prob=refined_prob
+    )
 
     assert len(fields) == 3
     for field, label in zip(fields, [1, 2, 3], strict=True):
@@ -304,7 +307,8 @@ def test_grouped_probability_fields_fuse_members_largest_first() -> None:
     # another group's pixels or the background.
     for field, label in zip(fields, [1, 2, 3], strict=True):
         other = torch.from_numpy(
-            ((merged_map != label) & (merged_map > 0)).astype(np.float32))
+            ((merged_map != label) & (merged_map > 0)).astype(np.float32)
+        )
         assert float((field * other).sum()) == 0.0
 
 
@@ -326,8 +330,7 @@ def test_graph_rescue_fuses_high_edge_groups_into_single_predictions() -> None:
     # Components are labeled left to right, so the edges in triu order are
     # (1,2), (1,3), (2,3): one high edge fuses the first two fragments and
     # the two low edges keep the third one a separate instance.
-    model = _rescue_model(
-        refined_prob, edge_logits=[4.0, -4.0, -4.0])
+    model = _rescue_model(refined_prob, edge_logits=[4.0, -4.0, -4.0])
 
     updated, refine_count, graph_count = apply_local_rescue(
         model=model,
@@ -357,8 +360,10 @@ def test_graph_rescue_fuses_high_edge_groups_into_single_predictions() -> None:
     lone_binary = updated[1]["binary_mask"]
     # Disjoint instances whose union is exactly the un-grouped refinement.
     union = fused_binary + lone_binary
-    plain = (paste_mask_from_crop(
-        refined_prob, bbox=expected_bbox, image_shape=(64, 64)) >= 0.5).float()
+    plain = (
+        paste_mask_from_crop(refined_prob, bbox=expected_bbox, image_shape=(64, 64))
+        >= 0.5
+    ).float()
     assert torch.equal(union, plain)
     # The fused instance spans both of its member fragments while the
     # split instance stays confined to the third fragment.
@@ -371,15 +376,13 @@ def test_graph_rescue_fuses_high_edge_groups_into_single_predictions() -> None:
     assert float(updated[0]["mask_probs"].max()) == pytest.approx(0.9, abs=1.0e-6)
     assert float(updated[1]["mask_probs"].max()) == pytest.approx(0.6, abs=1.0e-6)
     for row in updated:
-        assert torch.equal(
-            row["binary_mask"], (row["mask_probs"] >= 0.5).float())
+        assert torch.equal(row["binary_mask"], (row["mask_probs"] >= 0.5).float())
 
 
 def test_graph_merge_threshold_controls_whether_fragments_split() -> None:
     coarse_prob = _two_blob_coarse_prob()
     refined_prob = _two_fragment_refined_prob()
-    model = _rescue_model(
-        refined_prob, edge_logits=[float(np.log(0.6 / 0.4))])
+    model = _rescue_model(refined_prob, edge_logits=[float(np.log(0.6 / 0.4))])
 
     def run(graph_merge_threshold: float) -> int:
         updated, _refine_count, _graph_count = apply_local_rescue(

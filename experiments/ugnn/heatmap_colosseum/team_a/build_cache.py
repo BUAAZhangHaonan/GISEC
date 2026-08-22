@@ -26,15 +26,13 @@ def _one(ann: dict) -> tuple[int, int, int] | None:
     ys, xs = np.nonzero(m)
     if ys.size == 0:
         return None
-    return int(ann["id"]), int(round(float(ys.mean()))), int(
-        round(float(xs.mean())))
+    return int(ann["id"]), int(round(float(ys.mean()))), int(round(float(xs.mean())))
 
 
 def main() -> None:
     split = sys.argv[1] if len(sys.argv) > 1 else "train"
     coco = LiteCOCO(DATA / "annotations" / f"instances_{split}.json")
-    hw = {i["id"]: (i["height"], i["width"]) for i in
-          json_images(coco)}
+    hw = {i["id"]: (i["height"], i["width"]) for i in json_images(coco)}
     anns = []
     for aid in coco.getAnnIds(coco.getImgIds()):
         ann = coco.loadAnns([aid])[0]
@@ -42,15 +40,19 @@ def main() -> None:
         anns.append(ann)
     t0 = time.time()
     with Pool(64) as pool:
-        rows = [r for r in pool.imap_unordered(_one, anns, chunksize=256)
-                if r is not None]
+        rows = [
+            r for r in pool.imap_unordered(_one, anns, chunksize=256) if r is not None
+        ]
     rows.sort()
     arr = np.array(rows, dtype=np.int64)
     out = HERE / f"centroids_{split}.npz"
     np.savez_compressed(out, ann_id=arr[:, 0], cy=arr[:, 1], cx=arr[:, 2])
     dt = time.time() - t0
-    print(f"{len(rows)} centroids -> {out} in {dt:.1f}s "
-          f"({dt / max(len(rows), 1) * 1e3:.2f} ms/ann)", flush=True)
+    print(
+        f"{len(rows)} centroids -> {out} in {dt:.1f}s "
+        f"({dt / max(len(rows), 1) * 1e3:.2f} ms/ann)",
+        flush=True,
+    )
 
 
 def json_images(coco: LiteCOCO):

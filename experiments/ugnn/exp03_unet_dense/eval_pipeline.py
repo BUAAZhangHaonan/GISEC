@@ -20,11 +20,10 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import segmentation_models_pytorch as smp
 import torch
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
-
-import segmentation_models_pytorch as smp
 
 from gisec.datasets.coco_utils import LiteCOCO, ann_to_mask, load_depth_array
 from gisec.eval.coco_eval import evaluate_json
@@ -62,11 +61,16 @@ def load_split(split: str):
             m = ann_to_mask(ann, info["height"], info["width"])
             gt_sem |= m
             gt_insts.append(m)
-        items.append({
-            "image_id": img_id, "file_name": info["file_name"],
-            "img": img, "depth": depth, "gt_sem": gt_sem,
-            "gt_insts": gt_insts,
-        })
+        items.append(
+            {
+                "image_id": img_id,
+                "file_name": info["file_name"],
+                "img": img,
+                "depth": depth,
+                "gt_sem": gt_sem,
+                "gt_insts": gt_insts,
+            }
+        )
     return items
 
 
@@ -76,12 +80,14 @@ def predict_semantic(model, items) -> list[np.ndarray]:
     model.eval()
     for it in items:
         x = np.concatenate(
-            [it["img"].astype(np.float32) / 255.0,
-             norm_depth(it["depth"])[..., None].astype(np.float32)], axis=-1)
-        x = torch.from_numpy(
-            np.ascontiguousarray(x.transpose(2, 0, 1)))[None].cuda()
-        m = (torch.sigmoid(model(x))[0, 0] > 0.5).cpu().numpy().astype(
-            np.uint8)
+            [
+                it["img"].astype(np.float32) / 255.0,
+                norm_depth(it["depth"])[..., None].astype(np.float32),
+            ],
+            axis=-1,
+        )
+        x = torch.from_numpy(np.ascontiguousarray(x.transpose(2, 0, 1)))[None].cuda()
+        m = (torch.sigmoid(model(x))[0, 0] > 0.5).cpu().numpy().astype(np.uint8)
         masks.append(m)
     return masks
 
@@ -96,11 +102,15 @@ def fragments(sem: np.ndarray, depth: np.ndarray):
         if area <= MIN_AREA:
             continue
         ys, xs = np.nonzero(m)
-        frags.append({
-            "mask": m, "area": area,
-            "cx": float(xs.mean()), "cy": float(ys.mean()),
-            "d_med": float(np.median(depth[m > 0])),
-        })
+        frags.append(
+            {
+                "mask": m,
+                "area": area,
+                "cx": float(xs.mean()),
+                "cy": float(ys.mean()),
+                "d_med": float(np.median(depth[m > 0])),
+            }
+        )
     return frags
 
 
@@ -119,8 +129,10 @@ def conservative_merge(frags, tau1: float, tau2: float):
     pairs = []
     for i in range(n):
         for j in range(i + 1, n):
-            d = ((frags[i]["cx"] - frags[j]["cx"]) ** 2
-                 + (frags[i]["cy"] - frags[j]["cy"]) ** 2) ** 0.5
+            d = (
+                (frags[i]["cx"] - frags[j]["cx"]) ** 2
+                + (frags[i]["cy"] - frags[j]["cy"]) ** 2
+            ) ** 0.5
             dd = abs(frags[i]["d_med"] - frags[j]["d_med"])
             if d < tau1 and dd < tau2:
                 pairs.append((i, j))
@@ -155,8 +167,8 @@ def export_and_eval(items, per_img_instances, ann_file):
         masks = [m for m, _ in insts]
         scores = score_area(insts, *it["img"].shape[:2])
         results += masks_to_coco_results(
-            image_id=it["image_id"], masks=masks, scores=scores,
-            category_id=CAT_ID)
+            image_id=it["image_id"], masks=masks, scores=scores, category_id=CAT_ID
+        )
         n_inst += len(masks)
     return evaluate_json(Path(ann_file), results), n_inst, results
 
@@ -165,8 +177,7 @@ def wrong_merge_rate(items, frags_by_img, pairs_by_img):
     """Fraction of merged pairs whose two fragments best-match
     different GT instances (IoU>0 assignment)."""
     n_wrong = n_total = 0
-    for it, frags, pairs in zip(items, frags_by_img, pairs_by_img,
-                                strict=True):
+    for it, frags, pairs in zip(items, frags_by_img, pairs_by_img, strict=True):
         owners = []
         for f in frags:
             best, bi = 0.0, -1
@@ -191,16 +202,20 @@ def scene_bootstrap(items, results, n_boot=1000, seed=0):
     scenes = {}
     for it in items:
         m = pat.search(it["file_name"])
-        scenes.setdefault(m.group(1) if m else it["image_id"],
-                          []).append(it["image_id"])
+        scenes.setdefault(m.group(1) if m else it["image_id"], []).append(
+            it["image_id"]
+        )
     coco_gt = COCO(str(DATA / "annotations" / "instances_val.json"))
     coco_dt = coco_gt.loadRes(results)
     keys = list(scenes)
     ap_s, ap_b = [], []
     rng = np.random.default_rng(seed)
     for _ in range(n_boot):
-        img_ids = sorted(itertools.chain.from_iterable(
-            scenes[keys[rng.integers(len(keys))]] for _ in keys))
+        img_ids = sorted(
+            itertools.chain.from_iterable(
+                scenes[keys[rng.integers(len(keys))]] for _ in keys
+            )
+        )
         row = []
         for metric in ("segm", "bbox"):
             ev = COCOeval(coco_gt, coco_dt, metric)
@@ -214,9 +229,10 @@ def scene_bootstrap(items, results, n_boot=1000, seed=0):
         ap_b.append(row[1])
     out = {}
     for name, vals in (("segm", ap_s), ("bbox", ap_b)):
-        out[name] = {"mean": float(np.mean(vals)),
-                     "ci95": [float(np.percentile(vals, 2.5)),
-                              float(np.percentile(vals, 97.5))]}
+        out[name] = {
+            "mean": float(np.mean(vals)),
+            "ci95": [float(np.percentile(vals, 2.5)), float(np.percentile(vals, 97.5))],
+        }
     return out
 
 
@@ -231,13 +247,18 @@ def miou(preds, items):
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--ckpt", default=str(RUNS / "best.pth"))
-    ap.add_argument("--tau1", type=float, default=None,
-                    help="if unset, sweep grid on val and pick best segm AP")
+    ap.add_argument(
+        "--tau1",
+        type=float,
+        default=None,
+        help="if unset, sweep grid on val and pick best segm AP",
+    )
     ap.add_argument("--tau2", type=float, default=0.01)
     args = ap.parse_args()
 
-    model = smp.Unet(encoder_name="resnet18", encoder_weights=None,
-                     in_channels=4, classes=1)
+    model = smp.Unet(
+        encoder_name="resnet18", encoder_weights=None, in_channels=4, classes=1
+    )
     model.load_state_dict(torch.load(args.ckpt, map_location="cpu"))
     model.cuda()
 
@@ -248,8 +269,9 @@ def main() -> None:
 
     frags_by_img = [fragments(p, it["depth"]) for p, it in zip(preds, items)]
     n_frag = sum(len(f) for f in frags_by_img)
-    print(f"fragments after CC(area>{MIN_AREA}): {n_frag} "
-          f"({n_frag / len(items):.1f}/img)")
+    print(
+        f"fragments after CC(area>{MIN_AREA}): {n_frag} ({n_frag / len(items):.1f}/img)"
+    )
 
     ann_file = Path(ann_file)
 
@@ -259,8 +281,10 @@ def main() -> None:
             g, pr = conservative_merge(frags, tau1, tau2)
             groups_by_img.append(g)
             pairs_by_img.append(pr)
-        insts = [groups_to_instances(f, g)
-                 for f, g in zip(frags_by_img, groups_by_img, strict=True)]
+        insts = [
+            groups_to_instances(f, g)
+            for f, g in zip(frags_by_img, groups_by_img, strict=True)
+        ]
         ev, n_inst, results = export_and_eval(items, insts, ann_file)
         nw, nt = wrong_merge_rate(items, frags_by_img, pairs_by_img)
         return ev, n_inst, nt, nw, results
@@ -270,12 +294,17 @@ def main() -> None:
         for tau1 in (15.0, 25.0, 40.0, 60.0, 90.0):
             for tau2 in (0.01, 0.02, 0.04, 0.08):
                 ev, n_inst, nt, nw, _ = run(tau1, tau2)
-                grid.append({
-                    "tau1": tau1, "tau2": tau2,
-                    "segm_AP": ev["segm/AP"], "bbox_AP": ev["bbox/AP"],
-                    "n_inst": n_inst, "n_merged_pairs": nt,
-                    "n_wrong_merges": nw,
-                })
+                grid.append(
+                    {
+                        "tau1": tau1,
+                        "tau2": tau2,
+                        "segm_AP": ev["segm/AP"],
+                        "bbox_AP": ev["bbox/AP"],
+                        "n_inst": n_inst,
+                        "n_merged_pairs": nt,
+                        "n_wrong_merges": nw,
+                    }
+                )
                 print(grid[-1], flush=True)
         best = max(grid, key=lambda r: r["segm_AP"])
         (RUNS / "tau_grid.json").write_text(json.dumps(grid, indent=2))
@@ -287,20 +316,27 @@ def main() -> None:
     report = {"tau1": tau1, "tau2": tau2}
 
     # no-merge baseline
-    insts_nm = [[(f["mask"], f["area"]) for f in frags]
-                for frags in frags_by_img]
+    insts_nm = [[(f["mask"], f["area"]) for f in frags] for frags in frags_by_img]
     ev_nm, n_nm, _ = export_and_eval(items, insts_nm, ann_file)
-    report["no_merge"] = {"segm_AP": ev_nm["segm/AP"],
-                          "bbox_AP": ev_nm["bbox/AP"], "n_inst": n_nm}
+    report["no_merge"] = {
+        "segm_AP": ev_nm["segm/AP"],
+        "bbox_AP": ev_nm["bbox/AP"],
+        "n_inst": n_nm,
+    }
     print("no_merge", report["no_merge"])
 
     # merged (final rule)
     ev, n_inst, nt, nw, results = run(tau1, tau2)
     report["merged"] = {
-        "segm_AP": ev["segm/AP"], "segm_AP50": ev["segm/AP50"],
-        "segm_AP75": ev["segm/AP75"], "bbox_AP": ev["bbox/AP"],
-        "bbox_AP50": ev["bbox/AP50"], "bbox_AP75": ev["bbox/AP75"],
-        "n_inst": n_inst, "n_merged_pairs": nt, "n_wrong_merges": nw,
+        "segm_AP": ev["segm/AP"],
+        "segm_AP50": ev["segm/AP50"],
+        "segm_AP75": ev["segm/AP75"],
+        "bbox_AP": ev["bbox/AP"],
+        "bbox_AP50": ev["bbox/AP50"],
+        "bbox_AP75": ev["bbox/AP75"],
+        "n_inst": n_inst,
+        "n_merged_pairs": nt,
+        "n_wrong_merges": nw,
         "wrong_merge_rate": nw / max(nt, 1),
     }
     print("merged", report["merged"])
@@ -308,11 +344,15 @@ def main() -> None:
     # oracle-semantic control: GT semantic mask -> same recovery
     oracle_frags = [fragments(it["gt_sem"], it["depth"]) for it in items]
     o_groups = [conservative_merge(f, tau1, tau2)[0] for f in oracle_frags]
-    o_insts = [groups_to_instances(f, g)
-               for f, g in zip(oracle_frags, o_groups, strict=True)]
+    o_insts = [
+        groups_to_instances(f, g) for f, g in zip(oracle_frags, o_groups, strict=True)
+    ]
     ev_o, n_o, results_o = export_and_eval(items, o_insts, ann_file)
-    report["oracle_semantic"] = {"segm_AP": ev_o["segm/AP"],
-                                 "bbox_AP": ev_o["bbox/AP"], "n_inst": n_o}
+    report["oracle_semantic"] = {
+        "segm_AP": ev_o["segm/AP"],
+        "bbox_AP": ev_o["bbox/AP"],
+        "n_inst": n_o,
+    }
     print("oracle_semantic", report["oracle_semantic"])
 
     report["bootstrap_CI"] = scene_bootstrap(items, results)

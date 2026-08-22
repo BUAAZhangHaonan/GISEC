@@ -50,59 +50,61 @@ def build_local_graph_inputs(
                 device=feature_crop.device,
             ),
             torch.zeros((2, 0), dtype=torch.long, device=feature_crop.device),
-            torch.zeros((0, 4), dtype=feature_crop.dtype,
-                        device=feature_crop.device),
+            torch.zeros((0, 4), dtype=feature_crop.dtype, device=feature_crop.device),
         )
     height, width = component_map.shape
-    labels_tensor = torch.tensor(
-        labels, dtype=torch.long, device=feature_crop.device)
+    labels_tensor = torch.tensor(labels, dtype=torch.long, device=feature_crop.device)
     component_map_t = torch.as_tensor(
-        component_map, dtype=torch.long, device=feature_crop.device)
+        component_map, dtype=torch.long, device=feature_crop.device
+    )
     mask_tensor = component_map_t.unsqueeze(0).eq(labels_tensor[:, None, None])
     mask_float = mask_tensor.to(dtype=feature_crop.dtype)
     counts = mask_float.sum(dim=(1, 2)).clamp_min(1.0)
-    pooled = (feature_crop.unsqueeze(0) * mask_float.unsqueeze(1)
-              ).sum(dim=(2, 3)) / counts.unsqueeze(1)
-    x_coords = torch.arange(width, dtype=feature_crop.dtype,
-                            device=feature_crop.device).view(1, 1, width)
-    y_coords = torch.arange(height, dtype=feature_crop.dtype,
-                            device=feature_crop.device).view(1, height, 1)
-    centroid_x = (mask_float * x_coords).sum(dim=(1, 2)) / \
-        counts / float(max(width, 1))
-    centroid_y = (mask_float * y_coords).sum(dim=(1, 2)) / \
-        counts / float(max(height, 1))
+    pooled = (feature_crop.unsqueeze(0) * mask_float.unsqueeze(1)).sum(
+        dim=(2, 3)
+    ) / counts.unsqueeze(1)
+    x_coords = torch.arange(
+        width, dtype=feature_crop.dtype, device=feature_crop.device
+    ).view(1, 1, width)
+    y_coords = torch.arange(
+        height, dtype=feature_crop.dtype, device=feature_crop.device
+    ).view(1, height, 1)
+    centroid_x = (mask_float * x_coords).sum(dim=(1, 2)) / counts / float(max(width, 1))
+    centroid_y = (
+        (mask_float * y_coords).sum(dim=(1, 2)) / counts / float(max(height, 1))
+    )
     area_ratio = counts / float(max(height * width, 1))
-    mean_prob = (mask_prob_crop.unsqueeze(0).to(
-        dtype=feature_crop.dtype) * mask_float).sum(dim=(1, 2)) / counts
+    mean_prob = (
+        mask_prob_crop.unsqueeze(0).to(dtype=feature_crop.dtype) * mask_float
+    ).sum(dim=(1, 2)) / counts
     if depth_crop is None:
         depth_mean = torch.zeros_like(area_ratio)
     else:
         depth_map = depth_crop[0].to(dtype=feature_crop.dtype)
-        depth_mean = (depth_map.unsqueeze(
-            0) * mask_float).sum(dim=(1, 2)) / counts
+        depth_mean = (depth_map.unsqueeze(0) * mask_float).sum(dim=(1, 2)) / counts
     node_features = torch.cat(
         [
             pooled,
-            torch.stack([area_ratio, centroid_x,
-                        centroid_y, mean_prob], dim=1),
+            torch.stack([area_ratio, centroid_x, centroid_y, mean_prob], dim=1),
         ],
         dim=1,
     )
-    geometry = torch.stack(
-        [centroid_x, centroid_y, area_ratio, depth_mean], dim=1)
-    edge_pair_index = torch.triu_indices(len(labels), len(
-        labels), offset=1, device=feature_crop.device)
+    geometry = torch.stack([centroid_x, centroid_y, area_ratio, depth_mean], dim=1)
+    edge_pair_index = torch.triu_indices(
+        len(labels), len(labels), offset=1, device=feature_crop.device
+    )
     src_index = edge_pair_index[0]
     dst_index = edge_pair_index[1]
     edge_index = edge_pair_index.contiguous()
     edge_features = torch.stack(
         [
-            torch.hypot(geometry[src_index, 0] - geometry[dst_index, 0],
-                        geometry[src_index, 1] - geometry[dst_index, 1]),
+            torch.hypot(
+                geometry[src_index, 0] - geometry[dst_index, 0],
+                geometry[src_index, 1] - geometry[dst_index, 1],
+            ),
             (geometry[src_index, 2] - geometry[dst_index, 2]).abs(),
             (geometry[src_index, 3] - geometry[dst_index, 3]).abs(),
-            (node_features[src_index, -1] -
-             node_features[dst_index, -1]).abs(),
+            (node_features[src_index, -1] - node_features[dst_index, -1]).abs(),
         ],
         dim=1,
     )
@@ -142,21 +144,24 @@ def _graph_rescue_edge_targets(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     labels = [int(x) for x in np.unique(component_map).tolist() if int(x) > 0]
     if len(labels) <= 1 or edge_index.numel() == 0:
-        empty = torch.zeros((0,), dtype=torch.float32,
-                            device=edge_index.device)
+        empty = torch.zeros((0,), dtype=torch.float32, device=edge_index.device)
         return empty, torch.zeros((0,), dtype=torch.bool, device=edge_index.device)
     instance_masks = instance_mask_crops.float()
     component_map_t = torch.as_tensor(
-        component_map, dtype=torch.long, device=instance_masks.device)
-    labels_tensor = torch.tensor(
-        labels, dtype=torch.long, device=instance_masks.device)
-    component_masks = component_map_t.unsqueeze(
-        0).eq(labels_tensor[:, None, None])
-    overlaps = (component_masks.unsqueeze(1).to(
-        dtype=instance_masks.dtype) * instance_masks.unsqueeze(0)).sum(dim=(2, 3))
+        component_map, dtype=torch.long, device=instance_masks.device
+    )
+    labels_tensor = torch.tensor(labels, dtype=torch.long, device=instance_masks.device)
+    component_masks = component_map_t.unsqueeze(0).eq(labels_tensor[:, None, None])
+    overlaps = (
+        component_masks.unsqueeze(1).to(dtype=instance_masks.dtype)
+        * instance_masks.unsqueeze(0)
+    ).sum(dim=(2, 3))
     best_overlap, best_instance = overlaps.max(dim=1)
-    owners = torch.where(best_overlap > 0, best_instance.to(
-        dtype=torch.long) + 1, torch.zeros_like(best_instance, dtype=torch.long))
+    owners = torch.where(
+        best_overlap > 0,
+        best_instance.to(dtype=torch.long) + 1,
+        torch.zeros_like(best_instance, dtype=torch.long),
+    )
     edge_index_local = edge_index.to(device=owners.device)
     src_owner = owners[edge_index_local[0].long()]
     dst_owner = owners[edge_index_local[1].long()]
@@ -197,7 +202,8 @@ def merge_local_components(
             parent[rb] = ra
 
     for (src_index, dst_index), score in zip(
-            edge_index.t().tolist(), edge_scores.tolist(), strict=True):
+        edge_index.t().tolist(), edge_scores.tolist(), strict=True
+    ):
         if float(score) >= float(threshold):
             union(labels[int(src_index)], labels[int(dst_index)])
     remapped = np.zeros_like(component_map, dtype=np.int32)

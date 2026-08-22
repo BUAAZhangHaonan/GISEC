@@ -42,8 +42,11 @@ from gisec.datasets.coco_utils import ann_to_mask
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from centernet_gt import (  # noqa: E402
-    _ann_rle, _rle_stats, build_seed_targets,
-    build_seed_targets_from_stats)
+    _ann_rle,
+    _rle_stats,
+    build_seed_targets,
+    build_seed_targets_from_stats,
+)
 
 DATA = HERE.parents[2] / "datasets" / "20260318_1K_32254"
 SIDE = 1024
@@ -66,10 +69,9 @@ def _old_path_gt(img_anns, h, w):
 def build(split: str, out: Path, n_check: int = 20) -> None:
     t0 = time.time()
     payload = json.loads(
-        (DATA / "annotations" / f"instances_{split}.json").read_text(
-            encoding="utf-8"))
-    print(f"[{split}] parsed json in {time.time() - t0:.0f}s",
-          flush=True)
+        (DATA / "annotations" / f"instances_{split}.json").read_text(encoding="utf-8")
+    )
+    print(f"[{split}] parsed json in {time.time() - t0:.0f}s", flush=True)
     by_img: dict[int, list] = {}
     for ann in payload["annotations"]:  # payload order == LiteCOCO
         by_img.setdefault(int(ann["image_id"]), []).append(ann)
@@ -80,8 +82,7 @@ def build(split: str, out: Path, n_check: int = 20) -> None:
     ids_l, off_l, flat_l = [], [0], []
     sem_rows = []
     rng = random.Random(0)
-    check_idx = set(rng.sample(range(len(images)), min(n_check,
-                                                      len(images))))
+    check_idx = set(rng.sample(range(len(images)), min(n_check, len(images))))
     for pos, info in enumerate(images):
         iid = int(info["id"])
         fn = info["file_name"]
@@ -112,16 +113,17 @@ def build(split: str, out: Path, n_check: int = 20) -> None:
         off_l.append(len(flat_l))
         items.append((iid, fn))
         if pos in check_idx:
-            _check(iid, fn, by_img.get(iid, []), rows, sem_rows[-1],
-                   h, w)
+            _check(iid, fn, by_img.get(iid, []), rows, sem_rows[-1], h, w)
         if pos % 2000 == 0:
-            print(f"[{split}] {pos}/{len(images)} "
-                  f"({time.time() - t0:.0f}s)", flush=True)
+            print(
+                f"[{split}] {pos}/{len(images)} ({time.time() - t0:.0f}s)", flush=True
+            )
 
     n = len(items)
     assert n == len(sem_rows)
-    sem = np.memmap(out / f"{split}_sem.dat", dtype=np.uint8,
-                    mode="w+", shape=(n, PACK))
+    sem = np.memmap(
+        out / f"{split}_sem.dat", dtype=np.uint8, mode="w+", shape=(n, PACK)
+    )
     for i, row in enumerate(sem_rows):
         sem[i] = row
     sem.flush()
@@ -129,25 +131,34 @@ def build(split: str, out: Path, n_check: int = 20) -> None:
     with open(out / f"{split}_items.pkl", "wb") as f:
         pickle.dump(items, f)
     with open(out / f"{split}_stats.pkl", "wb") as f:
-        pickle.dump((np.array(ids_l, dtype=np.int64),
-                     np.array(off_l, dtype=np.int64),
-                     np.array(flat_l, dtype=np.float64).reshape(-1, 3)),
-                    f)
-    (out / f"{split}_meta.json").write_text(json.dumps(
-        {"n_images": n, "n_ann_records": len(flat_l),
-         "side": SIDE}, indent=2))
-    print(f"[{split}] done: {n} imgs, {len(flat_l)} ann records, "
-          f"self-check {len(check_idx)} imgs bitwise-identical, "
-          f"{time.time() - t0:.0f}s", flush=True)
+        pickle.dump(
+            (
+                np.array(ids_l, dtype=np.int64),
+                np.array(off_l, dtype=np.int64),
+                np.array(flat_l, dtype=np.float64).reshape(-1, 3),
+            ),
+            f,
+        )
+    (out / f"{split}_meta.json").write_text(
+        json.dumps(
+            {"n_images": n, "n_ann_records": len(flat_l), "side": SIDE}, indent=2
+        )
+    )
+    print(
+        f"[{split}] done: {n} imgs, {len(flat_l)} ann records, "
+        f"self-check {len(check_idx)} imgs bitwise-identical, "
+        f"{time.time() - t0:.0f}s",
+        flush=True,
+    )
 
 
 def _check(iid, fn, img_anns, rows, sem_row, h, w) -> None:
     gt_old, kept = _old_path_gt(img_anns, h, w)
     hm_old, off_old = build_seed_targets(kept, (h, w))
     hm_new, off_new = build_seed_targets_from_stats(
-        np.array(rows, dtype=np.float64), (h, w))
-    gt_new = np.unpackbits(sem_row).astype(np.float32).reshape(
-        h, w)
+        np.array(rows, dtype=np.float64), (h, w)
+    )
+    gt_new = np.unpackbits(sem_row).astype(np.float32).reshape(h, w)
     assert np.array_equal(hm_old, hm_new), f"{fn} heatmap mismatch"
     assert np.array_equal(off_old, off_new), f"{fn} offset mismatch"
     assert np.array_equal(gt_old, gt_new), f"{fn} semantic mismatch"
@@ -157,8 +168,8 @@ def verify(split: str, out: Path, n: int = 20) -> None:
     """Independent re-check: rebuild old-path GT from the raw json
     for n random images and compare against the saved records."""
     payload = json.loads(
-        (DATA / "annotations" / f"instances_{split}.json").read_text(
-            encoding="utf-8"))
+        (DATA / "annotations" / f"instances_{split}.json").read_text(encoding="utf-8")
+    )
     by_img = {}
     for ann in payload["annotations"]:
         by_img.setdefault(int(ann["image_id"]), []).append(ann)
@@ -166,15 +177,15 @@ def verify(split: str, out: Path, n: int = 20) -> None:
         items = pickle.load(f)
     with open(out / f"{split}_stats.pkl", "rb") as f:
         ids, offs, flat = pickle.load(f)
-    sem = np.memmap(out / f"{split}_sem.dat", dtype=np.uint8,
-                    mode="r", shape=(len(items), PACK))
+    sem = np.memmap(
+        out / f"{split}_sem.dat", dtype=np.uint8, mode="r", shape=(len(items), PACK)
+    )
     rng = random.Random(7)
     for idx in rng.sample(range(len(items)), n):
         iid, fn = items[idx]
-        info = next(i for i in payload["images"]
-                    if int(i["id"]) == iid)
+        info = next(i for i in payload["images"] if int(i["id"]) == iid)
         h, w = int(info["height"]), int(info["width"])
-        rows = [tuple(r) for r in flat[offs[idx]:offs[idx + 1]]]
+        rows = [tuple(r) for r in flat[offs[idx] : offs[idx + 1]]]
         _check(iid, fn, by_img.get(iid, []), rows, sem[idx], h, w)
     print(f"[{split}] verify: {n} imgs bitwise-identical", flush=True)
 

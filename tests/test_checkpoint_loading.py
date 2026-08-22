@@ -28,12 +28,14 @@ class _TwoLayer(nn.Module):
 def test_partial_load_reports_missing_keys(capsys) -> None:
     module = _TwoLayer()
     partial = {
-        key: value for key, value in module.state_dict().items()
+        key: value
+        for key, value in module.state_dict().items()
         if not key.startswith("second.")
     }
 
     load_module_state_dict(
-        module, partial, allow_partial=True, context="test checkpoint")
+        module, partial, allow_partial=True, context="test checkpoint"
+    )
 
     captured = capsys.readouterr().out
     assert "missing=2" in captured
@@ -47,8 +49,7 @@ def test_partial_load_reports_shape_mismatches(capsys) -> None:
     state = dict(module.state_dict())
     state["first.weight"] = torch.zeros((3, 3))
 
-    load_module_state_dict(
-        module, state, allow_partial=True, context="test checkpoint")
+    load_module_state_dict(module, state, allow_partial=True, context="test checkpoint")
 
     captured = capsys.readouterr().out
     assert "shape_mismatch=1" in captured
@@ -59,8 +60,7 @@ def test_fully_compatible_partial_load_stays_quiet(capsys) -> None:
     module = _TwoLayer()
     state = dict(module.state_dict())
 
-    load_module_state_dict(
-        module, state, allow_partial=True, context="test checkpoint")
+    load_module_state_dict(module, state, allow_partial=True, context="test checkpoint")
 
     assert capsys.readouterr().out == ""
 
@@ -71,7 +71,8 @@ def test_strict_load_still_rejects_missing_keys() -> None:
 
     with pytest.raises(RuntimeError, match="missing_keys"):
         load_module_state_dict(
-            module, partial, allow_partial=False, context="test checkpoint")
+            module, partial, allow_partial=False, context="test checkpoint"
+        )
 
 
 def _runtime_args(**overrides: int) -> argparse.Namespace:
@@ -85,23 +86,22 @@ def test_checkpoint_runtime_args_mismatch_reports_both_values() -> None:
     args = _runtime_args()
 
     with pytest.raises(RuntimeError, match=r"image_size=512.*image_size=1024"):
-        validate_checkpoint_model_args(
-            payload=payload, args=args, context="eval")
+        validate_checkpoint_model_args(payload=payload, args=args, context="eval")
 
 
 def test_checkpoint_runtime_args_match_is_accepted() -> None:
     payload = {"model": {"image_size": 1024, "crop_size": 256, "num_queries": 16}}
     args = _runtime_args()
 
-    validate_checkpoint_model_args(
-        payload=payload, args=args, context="eval")
+    validate_checkpoint_model_args(payload=payload, args=args, context="eval")
 
 
 def test_checkpoint_without_stored_model_args_is_accepted() -> None:
     args = _runtime_args()
 
     validate_checkpoint_model_args(
-        payload={"state_dict": {}}, args=args, context="eval")
+        payload={"state_dict": {}}, args=args, context="eval"
+    )
 
 
 class _StubStageModel(nn.Module):
@@ -120,8 +120,7 @@ def test_configure_model_for_stage_skips_init_load_when_resuming() -> None:
 
     configure_model_for_stage(model, args)
 
-    assert all(
-        not param.requires_grad for param in model.backbone.parameters())
+    assert all(not param.requires_grad for param in model.backbone.parameters())
 
 
 def _resume_args(checkpoint: object) -> argparse.Namespace:
@@ -138,10 +137,13 @@ def _save_checkpoint(path: object, payload: dict) -> None:
 def test_load_resume_payload_rejects_weight_only_checkpoint(tmp_path) -> None:
     model = _TwoLayer()
     checkpoint = tmp_path / "model_best.pth"
-    _save_checkpoint(checkpoint, {
-        "state_dict": model.state_dict(),
-        "variant": "base_rgb_1024",
-    })
+    _save_checkpoint(
+        checkpoint,
+        {
+            "state_dict": model.state_dict(),
+            "variant": "base_rgb_1024",
+        },
+    )
 
     with pytest.raises(RuntimeError, match=r"model_best\.pth.*--init-checkpoint"):
         load_resume_payload(
@@ -156,11 +158,14 @@ def test_load_resume_payload_rejects_missing_completed_epoch(tmp_path) -> None:
     model = _TwoLayer()
     optimizer = torch.optim.AdamW(model.parameters())
     checkpoint = tmp_path / "resume_last.pth"
-    _save_checkpoint(checkpoint, {
-        "state_dict": model.state_dict(),
-        "variant": "base_rgb_1024",
-        "optimizer_state_dict": optimizer.state_dict(),
-    })
+    _save_checkpoint(
+        checkpoint,
+        {
+            "state_dict": model.state_dict(),
+            "variant": "base_rgb_1024",
+            "optimizer_state_dict": optimizer.state_dict(),
+        },
+    )
 
     with pytest.raises(RuntimeError, match="completed_epoch"):
         load_resume_payload(
@@ -172,25 +177,34 @@ def test_load_resume_payload_rejects_missing_completed_epoch(tmp_path) -> None:
 
 
 def test_resume_payload_round_trips_elapsed_and_peak(tmp_path) -> None:
-    args = parse_train_args([
-        "--dataset-root", str(tmp_path),
-        "--output-dir", str(tmp_path),
-        "--variant", "base_rgb_1024",
-        "--resume-checkpoint", str(tmp_path / "resume_last.pth"),
-    ])
+    args = parse_train_args(
+        [
+            "--dataset-root",
+            str(tmp_path),
+            "--output-dir",
+            str(tmp_path),
+            "--variant",
+            "base_rgb_1024",
+            "--resume-checkpoint",
+            str(tmp_path / "resume_last.pth"),
+        ]
+    )
     checkpoint = tmp_path / "resume_last.pth"
-    save_torch_payload(checkpoint, resume_payload(
-        model=_TwoLayer(),
-        optimizer=torch.optim.AdamW(_TwoLayer().parameters()),
-        scaler=GradScaler(enabled=False),
-        args=args,
-        completed_epoch=3,
-        global_step=42,
-        best_metric=0.5,
-        running_step_time_total=1.5,
-        elapsed_sec=1234.0,
-        peak_memory_mb=567.0,
-    ))
+    save_torch_payload(
+        checkpoint,
+        resume_payload(
+            model=_TwoLayer(),
+            optimizer=torch.optim.AdamW(_TwoLayer().parameters()),
+            scaler=GradScaler(enabled=False),
+            args=args,
+            completed_epoch=3,
+            global_step=42,
+            best_metric=0.5,
+            running_step_time_total=1.5,
+            elapsed_sec=1234.0,
+            peak_memory_mb=567.0,
+        ),
+    )
 
     restored = load_resume_payload(
         model=_TwoLayer(),

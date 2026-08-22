@@ -32,10 +32,9 @@ Per-image CPU is ~7.6 s over 6 workers -> ~1.3 s/img wall, i.e. the
 from __future__ import annotations
 
 import argparse
-import json
 import itertools
+import json
 import multiprocessing as mp
-import re
 import sys
 import time
 from pathlib import Path
@@ -50,17 +49,23 @@ sys.path.insert(0, str(HERE.parent / "exp03_unet_dense"))
 sys.path.insert(0, str(HERE.parent / "exp04_instance_split"))
 
 import eval_pipeline as ep  # noqa: E402
+import segmentation_models_pytorch as smp  # noqa: E402
+from eval_scale import (
+    DATA,
+    HM_THR,
+    RUNS,
+    SplitStats,
+    gt_center_markers,
+    gt_centers,
+    load_split,
+    rss_gb,
+    scene_key,
+    seed_precision,
+    to_results,
+)
 from eval_watershed import elevation_map, postprocess  # noqa: E402
 
-from gisec.eval.coco_export import masks_to_coco_results  # noqa: E402
 from gisec.eval.coco_eval import evaluate_json  # noqa: E402
-
-import segmentation_models_pytorch as smp  # noqa: E402
-
-from eval_scale import (DATA, RUNS, HM_THR, load_split, rss_gb,  # noqa: E402
-                        gt_center_markers, gt_centers, seed_precision,
-                        SplitStats, to_results)
-from eval_scale import scene_key  # noqa: E402
 
 ep.DATA = DATA
 
@@ -74,12 +79,14 @@ BT_GT = BT_DT = BT_SCENES = None  # fork-shared bootstrap payload
 def _worker_init():
     global W_COCO
     import eval_pipeline as _ep
+
     _ep.DATA = DATA
     W_COCO = _ep.LiteCOCO(DATA / "annotations" / "instances_val.json")
 
 
 def _peak_coords(img, sem, min_distance, thr=None):
     from skimage.feature import peak_local_max
+
     kw = dict(min_distance=min_distance, labels=sem, exclude_border=False)
     if thr is not None:
         kw["threshold_abs"] = thr
@@ -92,31 +99,35 @@ def _worker_one(payload):
     configs, split-stat counts and seed-precision pairs."""
     meta, sem, hm = payload
     depth = ep.load_depth_array(Path(meta["dpath"]))
-    gt_insts = [ep.ann_to_mask(a, meta["height"], meta["width"])
-                for a in W_COCO.loadAnns(meta["ann_ids"])]
+    gt_insts = [
+        ep.ann_to_mask(a, meta["height"], meta["width"])
+        for a in W_COCO.loadAnns(meta["ann_ids"])
+    ]
     gt_c = gt_center_markers(gt_insts)
     gc = gt_centers(gt_insts)
     coords_by_tag = {
         "oracle_gt_centers": gt_c,
-        "hm/md9": _peak_coords(hm, sem, 9, HM_THR) if hm is not None
-        else gt_c,
+        "hm/md9": _peak_coords(hm, sem, 9, HM_THR) if hm is not None else gt_c,
     }
     elev = elevation_map(depth, None, "depth_grad")
     dep_coords = _peak_coords(-elev, sem, 15)  # E8b depth_markers(md15)
 
-    out = {"results": {t: [] for t in TAGS}, "counts": {},
-           "hm_seed": (gc, coords_by_tag["hm/md9"]),
-           "dep_seed": (gc, dep_coords)}
+    out = {
+        "results": {t: [] for t in TAGS},
+        "counts": {},
+        "hm_seed": (gc, coords_by_tag["hm/md9"]),
+        "dep_seed": (gc, dep_coords),
+    }
     for tag in TAGS:
         coords = coords_by_tag[tag]
         insts = []
         if coords:
             from skimage.segmentation import watershed
+
             markers = np.zeros(sem.shape, dtype=np.int32)
             for k, (y, x) in enumerate(coords, start=1):
                 markers[y, x] = k
-            labels = watershed(elev, markers=markers,
-                               mask=sem.astype(bool))
+            labels = watershed(elev, markers=markers, mask=sem.astype(bool))
             labels = postprocess(labels, "merge")
             for i in range(1, int(labels.max()) + 1):
                 m = (labels == i).astype(np.uint8)
@@ -126,24 +137,31 @@ def _worker_one(payload):
                 insts.append((m, area))
         st = SplitStats()
         st.add(gt_insts, insts)  # uncapped, as E6/E8/E8b
-        out["counts"][tag] = {"n_gt": st.n_gt, "n_pred": st.n_pred,
-                              "n_over": st.n_over, "n_under": st.n_under}
+        out["counts"][tag] = {
+            "n_gt": st.n_gt,
+            "n_pred": st.n_pred,
+            "n_over": st.n_over,
+            "n_under": st.n_under,
+        }
         out["results"][tag] = to_results(  # capped top-100, RLE only
-            meta["image_id"], insts, meta["height"], meta["width"])
+            meta["image_id"], insts, meta["height"], meta["width"]
+        )
     return out
 
 
 @torch.no_grad()
 def _forward(model, img, depth):
     x = np.concatenate(
-        [img.astype(np.float32) / 255.0,
-         ep.norm_depth(depth)[..., None].astype(np.float32)], axis=-1)
-    x = torch.from_numpy(
-        np.ascontiguousarray(x.transpose(2, 0, 1)))[None].cuda()
+        [
+            img.astype(np.float32) / 255.0,
+            ep.norm_depth(depth)[..., None].astype(np.float32),
+        ],
+        axis=-1,
+    )
+    x = torch.from_numpy(np.ascontiguousarray(x.transpose(2, 0, 1)))[None].cuda()
     out = model(x)[0]
     sem = (torch.sigmoid(out[0]) > 0.5).cpu().numpy().astype(np.uint8)
-    hm = (torch.sigmoid(out[1]).cpu().numpy()
-          if out.shape[0] > 1 else None)
+    hm = torch.sigmoid(out[1]).cpu().numpy() if out.shape[0] > 1 else None
     return sem, hm
 
 
@@ -174,8 +192,7 @@ def scene_bootstrap_fast(metas, results, n_boot=100, seed=0):
     [1,10,100]) with 100 draws instead of 200, run 6-way parallel."""
     scenes = {}
     for it in metas:
-        scenes.setdefault(scene_key(it["file_name"]),
-                          []).append(it["image_id"])
+        scenes.setdefault(scene_key(it["file_name"]), []).append(it["image_id"])
     coco_gt = COCO(str(DATA / "annotations" / "instances_val.json"))
     coco_dt = coco_gt.loadRes(results)
     payload = {"keys": list(scenes), "map": scenes}
@@ -186,19 +203,25 @@ def scene_bootstrap_fast(metas, results, n_boot=100, seed=0):
     keys = payload["keys"]
     draws = []
     for _ in range(n_boot):
-        draws.append(sorted(itertools.chain.from_iterable(
-            scenes[keys[rng.integers(len(keys))]] for _ in keys)))
+        draws.append(
+            sorted(
+                itertools.chain.from_iterable(
+                    scenes[keys[rng.integers(len(keys))]] for _ in keys
+                )
+            )
+        )
     with mp.get_context("fork").Pool(
-            N_WORKERS, initializer=_boot_init,
-            initargs=(coco_gt, coco_dt, payload)) as pool:
+        N_WORKERS, initializer=_boot_init, initargs=(coco_gt, coco_dt, payload)
+    ) as pool:
         rows = pool.map(_boot_one, draws, chunksize=1)
     ap_s = [r[0] for r in rows]
     ap_b = [r[1] for r in rows]
     out = {"n_scenes": len(scenes), "n_boot": n_boot}
     for name, vals in (("segm", ap_s), ("bbox", ap_b)):
-        out[name] = {"mean": float(np.mean(vals)),
-                     "ci95": [float(np.percentile(vals, 2.5)),
-                              float(np.percentile(vals, 97.5))]}
+        out[name] = {
+            "mean": float(np.mean(vals)),
+            "ci95": [float(np.percentile(vals, 2.5)), float(np.percentile(vals, 97.5))],
+        }
     return out
 
 
@@ -207,43 +230,46 @@ def main() -> None:
     ap.add_argument("--ckpt", default=str(RUNS / "best.pth"))
     ap.add_argument("--max-images", type=int, default=None)
     ap.add_argument("--out", default="eval_report.json")
-    ap.add_argument("--dump-results", default=None,
-                    help="debug: pickle the FINAL RLE result list")
+    ap.add_argument(
+        "--dump-results", default=None, help="debug: pickle the FINAL RLE result list"
+    )
     args = ap.parse_args()
 
     # E8c mem fix: fork the pool BEFORE torch.load/model.cuda so the
     # workers inherit the pre-CUDA interpreter (~1.5G each instead of
     # ~7.5G of torch+CUDA pages). The pool only needs numpy/skimage.
-    pool = mp.get_context("fork").Pool(N_WORKERS,
-                                       initializer=_worker_init)
+    pool = mp.get_context("fork").Pool(N_WORKERS, initializer=_worker_init)
 
     sd = torch.load(args.ckpt, map_location="cpu")
-    model = smp.Unet(encoder_name="resnet18", encoder_weights=None,
-                     in_channels=4,
-                     classes=sd["segmentation_head.0.weight"].shape[0])
+    model = smp.Unet(
+        encoder_name="resnet18",
+        encoder_weights=None,
+        in_channels=4,
+        classes=sd["segmentation_head.0.weight"].shape[0],
+    )
     model.load_state_dict(sd)
     model.cuda().eval()
 
     metas, _ = load_split("val")
     if args.max_images:
-        metas = metas[:args.max_images]
+        metas = metas[: args.max_images]
     ann_file = DATA / "annotations" / "instances_val.json"
     report = {"grid": []}
 
     results = {t: [] for t in TAGS}
-    counts = {t: {"n_gt": 0, "n_pred": 0, "n_over": 0, "n_under": 0}
-              for t in TAGS}
+    counts = {t: {"n_gt": 0, "n_pred": 0, "n_over": 0, "n_under": 0} for t in TAGS}
     hm_seed, dep_seed = [], []
     t_fwd = 0.0
     t0 = time.perf_counter()
 
     with pool:
+
         def payloads():
             for meta in metas:
                 info_img = ep.cv2.imread(
-                    str(DATA / "images" / "val" / meta["file_name"]))
-                info_img = ep.cv2.cvtColor(
-                    info_img, ep.cv2.COLOR_BGR2RGB)
+                    str(DATA / "images" / "val" / meta["file_name"])
+                )
+                info_img = ep.cv2.cvtColor(info_img, ep.cv2.COLOR_BGR2RGB)
                 depth = ep.load_depth_array(Path(meta["dpath"]))
                 tp = time.perf_counter()
                 sem, hm = _forward(model, info_img, depth)
@@ -265,8 +291,7 @@ def main() -> None:
             for _ in range(n):
                 try:
                     payload, tf = next(it_)
-                    pending.append((pool.apply_async(_worker_one,
-                                                     (payload,)), tf))
+                    pending.append((pool.apply_async(_worker_one, (payload,)), tf))
                 except StopIteration:
                     break
 
@@ -288,31 +313,44 @@ def main() -> None:
                 # E8c mem fix: return freed pickle/result buffers to
                 # the OS (main RSS grew ~12 MB/img without this).
                 import ctypes
+
                 ctypes.CDLL("libc.so.6").malloc_trim(0)
                 dt = time.perf_counter() - t0
-                print(f"  {done}/{len(metas)} "
-                      f"({dt / done:.2f} s/img, fwd {t_fwd / done:.3f} s)"
-                      f" rss={rss_gb():.2f} GB", flush=True)
+                print(
+                    f"  {done}/{len(metas)} "
+                    f"({dt / done:.2f} s/img, fwd {t_fwd / done:.3f} s)"
+                    f" rss={rss_gb():.2f} GB",
+                    flush=True,
+                )
             submit_more()
         gen.close()
 
     report["latency_s_per_img"] = {
         "forward": t_fwd / len(metas),
-        "wall_total": (time.perf_counter() - t0) / len(metas)}
+        "wall_total": (time.perf_counter() - t0) / len(metas),
+    }
 
     final_results = None
     for tag in TAGS:
         ev = evaluate_json(Path(ann_file), results[tag])
         c = counts[tag]
-        st = {"n_gt": c["n_gt"], "n_pred": c["n_pred"],
-              "oversplit_gt_rate": c["n_over"] / max(c["n_gt"], 1),
-              "undersplit_piece_rate": c["n_under"] / max(c["n_pred"], 1)}
-        row = {"tag": tag, "segm_AP": ev["segm/AP"],
-               "segm_AP50": ev["segm/AP50"], "segm_AP75": ev["segm/AP75"],
-               "bbox_AP": ev["bbox/AP"], "bbox_AP50": ev["bbox/AP50"],
-               "bbox_AP75": ev["bbox/AP75"],
-               "n_inst": st["n_pred"],
-               "n_inst_per_img": st["n_pred"] / len(metas)}
+        st = {
+            "n_gt": c["n_gt"],
+            "n_pred": c["n_pred"],
+            "oversplit_gt_rate": c["n_over"] / max(c["n_gt"], 1),
+            "undersplit_piece_rate": c["n_under"] / max(c["n_pred"], 1),
+        }
+        row = {
+            "tag": tag,
+            "segm_AP": ev["segm/AP"],
+            "segm_AP50": ev["segm/AP50"],
+            "segm_AP75": ev["segm/AP75"],
+            "bbox_AP": ev["bbox/AP"],
+            "bbox_AP50": ev["bbox/AP50"],
+            "bbox_AP75": ev["bbox/AP75"],
+            "n_inst": st["n_pred"],
+            "n_inst_per_img": st["n_pred"] / len(metas),
+        }
         row.update(st)
         print(row, flush=True)
         report["grid"].append(row)
@@ -332,6 +370,7 @@ def main() -> None:
     print("bootstrap", report["bootstrap_CI"])
     if args.dump_results:
         import pickle
+
         with open(args.dump_results, "wb") as f:
             pickle.dump(final_results, f)
     del final_results

@@ -34,8 +34,12 @@ class _ConstantRefiner(nn.Module):
         reference_depth: torch.Tensor | None = None,
         reference_mask: torch.Tensor | None = None,
     ) -> dict[str, torch.Tensor | None]:
-        shape = (int(query_crop.shape[0]), 1,
-                 int(query_crop.shape[-2]), int(query_crop.shape[-1]))
+        shape = (
+            int(query_crop.shape[0]),
+            1,
+            int(query_crop.shape[-2]),
+            int(query_crop.shape[-1]),
+        )
         logits = torch.full(shape, self._logit)
         features = torch.zeros((shape[0], 32, shape[2], shape[3]))
         return {
@@ -115,13 +119,14 @@ def test_refiner_loss_is_finite_and_instance_weighted() -> None:
     gt_crops[:, 2:10, 2:10] = 1.0
     logit = float(math.log(0.25 / 0.75))
     expected_mask = F.binary_cross_entropy_with_logits(
-        torch.full((2, 12, 12), logit), gt_crops)
+        torch.full((2, 12, 12), logit), gt_crops
+    )
     expected_boundary = math.log(2.0)
     assert metrics["loss_local_mask"] == pytest.approx(float(expected_mask))
-    assert metrics["loss_local_boundary"] == pytest.approx(
-        0.5 * expected_boundary)
+    assert metrics["loss_local_boundary"] == pytest.approx(0.5 * expected_boundary)
     assert metrics["loss_local_total"] == pytest.approx(
-        float(expected_mask) + 0.5 * expected_boundary)
+        float(expected_mask) + 0.5 * expected_boundary
+    )
     assert metrics["loss_local_reference_positive"] == 0.0
     assert metrics["loss_local_graph"] == 0.0
 
@@ -133,10 +138,8 @@ def _write_single_part_bank(root: Path) -> None:
     rgb = np.zeros((8, 8, 3), dtype=np.uint8)
     rgb[..., 0] = 120
     cv2.imwrite(str(part / "rgb" / "v1.png"), rgb)
-    np.save(part / "depth" / "v1.npy",
-            np.full((8, 8), 0.5, dtype=np.float32))
-    cv2.imwrite(str(part / "mask" / "v1.png"),
-                np.full((8, 8), 255, dtype=np.uint8))
+    np.save(part / "depth" / "v1.npy", np.full((8, 8), 0.5, dtype=np.float32))
+    cv2.imwrite(str(part / "mask" / "v1.png"), np.full((8, 8), 255, dtype=np.uint8))
 
 
 def test_reference_match_loss_is_skipped_when_bank_has_one_part(

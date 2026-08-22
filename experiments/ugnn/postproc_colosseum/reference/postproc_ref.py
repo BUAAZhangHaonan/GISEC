@@ -5,26 +5,30 @@ _worker_one + _cn_markers (FINAL config only; oracle/bootstrap out of
 scope). Input: model outputs (sem/hm/off) + calibrated depth. Output:
 COCO RLE results list + instance count.
 """
-from pathlib import Path
+
 import sys
+from pathlib import Path
+
 import numpy as np
 from scipy import ndimage as ndi
 from skimage.segmentation import watershed
 
 R = Path(__file__).resolve().parents[4]
-H = R/'experiments/ugnn'
-for p in ('exp03_unet_dense', 'exp04_instance_split', 'exp08_scale_32254'):
-    sys.path.insert(0, str(H/p))
+H = R / "experiments/ugnn"
+for p in ("exp03_unet_dense", "exp04_instance_split", "exp08_scale_32254"):
+    sys.path.insert(0, str(H / p))
 import eval_pipeline as ep
-from eval_watershed import elevation_map, postprocess
 from eval_scale import DATA, HM_THR, to_results
+from eval_watershed import elevation_map, postprocess
+
 ep.DATA = DATA
 
 STRIDE = 4
 
+
 def _cn_markers(hm, off, thr=HM_THR):
     """CenterNet decode: 3x3 max-pool NMS -> thr -> *4 + offset."""
-    mx = ndi.maximum_filter(hm, size=3, mode='nearest')
+    mx = ndi.maximum_filter(hm, size=3, mode="nearest")
     peaks = (hm >= mx) & (hm > thr)
     ys, xs = np.nonzero(peaks)
     y = ys * STRIDE + off[0, ys, xs]
@@ -33,17 +37,18 @@ def _cn_markers(hm, off, thr=HM_THR):
     x = np.clip(np.round(x), 0, hm.shape[1] * STRIDE - 1).astype(int)
     return list(zip(y.tolist(), x.tolist()))
 
+
 def reference_postprocess(image_id, sem, hm, off, depth, h, w):
     """Full FINAL hot path for one image. Returns (results, n_inst)."""
     coords = _cn_markers(hm, off)
     insts = []
     if coords:
-        elev = elevation_map(depth, None, 'depth_grad')
+        elev = elevation_map(depth, None, "depth_grad")
         markers = np.zeros(sem.shape, dtype=np.int32)
         for k, (y, x) in enumerate(coords, start=1):
             markers[y, x] = k
         labels = watershed(elev, markers=markers, mask=sem.astype(bool))
-        labels = postprocess(labels, 'merge')
+        labels = postprocess(labels, "merge")
         for i in range(1, int(labels.max()) + 1):
             m = (labels == i).astype(np.uint8)
             area = int(m.sum())

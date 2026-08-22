@@ -25,11 +25,12 @@ Pipeline:
      image; per-label COCO compressed RLE (LEB128 varint, numba,
      byte-identical to pycocotools encode).
 """
+
 import numpy as np
 import torch
 import torch.nn.functional as F
-from scipy import ndimage as ndi
 from numba import njit
+from scipy import ndimage as ndi
 
 STRIDE = 4
 HM_THR = 0.3
@@ -37,19 +38,21 @@ MIN_AREA = 16
 SMALL_AREA = 32
 CAT_ID = 1
 
-_DEV = torch.device('cuda')
+_DEV = torch.device("cuda")
 
 
 def _sobel_gpu(depth):
     """(gx, gy) float32, bit-exact with ndi.sobel(depth, axis=1/0)."""
-    x = torch.from_numpy(np.ascontiguousarray(depth, dtype=np.float32)).to(_DEV)[None, None]
-    d = F.pad(x, (1, 1, 0, 0), mode='replicate')
+    x = torch.from_numpy(np.ascontiguousarray(depth, dtype=np.float32)).to(_DEV)[
+        None, None
+    ]
+    d = F.pad(x, (1, 1, 0, 0), mode="replicate")
     gx = d[:, :, :, 2:] - d[:, :, :, :-2]
-    d = F.pad(x, (0, 0, 1, 1), mode='replicate')
+    d = F.pad(x, (0, 0, 1, 1), mode="replicate")
     gy = d[:, :, 2:, :] - d[:, :, :-2, :]
-    p = F.pad(gx, (0, 0, 1, 1), mode='replicate')
+    p = F.pad(gx, (0, 0, 1, 1), mode="replicate")
     gx = (p[:, :, :-2, :] + 2.0 * gx) + p[:, :, 2:, :]
-    p = F.pad(gy, (1, 1, 0, 0), mode='replicate')
+    p = F.pad(gy, (1, 1, 0, 0), mode="replicate")
     gy = (p[:, :, :, :-2] + 2.0 * gy) + p[:, :, :, 2:]
     return gx[0, 0], gy[0, 0]
 
@@ -107,8 +110,9 @@ def _assign_rank(km, order, idx, rank):
 
 
 @njit(cache=True)
-def _watershed_nb(mask, markers, keys, rank, nrank,
-                  head_b, tail_b, nxt, elab, eidx, ekey, bestq):
+def _watershed_nb(
+    mask, markers, keys, rank, nrank, head_b, tail_b, nxt, elab, eidx, ekey, bestq
+):
     """Exact (value, age) priority flood via minimax-rank buckets + FIFO."""
     H, W = mask.shape
     N = H * W
@@ -226,7 +230,7 @@ def _watershed(elev, markers, mask):
 
 def _cn_markers(hm, off):
     """CenterNet decode: 3x3 max NMS -> thr -> *4 + offset (reference-identical)."""
-    mx = ndi.maximum_filter(hm, size=3, mode='nearest')
+    mx = ndi.maximum_filter(hm, size=3, mode="nearest")
     peaks = (hm >= mx) & (hm > HM_THR)
     ys, xs = np.nonzero(peaks)
     y = ys * STRIDE + off[0, ys, xs]
@@ -309,7 +313,7 @@ def _results_from_labels(image_id, labels, h, w):
     if cand.size == 0:
         return []
     if cand.size > 100:
-        cand = cand[np.argsort(-cnt[cand], kind='stable')[:100]]
+        cand = cand[np.argsort(-cnt[cand], kind="stable")[:100]]
     denom = max(int(cnt[cand].max()), h * w * 0.01)
     flat = labels.T.reshape(-1)
     diff = np.nonzero(flat[1:] != flat[:-1])[0]
@@ -321,7 +325,7 @@ def _results_from_labels(image_id, labels, h, w):
     keep[cand] = True
     sel = keep[rlab]
     sidx = np.nonzero(sel)[0]
-    order = np.argsort(rlab[sidx], kind='stable')
+    order = np.argsort(rlab[sidx], kind="stable")
     grouped = sidx[order]
     gl = rlab[grouped]
     cuts = np.nonzero(np.diff(gl))[0] + 1
@@ -344,13 +348,18 @@ def _results_from_labels(image_id, labels, h, w):
         x1 = int(en[-1] // h)
         y0 = int((st % h).min())
         y1 = int((en % h).max())
-        results.append({
-            'image_id': int(image_id),
-            'category_id': CAT_ID,
-            'score': float(int(cnt[lab_val]) / denom),
-            'bbox': [x0, y0, x1 - x0 + 1, y1 - y0 + 1],
-            'segmentation': {'size': [int(h), int(w)], 'counts': _rle_compress(counts).decode('utf-8')},
-        })
+        results.append(
+            {
+                "image_id": int(image_id),
+                "category_id": CAT_ID,
+                "score": float(int(cnt[lab_val]) / denom),
+                "bbox": [x0, y0, x1 - x0 + 1, y1 - y0 + 1],
+                "segmentation": {
+                    "size": [int(h), int(w)],
+                    "counts": _rle_compress(counts).decode("utf-8"),
+                },
+            }
+        )
     return results
 
 

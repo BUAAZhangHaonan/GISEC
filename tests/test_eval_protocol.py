@@ -39,9 +39,12 @@ def test_evaluate_json_returns_zero_ap_for_empty_results(tmp_path) -> None:
 def test_eval_defaults_to_standard_coco_score_threshold() -> None:
     args = parse_eval_args(
         [
-            "--dataset-root", "datasets/x",
-            "--output-dir", "output/x",
-            "--checkpoint", "model_best.pth",
+            "--dataset-root",
+            "datasets/x",
+            "--output-dir",
+            "output/x",
+            "--checkpoint",
+            "model_best.pth",
         ]
     )
     assert float(args.eval_score_threshold) == 0.05
@@ -51,16 +54,22 @@ def test_eval_defaults_to_standard_coco_score_threshold() -> None:
 def test_train_epoch_val_shares_the_eval_score_threshold_default() -> None:
     train_args = parse_train_args(
         [
-            "--dataset-root", "datasets/x",
-            "--output-dir", "output/x",
-            "--variant", "base_rgb_1024",
+            "--dataset-root",
+            "datasets/x",
+            "--output-dir",
+            "output/x",
+            "--variant",
+            "base_rgb_1024",
         ]
     )
     eval_args = parse_eval_args(
         [
-            "--dataset-root", "datasets/x",
-            "--output-dir", "output/x",
-            "--checkpoint", "model_best.pth",
+            "--dataset-root",
+            "datasets/x",
+            "--output-dir",
+            "output/x",
+            "--checkpoint",
+            "model_best.pth",
         ]
     )
 
@@ -79,8 +88,10 @@ def _gt_annotation(ann_id: int, image_id: int, mask, category_id: int = 1):
         "category_id": category_id,
         "segmentation": encode_binary_mask(mask.astype(np.uint8)),
         "bbox": [
-            int(xs.min()), int(ys.min()),
-            int(xs.max() - xs.min()), int(ys.max() - ys.min()),
+            int(xs.min()),
+            int(ys.min()),
+            int(xs.max() - xs.min()),
+            int(ys.max() - ys.min()),
         ],
         "area": float(int(mask.sum())),
         "iscrowd": 0,
@@ -106,14 +117,19 @@ def _run_stubbed_evaluate(tmp_path, monkeypatch, *, save_score_threshold):
     right = np.zeros((8, 8), dtype=np.uint8)
     right[:, 4:] = 1
     ann_file = tmp_path / "instances_val.json"
-    ann_file.write_text(json.dumps({
-        "images": [
-            {"id": 1, "file_name": "a.png", "width": 8, "height": 8}],
-        "annotations": [
-            _gt_annotation(1, 1, left), _gt_annotation(2, 1, right)],
-        "categories": [
-            {"id": 1, "name": "part", "supercategory": "part"}],
-    }), encoding="utf-8")
+    ann_file.write_text(
+        json.dumps(
+            {
+                "images": [{"id": 1, "file_name": "a.png", "width": 8, "height": 8}],
+                "annotations": [
+                    _gt_annotation(1, 1, left),
+                    _gt_annotation(2, 1, right),
+                ],
+                "categories": [{"id": 1, "name": "part", "supercategory": "part"}],
+            }
+        ),
+        encoding="utf-8",
+    )
 
     candidates = [(left, 0.9), (right, 0.3)]
     decode_thresholds: list[float] = []
@@ -121,16 +137,16 @@ def _run_stubbed_evaluate(tmp_path, monkeypatch, *, save_score_threshold):
     def _fake_run_backbone(**kwargs):
         return SimpleNamespace()
 
-    def _fake_decode(outputs, *, processor, target_size, score_threshold,
-                     mask_threshold):
+    def _fake_decode(
+        outputs, *, processor, target_size, score_threshold, mask_threshold
+    ):
         decode_thresholds.append(float(score_threshold))
         masks = [mask for mask, _ in candidates]
         scores = [score for _, score in candidates]
         return masks, scores
 
     monkeypatch.setattr(evaluate_module, "run_backbone", _fake_run_backbone)
-    monkeypatch.setattr(
-        evaluate_module, "outputs_to_instance_masks", _fake_decode)
+    monkeypatch.setattr(evaluate_module, "outputs_to_instance_masks", _fake_decode)
 
     (tmp_path / "out").mkdir()
     loader = [[{"image": torch.zeros(1, 8, 8), "image_id": 1}]]
@@ -158,43 +174,50 @@ def _run_stubbed_evaluate(tmp_path, monkeypatch, *, save_score_threshold):
 
 
 def test_infer_metrics_use_eval_protocol_and_saves_use_score_threshold(
-    tmp_path, monkeypatch,
+    tmp_path,
+    monkeypatch,
 ) -> None:
     metrics, decode_thresholds, candidates, ann_file = _run_stubbed_evaluate(
-        tmp_path, monkeypatch, save_score_threshold=0.5)
+        tmp_path, monkeypatch, save_score_threshold=0.5
+    )
 
     # Decode ran on the standard eval candidate threshold.
     assert decode_thresholds == [0.05]
     masks = [mask for mask, _ in candidates]
     scores = [score for _, score in candidates]
     full_results = masks_to_coco_results(
-        image_id=1, masks=masks, scores=scores, category_id=1)
+        image_id=1, masks=masks, scores=scores, category_id=1
+    )
     kept_results = [full_results[0]]
     # Metrics come from the full candidate set, not the saved subset.
-    assert metrics["segm/AP"] == evaluate_json(ann_file, full_results)[
-        "segm/AP"]
-    assert metrics["segm/AP"] > evaluate_json(ann_file, kept_results)[
-        "segm/AP"]
+    assert metrics["segm/AP"] == evaluate_json(ann_file, full_results)["segm/AP"]
+    assert metrics["segm/AP"] > evaluate_json(ann_file, kept_results)["segm/AP"]
     # Saved predictions keep the --score-threshold semantics.
-    saved = json.loads((tmp_path / "out" / "coco_instances_results.json")
-                       .read_text(encoding="utf-8"))
+    saved = json.loads(
+        (tmp_path / "out" / "coco_instances_results.json").read_text(encoding="utf-8")
+    )
     assert [row["score"] for row in saved] == [0.9]
     raw = json.loads(
-        (tmp_path / "out" / "coco_instances_results.raw.json")
-        .read_text(encoding="utf-8"))
+        (tmp_path / "out" / "coco_instances_results.raw.json").read_text(
+            encoding="utf-8"
+        )
+    )
     assert [row["score"] for row in raw["rows"]] == [0.9]
 
 
 def test_eval_writes_the_full_candidate_set_to_disk(
-    tmp_path, monkeypatch,
+    tmp_path,
+    monkeypatch,
 ) -> None:
     metrics, decode_thresholds, _candidates, _ann = _run_stubbed_evaluate(
-        tmp_path, monkeypatch, save_score_threshold=None)
+        tmp_path, monkeypatch, save_score_threshold=None
+    )
 
     assert decode_thresholds == [0.05]
     assert metrics["segm/AP"] == 1.0
-    saved = json.loads((tmp_path / "out" / "coco_instances_results.json")
-                       .read_text(encoding="utf-8"))
+    saved = json.loads(
+        (tmp_path / "out" / "coco_instances_results.json").read_text(encoding="utf-8")
+    )
     assert [row["score"] for row in saved] == [0.9, 0.3]
     assert not (tmp_path / "out" / "coco_instances_results.raw.json").exists()
 
@@ -212,7 +235,8 @@ def test_exported_bbox_matches_pycocotools_rle_bbox() -> None:
         mask[ys, xs] = 1
 
         row = masks_to_coco_results(
-            image_id=1, masks=[mask], scores=[0.9], category_id=1)[0]
+            image_id=1, masks=[mask], scores=[0.9], category_id=1
+        )[0]
 
         rle = mask_utils.encode(np.asfortranarray(mask))
         # toBbox uses the inclusive pixel span (a 1-px mask has width 1),
@@ -223,20 +247,21 @@ def test_exported_bbox_matches_pycocotools_rle_bbox() -> None:
 
 
 def test_empty_candidate_set_still_produces_artifacts(
-    tmp_path, monkeypatch,
+    tmp_path,
+    monkeypatch,
 ) -> None:
     from gisec.train import evaluate as evaluate_module
 
     def _fake_run_backbone(**kwargs):
         return SimpleNamespace()
 
-    def _fake_decode(outputs, *, processor, target_size, score_threshold,
-                     mask_threshold):
+    def _fake_decode(
+        outputs, *, processor, target_size, score_threshold, mask_threshold
+    ):
         return [], []
 
     monkeypatch.setattr(evaluate_module, "run_backbone", _fake_run_backbone)
-    monkeypatch.setattr(
-        evaluate_module, "outputs_to_instance_masks", _fake_decode)
+    monkeypatch.setattr(evaluate_module, "outputs_to_instance_masks", _fake_decode)
 
     ann_file = tmp_path / "instances_val.json"
     _write_minimal_coco_annotations(ann_file)
@@ -264,6 +289,9 @@ def test_empty_candidate_set_still_produces_artifacts(
 
     assert metrics["note"] == "no predictions"
     assert speed["scope"] == "full_pipeline"
-    assert json.loads(
-        (out_dir / "coco_instances_results.json").read_text(
-            encoding="utf-8")) == []
+    assert (
+        json.loads(
+            (out_dir / "coco_instances_results.json").read_text(encoding="utf-8")
+        )
+        == []
+    )

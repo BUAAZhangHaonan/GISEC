@@ -69,7 +69,8 @@ def main() -> None:
         if not np.array_equal(ref > 0, out > 0):
             bad_support += 1
         if len(ours_c) != len(ref_c) or any(
-                a != b for a, b in zip(ours_c, ref_c, strict=True)):
+            a != b for a, b in zip(ours_c, ref_c, strict=True)
+        ):
             bad_centroid += 1
     print(f"images=64 instances={n_inst}")
     print(f"max|delta|={maxd:.3e} (gate 1e-3)")
@@ -82,8 +83,7 @@ def main() -> None:
         build_heatmap(anns, shape)  # warm the cache
     warm_ok = True
     for anns, shape in bundles:
-        insts = [m for m in (ann_to_mask(a, *shape) for a in anns)
-                 if m.sum() > 0]
+        insts = [m for m in (ann_to_mask(a, *shape) for a in anns) if m.sum() > 0]
         ref = ref_make_heatmap(insts, *shape)
         if not np.array_equal(ref, build_heatmap(anns, shape)):
             warm_ok = False
@@ -124,11 +124,11 @@ def main() -> None:
     sim20 = (time.perf_counter() - t0) / 64 / 20 * 1e3
     amort = (cold_ms + 19 * warm_med) / 20
     print(f"cold (first epoch) {cold_ms:.3f} ms/img")
-    print(f"warm median {warm_med:.3f} ms/img "
-          f"(rounds: {[f'{v:.3f}' for v in ours_ms]})")
+    print(
+        f"warm median {warm_med:.3f} ms/img (rounds: {[f'{v:.3f}' for v in ours_ms]})"
+    )
     print(f"ref  median {ref_med:.3f} ms/img")
-    print(f"speedup warm x{ref_med / warm_med:.1f}, "
-          f"cold x{ref_med / cold_ms:.1f}")
+    print(f"speedup warm x{ref_med / warm_med:.1f}, cold x{ref_med / cold_ms:.1f}")
     print(f"20-epoch simulated {sim20:.3f} ms/img")
     print(f"amortized (cold+19*warm)/20 = {amort:.3f} ms/img")
 

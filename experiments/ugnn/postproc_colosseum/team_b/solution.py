@@ -27,13 +27,16 @@ Pipeline:
 Optional precompute of the elevation-rank cache:
     python team_b/precompute.py          # from postproc_colosseum/
 """
+
 from __future__ import annotations
+
 import hashlib
 from pathlib import Path
+
 import numpy as np
-from scipy import ndimage as ndi
-from numba import njit
 import pycocotools.mask as M
+from numba import njit
+from scipy import ndimage as ndi
 
 STRIDE = 4
 HM_THR = 0.3
@@ -46,7 +49,7 @@ CACHE_DIR = Path(__file__).resolve().parent / "cache"
 
 # ---------------------------------------------------------------- markers
 def _cn_markers(hm, off, thr=HM_THR):
-    mx = ndi.maximum_filter(hm, size=3, mode='nearest')
+    mx = ndi.maximum_filter(hm, size=3, mode="nearest")
     peaks = (hm >= mx) & (hm > thr)
     ys, xs = np.nonzero(peaks)
     y = ys * STRIDE + off[0, ys, xs]
@@ -120,7 +123,9 @@ def load_or_compute_rank(image_id, depth):
     if f.exists():
         try:
             if m.read_text() == _depth_md5(depth):
-                return np.load(f, allow_pickle=False), int(np.load(nr, allow_pickle=False))
+                return np.load(f, allow_pickle=False), int(
+                    np.load(nr, allow_pickle=False)
+                )
         except Exception:
             pass
     return compute_elevation_rank(depth)
@@ -344,19 +349,28 @@ def run(image_id, sem, hm, off, depth, h, w):
     H, W = sem.shape
     results = []
     for l in labs:
-        n = _counts_for_label(labels, l, int(x0[l]), int(y0[l]),
-                              int(x1[l]), int(y1[l]), buf)
+        n = _counts_for_label(
+            labels, l, int(x0[l]), int(y0[l]), int(x1[l]), int(y1[l]), buf
+        )
         cnts = buf[:n].tolist()
         seg = M.frPyObjects({"size": [H, W], "counts": cnts}, H, W)
         if isinstance(seg, list):
             seg = seg[0]
-        results.append({
-            "image_id": int(image_id),
-            "category_id": 1,
-            "score": float(area[l] / denom),
-            "bbox": [int(x0[l]), int(y0[l]),
-                     int(x1[l] - x0[l] + 1), int(y1[l] - y0[l] + 1)],
-            "segmentation": {"size": [H, W],
-                             "counts": seg["counts"].decode("utf-8")},
-        })
+        results.append(
+            {
+                "image_id": int(image_id),
+                "category_id": 1,
+                "score": float(area[l] / denom),
+                "bbox": [
+                    int(x0[l]),
+                    int(y0[l]),
+                    int(x1[l] - x0[l] + 1),
+                    int(y1[l] - y0[l] + 1),
+                ],
+                "segmentation": {
+                    "size": [H, W],
+                    "counts": seg["counts"].decode("utf-8"),
+                },
+            }
+        )
     return results

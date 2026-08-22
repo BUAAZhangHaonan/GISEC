@@ -15,11 +15,9 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-import torch
-import torch.nn.functional as F
-from torch.utils.data import DataLoader, Dataset
-
 import segmentation_models_pytorch as smp
+import torch
+from torch.utils.data import DataLoader, Dataset
 
 from gisec.datasets.coco_utils import LiteCOCO, ann_to_mask, load_depth_array
 
@@ -37,8 +35,12 @@ class DenseDataset(Dataset):
         self.img_dir = DATA / "images" / split
         self.depth_dir = DATA / "depth" / split
         self.ids = sorted(
-            i for i in self.coco.getImgIds()
-            if (self.depth_dir / f"{self.coco.loadImgs([i])[0]['file_name'].rsplit('.', 1)[0]}.npy").exists()
+            i
+            for i in self.coco.getImgIds()
+            if (
+                self.depth_dir
+                / f"{self.coco.loadImgs([i])[0]['file_name'].rsplit('.', 1)[0]}.npy"
+            ).exists()
         )
 
     def __len__(self) -> int:
@@ -85,21 +87,31 @@ def main() -> None:
     print(f"train {len(train_ds)} imgs, val {len(val_ds)} imgs")
 
     dl = DataLoader(
-        train_ds, batch_size=args.batch, shuffle=True, num_workers=4,
-        pin_memory=True, drop_last=True, persistent_workers=True,
+        train_ds,
+        batch_size=args.batch,
+        shuffle=True,
+        num_workers=4,
+        pin_memory=True,
+        drop_last=True,
+        persistent_workers=True,
     )
     vdl = DataLoader(
-        val_ds, batch_size=args.batch, shuffle=False, num_workers=2,
-        pin_memory=True, persistent_workers=True,
+        val_ds,
+        batch_size=args.batch,
+        shuffle=False,
+        num_workers=2,
+        pin_memory=True,
+        persistent_workers=True,
     )
 
     model = smp.Unet(
-        encoder_name="resnet18", encoder_weights="imagenet",
-        in_channels=4, classes=1,
+        encoder_name="resnet18",
+        encoder_weights="imagenet",
+        in_channels=4,
+        classes=1,
     ).cuda()
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr)
-    sched = torch.optim.lr_scheduler.CosineAnnealingLR(
-        opt, T_max=args.epochs * len(dl))
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.epochs * len(dl))
     bce = torch.nn.BCEWithLogitsLoss()
 
     def dice_loss(logits, targets):
@@ -128,11 +140,18 @@ def main() -> None:
             for x, y in vdl:
                 ious.append(miou(model(x.cuda()), y.cuda()))
         m = float(np.mean(ious))
-        log.append({"epoch": epoch, "val_miou": m,
-                    "lr": sched.get_last_lr()[0],
-                    "elapsed_min": (time.time() - t0) / 60})
-        print(f"epoch {epoch}: val mIoU {m:.4f} "
-              f"({(time.time() - t0) / 60:.1f} min)", flush=True)
+        log.append(
+            {
+                "epoch": epoch,
+                "val_miou": m,
+                "lr": sched.get_last_lr()[0],
+                "elapsed_min": (time.time() - t0) / 60,
+            }
+        )
+        print(
+            f"epoch {epoch}: val mIoU {m:.4f} ({(time.time() - t0) / 60:.1f} min)",
+            flush=True,
+        )
         if m > best:
             best = m
             torch.save(model.state_dict(), RUNS / "best.pth")

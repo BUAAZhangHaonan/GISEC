@@ -33,7 +33,10 @@ sys.path.insert(0, str(REPO / "experiments" / "ugnn" / "heatmap_colosseum"))
 from train_center import make_heatmap as ref_make_heatmap  # noqa: E402
 
 from gisec.datasets.coco_utils import (  # noqa: E402
-    LiteCOCO, ann_to_mask, load_depth_array)
+    LiteCOCO,
+    ann_to_mask,
+    load_depth_array,
+)
 
 DEPTH_LO, DEPTH_HI = 0.3, 0.7  # E3/E8 constants
 
@@ -74,14 +77,13 @@ class BenchDataset(Dataset):
         img = cv2.imread(str(self.img_dir / info["file_name"]))
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         depth = load_depth_array(self.depth_dir / f"{stem}.npy")
-        depth = np.clip((depth - DEPTH_LO) / (DEPTH_HI - DEPTH_LO),
-                        -1.0, 2.0)
+        depth = np.clip((depth - DEPTH_LO) / (DEPTH_HI - DEPTH_LO), -1.0, 2.0)
         x = np.concatenate(
-            [img.astype(np.float32) / 255.0,
-             depth[..., None].astype(np.float32)], axis=-1)
+            [img.astype(np.float32) / 255.0, depth[..., None].astype(np.float32)],
+            axis=-1,
+        )
         h, w = info["height"], info["width"]
-        anns = self.coco.loadAnns(
-            self.coco.getAnnIds(imgIds=[info["id"]]))
+        anns = self.coco.loadAnns(self.coco.getAnnIds(imgIds=[info["id"]]))
         gt = np.zeros((h, w), dtype=np.float32)
         insts = []
         for ann in anns:
@@ -106,11 +108,12 @@ def ref_hms(coco, infos):
     out = {}
     for info in infos:
         anns = coco.loadAnns(coco.getAnnIds(imgIds=[info["id"]]))
-        insts = [m for m in (ann_to_mask(a, info["height"],
-                                          info["width"]) for a in anns)
-                 if m.sum() > 0]
-        out[info["id"]] = ref_make_heatmap(
-            insts, info["height"], info["width"])
+        insts = [
+            m
+            for m in (ann_to_mask(a, info["height"], info["width"]) for a in anns)
+            if m.sum() > 0
+        ]
+        out[info["id"]] = ref_make_heatmap(insts, info["height"], info["width"])
     return out
 
 
@@ -129,14 +132,19 @@ def main() -> None:
         maxd = 0.0
         for i in range(len(ds0)):
             _, y = ds0[i]
-            maxd = max(maxd, float(np.abs(
-                y[1].numpy() - refs[infos[i]["id"]]).max()))
+            maxd = max(maxd, float(np.abs(y[1].numpy() - refs[infos[i]["id"]]).max()))
         print(f"single-process max|delta| vs ref: {maxd:.3e}")
 
     ds = BenchDataset(impl, infos, coco)
-    dl = DataLoader(ds, batch_size=8, shuffle=False, num_workers=16,
-                    pin_memory=True, drop_last=False,
-                    persistent_workers=True)
+    dl = DataLoader(
+        ds,
+        batch_size=8,
+        shuffle=False,
+        num_workers=16,
+        pin_memory=True,
+        drop_last=False,
+        persistent_workers=True,
+    )
     for epoch in range(1, 4):
         t0 = time.perf_counter()
         nb = 0
@@ -144,20 +152,22 @@ def main() -> None:
         for x, y in dl:
             nb += 1
         dt = time.perf_counter() - t0
-        print(f"epoch{epoch}: {dt:.2f} s, {nb} batches, "
-              f"{dt / nb * 1e3:.1f} ms/step, {nb / dt:.2f} batches/s")
+        print(
+            f"epoch{epoch}: {dt:.2f} s, {nb} batches, "
+            f"{dt / nb * 1e3:.1f} ms/step, {nb / dt:.2f} batches/s"
+        )
 
     # multi-worker output vs single-process reference
     if impl != "none":
         ds_ck = BenchDataset(impl, infos, coco)
-        dl_ck = DataLoader(ds_ck, batch_size=8, shuffle=False,
-                           num_workers=16)
+        dl_ck = DataLoader(ds_ck, batch_size=8, shuffle=False, num_workers=16)
         maxd = 0.0
         i = 0
         for _, y in dl_ck:
             for k in range(y.shape[0]):
-                maxd = max(maxd, float(np.abs(
-                    y[k, 1].numpy() - refs[infos[i]["id"]]).max()))
+                maxd = max(
+                    maxd, float(np.abs(y[k, 1].numpy() - refs[infos[i]["id"]]).max())
+                )
                 i += 1
         print(f"multi-worker max|delta| vs ref: {maxd:.3e}")
 

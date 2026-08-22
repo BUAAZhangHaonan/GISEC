@@ -20,16 +20,16 @@ import time
 from pathlib import Path
 
 import cv2
-
 import numpy as np
+import segmentation_models_pytorch as smp
 import torch
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-import segmentation_models_pytorch as smp
-
-from gisec.datasets.coco_utils import (  # noqa: E402
-    LiteCOCO, ann_to_mask, load_depth_array)
+from gisec.datasets.coco_utils import (
+    LiteCOCO,
+    ann_to_mask,
+    load_depth_array,
+)
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "exp03_unet_dense"))
@@ -46,6 +46,7 @@ def dice_loss(logits, targets):
     union = p.sum(dim=(1, 2, 3)) + targets.sum(dim=(1, 2, 3))
     return 1.0 - ((2 * inter + 1) / (union + 1)).mean()
 
+
 SIGMA = 4.0
 HM_W = 1.0  # heatmap loss weight
 
@@ -61,8 +62,7 @@ def make_heatmap(insts, h: int, w: int, sigma: float = SIGMA) -> np.ndarray:
         y0, y1 = max(0, cy - r), min(h, cy + r + 1)
         x0, x1 = max(0, cx - r), min(w, cx + r + 1)
         gy, gx = np.mgrid[y0:y1, x0:x1].astype(np.float32)
-        patch = np.exp(-((gy - cy) ** 2 + (gx - cx) ** 2)
-                       / (2 * sigma * sigma))
+        patch = np.exp(-((gy - cy) ** 2 + (gx - cx) ** 2) / (2 * sigma * sigma))
         hm[y0:y1, x0:x1] = np.maximum(hm[y0:y1, x0:x1], patch)
     return hm
 
@@ -75,13 +75,16 @@ class CenterDataset(DenseDataset):
         # E8: replicate DenseDataset.__init__ against the new root
         # because the depth subpath differs (depth/depth_npy/<split>).
         self.split = split
-        self.coco = LiteCOCO(
-            DATA / "annotations" / f"instances_{split}.json")
+        self.coco = LiteCOCO(DATA / "annotations" / f"instances_{split}.json")
         self.img_dir = DATA / "images" / split
         self.depth_dir = DATA / "depth" / "depth_npy" / split
         self.ids = sorted(
-            i for i in self.coco.getImgIds()
-            if (self.depth_dir / f"{self.coco.loadImgs([i])[0]['file_name'].rsplit('.', 1)[0]}.npy").exists()
+            i
+            for i in self.coco.getImgIds()
+            if (
+                self.depth_dir
+                / f"{self.coco.loadImgs([i])[0]['file_name'].rsplit('.', 1)[0]}.npy"
+            ).exists()
         )
 
     def __getitem__(self, idx: int):
@@ -91,11 +94,11 @@ class CenterDataset(DenseDataset):
         img = cv2.imread(str(self.img_dir / info["file_name"]))
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         depth = load_depth_array(self.depth_dir / f"{stem}.npy")
-        depth = np.clip((depth - DEPTH_LO) / (DEPTH_HI - DEPTH_LO),
-                        -1.0, 2.0)
+        depth = np.clip((depth - DEPTH_LO) / (DEPTH_HI - DEPTH_LO), -1.0, 2.0)
         x = np.concatenate(
-            [img.astype(np.float32) / 255.0, depth[..., None].astype(
-                np.float32)], axis=-1)
+            [img.astype(np.float32) / 255.0, depth[..., None].astype(np.float32)],
+            axis=-1,
+        )
         gt = np.zeros(img.shape[:2], dtype=np.float32)
         insts = []
         for ann in self.coco.loadAnns(self.coco.getAnnIds(imgIds=[img_id])):
@@ -122,14 +125,30 @@ def main() -> None:
     ap.add_argument("--epochs", type=int, default=20)
     ap.add_argument("--batch", type=int, default=8)
     ap.add_argument("--lr", type=float, default=3e-4)
-    ap.add_argument("--max_steps", type=int, default=0,
-                    help="E8 smoke: >0 runs N train steps then exits")
-    ap.add_argument("--resume-checkpoint", type=str, default="",
-                    help="E8-resume: state_dict to warm-start from")
-    ap.add_argument("--start-epoch", type=int, default=0,
-                    help="E8-resume: epoch index to continue from")
-    ap.add_argument("--out-dir", type=str, default="runs",
-                    help="E8-resume: output dir name under this experiment")
+    ap.add_argument(
+        "--max_steps",
+        type=int,
+        default=0,
+        help="E8 smoke: >0 runs N train steps then exits",
+    )
+    ap.add_argument(
+        "--resume-checkpoint",
+        type=str,
+        default="",
+        help="E8-resume: state_dict to warm-start from",
+    )
+    ap.add_argument(
+        "--start-epoch",
+        type=int,
+        default=0,
+        help="E8-resume: epoch index to continue from",
+    )
+    ap.add_argument(
+        "--out-dir",
+        type=str,
+        default="runs",
+        help="E8-resume: output dir name under this experiment",
+    )
     args = ap.parse_args()
 
     torch.manual_seed(0)
@@ -140,31 +159,45 @@ def main() -> None:
     print(f"train {len(train_ds)} imgs, val {len(val_ds)} imgs")
 
     dl = DataLoader(  # E8-resume: 4->16 workers + prefetch
-        train_ds, batch_size=args.batch, shuffle=True, num_workers=16,
-        pin_memory=True, drop_last=True, persistent_workers=True,
+        train_ds,
+        batch_size=args.batch,
+        shuffle=True,
+        num_workers=16,
+        pin_memory=True,
+        drop_last=True,
+        persistent_workers=True,
         prefetch_factor=4,
     )
     vdl = DataLoader(  # E8-resume: 2->8 workers + prefetch
-        val_ds, batch_size=args.batch, shuffle=False, num_workers=8,
-        pin_memory=True, persistent_workers=True,
+        val_ds,
+        batch_size=args.batch,
+        shuffle=False,
+        num_workers=8,
+        pin_memory=True,
+        persistent_workers=True,
         prefetch_factor=4,
     )
 
     model = smp.Unet(
-        encoder_name="resnet18", encoder_weights="imagenet",
-        in_channels=4, classes=2,
+        encoder_name="resnet18",
+        encoder_weights="imagenet",
+        in_channels=4,
+        classes=2,
     ).cuda()
     if args.resume_checkpoint:  # E8-resume: warm-start weights
-        state = torch.load(args.resume_checkpoint, map_location="cpu",
-                           weights_only=True)
+        state = torch.load(
+            args.resume_checkpoint, map_location="cpu", weights_only=True
+        )
         model.load_state_dict(state)
-        print(f"resumed weights from {args.resume_checkpoint}, "
-              f"starting at epoch {args.start_epoch}", flush=True)
+        print(
+            f"resumed weights from {args.resume_checkpoint}, "
+            f"starting at epoch {args.start_epoch}",
+            flush=True,
+        )
     # E8-resume: fresh AdamW (momentum not restored; loss is already in
     # the 0.003 tail so optimizer-state transient is negligible)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr)
-    sched = torch.optim.lr_scheduler.CosineAnnealingLR(
-        opt, T_max=args.epochs * len(dl))
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.epochs * len(dl))
     # E8-resume: advance cosine to the resume point (per-step schedule)
     for _ in range(args.start_epoch * len(dl)):
         sched.step()
@@ -180,23 +213,31 @@ def main() -> None:
         for step, (x, y) in enumerate(dl):
             x, y = x.cuda(non_blocking=True), y.cuda(non_blocking=True)
             out = model(x)
-            loss = (bce(out[:, 0:1], y[:, 0:1])
-                    + dice_loss(out[:, 0:1], y[:, 0:1])
-                    + HM_W * mse(out[:, 1:2], y[:, 1:2]))
+            loss = (
+                bce(out[:, 0:1], y[:, 0:1])
+                + dice_loss(out[:, 0:1], y[:, 0:1])
+                + HM_W * mse(out[:, 1:2], y[:, 1:2])
+            )
             opt.zero_grad(set_to_none=True)
             loss.backward()
             opt.step()
             sched.step()
             done += 1  # E8-resume
             if step % 50 == 0:  # E8: step loss logging
-                print(f"ep {epoch} step {step}/{len(dl)} "
-                      f"loss {float(loss):.4f} "
-                      f"({time.time() - t0:.0f}s)", flush=True)
+                print(
+                    f"ep {epoch} step {step}/{len(dl)} "
+                    f"loss {float(loss):.4f} "
+                    f"({time.time() - t0:.0f}s)",
+                    flush=True,
+                )
             if args.max_steps and done >= args.max_steps:
                 torch.save(model.state_dict(), runs / "smoke.pth")
-                print(f"smoke done at {args.max_steps} steps, "
-                      f"last loss {float(loss):.4f}, "
-                      f"{time.time() - t0:.0f}s total", flush=True)
+                print(
+                    f"smoke done at {args.max_steps} steps, "
+                    f"last loss {float(loss):.4f}, "
+                    f"{time.time() - t0:.0f}s total",
+                    flush=True,
+                )
                 return
 
         model.eval()
@@ -205,11 +246,18 @@ def main() -> None:
             for x, y in vdl:
                 ious.append(miou(model(x.cuda())[:, 0:1], y[:, 0:1].cuda()))
         m = float(np.mean(ious))
-        log.append({"epoch": epoch, "val_miou": m,
-                    "lr": sched.get_last_lr()[0],
-                    "elapsed_min": (time.time() - t0) / 60})
-        print(f"epoch {epoch}: val mIoU {m:.4f} "
-              f"({(time.time() - t0) / 60:.1f} min)", flush=True)
+        log.append(
+            {
+                "epoch": epoch,
+                "val_miou": m,
+                "lr": sched.get_last_lr()[0],
+                "elapsed_min": (time.time() - t0) / 60,
+            }
+        )
+        print(
+            f"epoch {epoch}: val mIoU {m:.4f} ({(time.time() - t0) / 60:.1f} min)",
+            flush=True,
+        )
         if m > best:
             best = m
             torch.save(model.state_dict(), runs / "best.pth")

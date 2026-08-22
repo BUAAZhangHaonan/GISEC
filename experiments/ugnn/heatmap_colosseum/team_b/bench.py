@@ -59,7 +59,8 @@ def main() -> None:
         if not np.array_equal(ref > 0, out > 0):
             bad_support += 1
         if len(ours_c) != len(ref_c) or any(
-                a != b for a, b in zip(ours_c, ref_c, strict=True)):
+            a != b for a, b in zip(ours_c, ref_c, strict=True)
+        ):
             bad_centroid += 1
     print(f"images=64 instances={n_inst}")
     print(f"max|delta|={maxd:.3e} (gate 1e-3)")
@@ -92,10 +93,14 @@ def main() -> None:
                     insts.append(m)
             ref_make_heatmap(insts, *shape)
         ref_ms.append((time.perf_counter() - t0) / 64 * 1e3)
-    print(f"ours median {np.median(ours_ms):.3f} ms/img "
-          f"(rounds: {[f'{v:.3f}' for v in ours_ms]})")
-    print(f"ref  median {np.median(ref_ms):.3f} ms/img "
-          f"(rounds: {[f'{v:.3f}' for v in ref_ms]})")
+    print(
+        f"ours median {np.median(ours_ms):.3f} ms/img "
+        f"(rounds: {[f'{v:.3f}' for v in ours_ms]})"
+    )
+    print(
+        f"ref  median {np.median(ref_ms):.3f} ms/img "
+        f"(rounds: {[f'{v:.3f}' for v in ref_ms]})"
+    )
     print(f"speedup x{np.median(ref_ms) / np.median(ours_ms):.1f}")
 
 

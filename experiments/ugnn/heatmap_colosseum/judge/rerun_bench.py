@@ -91,16 +91,18 @@ def centroids_of(mod, name, anns, shape):
 
 # ---------------------------------------------------------------- correct
 
+
 def correctness() -> None:
     cocs = {}
     for split, n in (("train", 64), ("val", 32)):
         coco = LiteCOCO(DATA / "annotations" / f"instances_{split}.json")
         cocs[split] = (coco, sample_from(coco, n))
 
-    impls = {n: load_impl(n) for n in ("ref", "team_a", "team_b",
-                                       "team_c")}
-    print(f"{'split':5} {'impl':7} {'max|d|':>10} {'supp_bad':>8} "
-          f"{'cent_bad':>8} {'n_inst':>6} {'warm_max|d|':>11}")
+    impls = {n: load_impl(n) for n in ("ref", "team_a", "team_b", "team_c")}
+    print(
+        f"{'split':5} {'impl':7} {'max|d|':>10} {'supp_bad':>8} "
+        f"{'cent_bad':>8} {'n_inst':>6} {'warm_max|d|':>11}"
+    )
     for split, (coco, infos) in cocs.items():
         bundles = [bundle(coco, i) for i in infos]
         for name, mod in impls.items():
@@ -119,9 +121,9 @@ def correctness() -> None:
                 d = float(np.abs(ref - out).max())
                 maxd = max(maxd, d)
                 supp += not np.array_equal(ref > 0, out > 0)
-                cent += (len(oc) != len(rc)
-                         or any(a != b for a, b in zip(oc, rc,
-                                                       strict=True)))
+                cent += len(oc) != len(rc) or any(
+                    a != b for a, b in zip(oc, rc, strict=True)
+                )
             # warm path (2nd call) bit-equality, per split
             wmax = 0.0
             if name != "ref":
@@ -129,11 +131,14 @@ def correctness() -> None:
                     ref, _ = ref_path(anns, shape)
                     out2 = mod.build_heatmap(anns, shape)
                     wmax = max(wmax, float(np.abs(ref - out2).max()))
-            print(f"{split:5} {name:7} {maxd:10.3e} {supp:8d} "
-                  f"{cent:8d} {n_inst:6d} {wmax:11.3e}")
+            print(
+                f"{split:5} {name:7} {maxd:10.3e} {supp:8d} "
+                f"{cent:8d} {n_inst:6d} {wmax:11.3e}"
+            )
 
 
 # ---------------------------------------------------------------- timing
+
 
 def timing(impl: str, phase: str) -> None:
     coco = LiteCOCO(DATA / "annotations" / "instances_train.json")
@@ -157,8 +162,9 @@ def timing(impl: str, phase: str) -> None:
         for anns, shape in bundles:
             fn(anns, shape)
         dt = time.perf_counter() - t0
-        print(f"cold {dt / 64 * 1e3:.3f} ms/img (incl. any first-call "
-              f"JIT/kernel setup)")
+        print(
+            f"cold {dt / 64 * 1e3:.3f} ms/img (incl. any first-call JIT/kernel setup)"
+        )
         return
 
     if phase == "warm":
@@ -170,8 +176,10 @@ def timing(impl: str, phase: str) -> None:
             for anns, shape in bundles:
                 fn(anns, shape)
             rounds.append((time.perf_counter() - t0) / 64 * 1e3)
-        print(f"warm median {np.median(rounds):.3f} ms/img "
-              f"rounds={[f'{v:.3f}' for v in rounds]}")
+        print(
+            f"warm median {np.median(rounds):.3f} ms/img "
+            f"rounds={[f'{v:.3f}' for v in rounds]}"
+        )
         return
 
     # amort: first pass cold + 19 passes warm (20-epoch simulation)
@@ -184,9 +192,11 @@ def timing(impl: str, phase: str) -> None:
         for anns, shape in bundles:
             fn(anns, shape)
     rest = time.perf_counter() - t0
-    print(f"epoch1 {e1 / 64 * 1e3:.3f} ms/img, epoch2-20 "
-          f"{rest / 64 / 19 * 1e3:.3f} ms/img, amortized "
-          f"{(e1 + rest) / 64 / 20 * 1e3:.3f} ms/img")
+    print(
+        f"epoch1 {e1 / 64 * 1e3:.3f} ms/img, epoch2-20 "
+        f"{rest / 64 / 19 * 1e3:.3f} ms/img, amortized "
+        f"{(e1 + rest) / 64 / 20 * 1e3:.3f} ms/img"
+    )
 
 
 if __name__ == "__main__":

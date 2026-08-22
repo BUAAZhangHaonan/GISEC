@@ -24,8 +24,11 @@ class _FixedRefiner(nn.Module):
         reference_depth: torch.Tensor | None = None,
         reference_mask: torch.Tensor | None = None,
     ) -> dict[str, torch.Tensor | None]:
-        logits = torch.logit(self._prob.clamp(1.0e-4, 1.0 - 1.0e-4)
-                             ).unsqueeze(0).unsqueeze(0)
+        logits = (
+            torch.logit(self._prob.clamp(1.0e-4, 1.0 - 1.0e-4))
+            .unsqueeze(0)
+            .unsqueeze(0)
+        )
         features = torch.zeros(
             (1, self._feature_channels, self._prob.shape[0], self._prob.shape[1]),
             dtype=torch.float32,

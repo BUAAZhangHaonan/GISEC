@@ -1,4 +1,5 @@
 """Mask-boundary geometry shared by decoding and the refiner losses."""
+
 from __future__ import annotations
 
 import torch
@@ -12,11 +13,11 @@ def binary_morphology(
         raise ValueError(f"Expected 2D mask, got shape {tuple(mask.shape)}")
     kernel = 2 * int(radius) + 1
     mask4 = mask.float().unsqueeze(0).unsqueeze(0)
-    dilated = F.max_pool2d(mask4, kernel_size=kernel,
-                           stride=1, padding=radius)[0, 0]
-    eroded = 1.0 - \
-        F.max_pool2d(1.0 - mask4, kernel_size=kernel,
-                     stride=1, padding=radius)[0, 0]
+    dilated = F.max_pool2d(mask4, kernel_size=kernel, stride=1, padding=radius)[0, 0]
+    eroded = (
+        1.0
+        - F.max_pool2d(1.0 - mask4, kernel_size=kernel, stride=1, padding=radius)[0, 0]
+    )
     return dilated, eroded
 
 

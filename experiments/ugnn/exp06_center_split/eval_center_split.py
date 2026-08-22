@@ -28,7 +28,6 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from scipy import ndimage as ndi
 from skimage.feature import peak_local_max
 from skimage.segmentation import watershed
 
@@ -36,14 +35,19 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "exp03_unet_dense"))
 sys.path.insert(0, str(HERE.parent / "exp04_instance_split"))
 
+import segmentation_models_pytorch as smp  # noqa: E402
 from eval_pipeline import (  # noqa: E402
-    DATA, MIN_AREA, export_and_eval, load_split, scene_bootstrap,
+    DATA,
+    MIN_AREA,
+    export_and_eval,
+    load_split,
+    scene_bootstrap,
 )
 from eval_watershed import (  # noqa: E402
-    elevation_map, postprocess, split_stats,
+    elevation_map,
+    postprocess,
+    split_stats,
 )
-
-import segmentation_models_pytorch as smp  # noqa: E402
 
 RUNS = HERE / "runs"
 HM_THR = 0.3
@@ -60,14 +64,15 @@ def predict(model, items):
 
     for it in items:
         x = np.concatenate(
-            [it["img"].astype(np.float32) / 255.0,
-             norm_depth(it["depth"])[..., None].astype(np.float32)],
-            axis=-1)
-        x = torch.from_numpy(
-            np.ascontiguousarray(x.transpose(2, 0, 1)))[None].cuda()
+            [
+                it["img"].astype(np.float32) / 255.0,
+                norm_depth(it["depth"])[..., None].astype(np.float32),
+            ],
+            axis=-1,
+        )
+        x = torch.from_numpy(np.ascontiguousarray(x.transpose(2, 0, 1)))[None].cuda()
         out = model(x)[0]
-        sems.append((torch.sigmoid(out[0]) > 0.5).cpu().numpy().astype(
-            np.uint8))
+        sems.append((torch.sigmoid(out[0]) > 0.5).cpu().numpy().astype(np.uint8))
         if out.shape[0] > 1:
             hms.append(torch.sigmoid(out[1]).cpu().numpy())
     return sems, hms or None
@@ -75,8 +80,12 @@ def predict(model, items):
 
 def hm_markers(hm, sem, min_distance):
     coords = peak_local_max(
-        hm, min_distance=min_distance, labels=sem,
-        exclude_border=False, threshold_abs=HM_THR)
+        hm,
+        min_distance=min_distance,
+        labels=sem,
+        exclude_border=False,
+        threshold_abs=HM_THR,
+    )
     return [tuple(c) for c in coords]
 
 
@@ -86,8 +95,8 @@ def depth_markers(depth, sem, min_distance):
     # variant which collapsed to 0.017).
     elev = elevation_map(depth, None, "depth_grad")
     coords = peak_local_max(
-        -elev, min_distance=min_distance, labels=sem,
-        exclude_border=False)
+        -elev, min_distance=min_distance, labels=sem, exclude_border=False
+    )
     return [tuple(c) for c in coords]
 
 
@@ -154,8 +163,9 @@ def main() -> None:
 
     sd = torch.load(args.ckpt, map_location="cpu")
     classes = sd["segmentation_head.0.weight"].shape[0]
-    model = smp.Unet(encoder_name="resnet18", encoder_weights=None,
-                     in_channels=4, classes=classes)
+    model = smp.Unet(
+        encoder_name="resnet18", encoder_weights=None, in_channels=4, classes=classes
+    )
     model.load_state_dict(sd)
     model.cuda()
 
@@ -170,11 +180,17 @@ def main() -> None:
     def evaluate(per_img, tag):
         capped = [sorted(p, key=lambda t: -t[1])[:100] for p in per_img]
         ev, n_inst, results = export_and_eval(items, capped, ann_file)
-        row = {"tag": tag, "segm_AP": ev["segm/AP"],
-               "segm_AP50": ev["segm/AP50"], "segm_AP75": ev["segm/AP75"],
-               "bbox_AP": ev["bbox/AP"], "bbox_AP50": ev["bbox/AP50"],
-               "bbox_AP75": ev["bbox/AP75"], "n_inst": n_inst,
-               "n_inst_per_img": n_inst / len(items)}
+        row = {
+            "tag": tag,
+            "segm_AP": ev["segm/AP"],
+            "segm_AP50": ev["segm/AP50"],
+            "segm_AP75": ev["segm/AP75"],
+            "bbox_AP": ev["bbox/AP"],
+            "bbox_AP50": ev["bbox/AP50"],
+            "bbox_AP75": ev["bbox/AP75"],
+            "n_inst": n_inst,
+            "n_inst_per_img": n_inst / len(items),
+        }
         row.update(split_stats(items, per_img))
         print(row, flush=True)
         report["grid"].append(row)
@@ -185,17 +201,14 @@ def main() -> None:
         hm_iter = hms if hms is not None else [None] * len(items)
         for it, sem, hm in zip(items, sems, hm_iter, strict=True):
             coords = coords_fn(it, sem, hm)
-            per_img.append(watershed_from_markers(
-                sem, it["depth"], it["img"], coords))
+            per_img.append(watershed_from_markers(sem, it["depth"], it["img"], coords))
         return per_img
 
     # 1. oracle: GT centers + model semantic (defines heatmap target)
-    evaluate(run(lambda it, sem, hm: gt_center_markers(it)),
-             "oracle_gt_centers")
+    evaluate(run(lambda it, sem, hm: gt_center_markers(it)), "oracle_gt_centers")
 
     # 2. E4 reproduction: depth peaks md15
-    evaluate(run(lambda it, sem, hm: depth_markers(it["depth"], sem, 15)),
-             "depth/md15")
+    evaluate(run(lambda it, sem, hm: depth_markers(it["depth"], sem, 15)), "depth/md15")
 
     if hms is None:
         # oracle-only mode (1-channel E3 ckpt): bootstrap the oracle
@@ -203,19 +216,19 @@ def main() -> None:
         capped = [sorted(p, key=lambda t: -t[1])[:100] for p in results]
         _, _, res_json = export_and_eval(items, capped, ann_file)
         report["final_tag"] = "oracle_gt_centers"
-        report["bootstrap_CI"] = scene_bootstrap(items, res_json,
-                                                 n_boot=200)
+        report["bootstrap_CI"] = scene_bootstrap(items, res_json, n_boot=200)
         print("bootstrap", report["bootstrap_CI"])
         (RUNS / "eval_report.json").write_text(json.dumps(report, indent=2))
         return
 
     # 3. main: heatmap seeds, md sweep
     for md in (3, 5, 9, 15):
-        evaluate(run(lambda it, sem, hm, md=md: hm_markers(hm, sem, md)),
-                 f"hm/md{md}")
+        evaluate(run(lambda it, sem, hm, md=md: hm_markers(hm, sem, md)), f"hm/md{md}")
 
-    best = max((r for r in report["grid"] if r["tag"].startswith("hm/")),
-               key=lambda r: r["segm_AP"])
+    best = max(
+        (r for r in report["grid"] if r["tag"].startswith("hm/")),
+        key=lambda r: r["segm_AP"],
+    )
     bmd = int(best["tag"].split("md")[1])
     print(f"best hm config: {best['tag']}")
 
@@ -223,8 +236,7 @@ def main() -> None:
     def union_fn(it, sem, hm):
         seen = set()
         out = []
-        for c in (hm_markers(hm, sem, bmd)
-                  + depth_markers(it["depth"], sem, bmd)):
+        for c in hm_markers(hm, sem, bmd) + depth_markers(it["depth"], sem, bmd):
             if c not in seen:
                 seen.add(c)
                 out.append(c)
@@ -233,10 +245,10 @@ def main() -> None:
     evaluate(run(union_fn), f"union/md{bmd}")
 
     # 5. seed precision: heatmap (best md) vs depth md15
-    hm_coords = [hm_markers(hm, sem, bmd)
-                 for sem, hm in zip(sems, hms, strict=True)]
-    dep_coords = [depth_markers(it["depth"], sem, 15)
-                  for it, sem in zip(items, sems, strict=True)]
+    hm_coords = [hm_markers(hm, sem, bmd) for sem, hm in zip(sems, hms, strict=True)]
+    dep_coords = [
+        depth_markers(it["depth"], sem, 15) for it, sem in zip(items, sems, strict=True)
+    ]
     report["seed_precision"] = {
         "heatmap": seed_precision(items, hm_coords),
         "depth_md15": seed_precision(items, dep_coords),

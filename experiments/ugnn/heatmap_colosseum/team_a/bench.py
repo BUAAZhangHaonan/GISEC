@@ -62,37 +62,38 @@ def main() -> None:
         r = ref.make_heatmap(insts, info["height"], info["width"])
         m = solution.build_heatmap(anns, (info["height"], info["width"]))
         max_diff = max(max_diff, float(np.abs(r - m).max()))
-        rs, ms = set(map(tuple, np.argwhere(r > 1e-6).tolist())), set(
-            map(tuple, np.argwhere(m > 1e-6).tolist()))
+        rs, ms = (
+            set(map(tuple, np.argwhere(r > 1e-6).tolist())),
+            set(map(tuple, np.argwhere(m > 1e-6).tolist())),
+        )
         if rs != ms:
             support_mismatch += 1
         # centroid deviation: same-int comparison — reference rounds the
         # mask-mean to int before stamping, so compare int-to-int.
         for ann, mm in zip(anns, insts):
             ys, xs = np.nonzero(mm)
-            ry, rx = int(round(float(ys.mean()))), int(
-                round(float(xs.mean())))
-            cy, cx = solution.compute_centroid(ann, info["height"],
-                                               info["width"])
-            worst_centroid_shift = max(
-                worst_centroid_shift, abs(ry - cy), abs(rx - cx))
+            ry, rx = int(round(float(ys.mean()))), int(round(float(xs.mean())))
+            cy, cx = solution.compute_centroid(ann, info["height"], info["width"])
+            worst_centroid_shift = max(worst_centroid_shift, abs(ry - cy), abs(rx - cx))
     print(f"images={len(imgs)} instances={n_inst}")
     print(f"max|delta|={max_diff:.3e} (gate 1e-3)")
     print(f"support-set mismatch images={support_mismatch} (gate 0)")
-    print(f"worst centroid deviation={worst_centroid_shift:.4f} px "
-          f"(gate 0.25)")
-    ok = (max_diff <= 1e-3 and support_mismatch == 0
-          and worst_centroid_shift <= 0.25)
+    print(f"worst centroid deviation={worst_centroid_shift:.4f} px (gate 0.25)")
+    ok = max_diff <= 1e-3 and support_mismatch == 0 and worst_centroid_shift <= 0.25
     print(f"CORRECTNESS: {'PASS' if ok else 'FAIL'}")
 
     # ---- timing: hot state, 3 rounds, median ----
     for name, fn in (
-        ("reference_full(decode+heatmap)",
-         lambda a, insts, s: ref.make_heatmap(
-             [m for m in (ann_to_mask(an, *s) for an in a) if m.sum() > 0],
-             *s)),
-        ("reference(make_heatmap only)",
-         lambda a, insts, s: ref.make_heatmap(insts, *s)),
+        (
+            "reference_full(decode+heatmap)",
+            lambda a, insts, s: ref.make_heatmap(
+                [m for m in (ann_to_mask(an, *s) for an in a) if m.sum() > 0], *s
+            ),
+        ),
+        (
+            "reference(make_heatmap only)",
+            lambda a, insts, s: ref.make_heatmap(insts, *s),
+        ),
         ("team_a", lambda a, insts, s: solution.build_heatmap(a, s)),
     ):
         meds = []
@@ -102,8 +103,10 @@ def main() -> None:
                 fn(anns, insts, (info["height"], info["width"]))
             meds.append((time.perf_counter() - t0) / len(imgs) * 1e3)
         meds.sort()
-        print(f"{name}: median {meds[1]:.3f} ms/img "
-              f"(rounds {meds[0]:.3f}/{meds[1]:.3f}/{meds[2]:.3f})")
+        print(
+            f"{name}: median {meds[1]:.3f} ms/img "
+            f"(rounds {meds[0]:.3f}/{meds[1]:.3f}/{meds[2]:.3f})"
+        )
         if name.startswith("reference_full"):
             ref_ms = meds[1]
         elif name == "team_a":

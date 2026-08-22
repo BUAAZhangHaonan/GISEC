@@ -19,10 +19,14 @@ def _write_dataset(root: Path, *, file_name: str = "000001.png") -> None:
     for split in ["train", "val"]:
         image = np.zeros((64, 64, 3), dtype=np.uint8)
         image[16:48, 16:48] = (60, 80, 120)
-        cv2.imwrite(str(root / "images" / split / file_name),
-                    cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
-        np.save(root / "depth" / split /
-                f"{Path(file_name).stem}.npy", np.full((64, 64), 0.9, dtype=np.float32))
+        cv2.imwrite(
+            str(root / "images" / split / file_name),
+            cv2.cvtColor(image, cv2.COLOR_RGB2BGR),
+        )
+        np.save(
+            root / "depth" / split / f"{Path(file_name).stem}.npy",
+            np.full((64, 64), 0.9, dtype=np.float32),
+        )
         ann = {
             "images": [{"id": 1, "file_name": file_name, "width": 64, "height": 64}],
             "annotations": [
@@ -38,8 +42,9 @@ def _write_dataset(root: Path, *, file_name: str = "000001.png") -> None:
             ],
             "categories": [{"id": 1, "name": "component"}],
         }
-        (root / "annotations" /
-         f"instances_{split}.json").write_text(json.dumps(ann), encoding="utf-8")
+        (root / "annotations" / f"instances_{split}.json").write_text(
+            json.dumps(ann), encoding="utf-8"
+        )
 
 
 def test_baseline_instance_dataset_returns_rgb_and_instance_targets(
@@ -84,11 +89,14 @@ def test_baseline_instance_dataset_rejects_non_square_images(tmp_path: Path) -> 
     dataset_root = tmp_path / "dataset"
     _write_dataset(dataset_root)
     image = np.zeros((64, 48, 3), dtype=np.uint8)
-    cv2.imwrite(str(dataset_root / "images" / "train" / "000001.png"),
-                cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+    cv2.imwrite(
+        str(dataset_root / "images" / "train" / "000001.png"),
+        cv2.cvtColor(image, cv2.COLOR_RGB2BGR),
+    )
 
     dataset = BaselineInstanceDataset(
-        dataset_root=str(dataset_root), split="train", image_size=64)
+        dataset_root=str(dataset_root), split="train", image_size=64
+    )
 
     with pytest.raises(ValueError, match="64x48"):
         _ = dataset[0]
@@ -98,11 +106,14 @@ def test_baseline_instance_dataset_rejects_wrong_image_size(tmp_path: Path) -> N
     dataset_root = tmp_path / "dataset"
     _write_dataset(dataset_root)
     image = np.zeros((128, 128, 3), dtype=np.uint8)
-    cv2.imwrite(str(dataset_root / "images" / "train" / "000001.png"),
-                cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+    cv2.imwrite(
+        str(dataset_root / "images" / "train" / "000001.png"),
+        cv2.cvtColor(image, cv2.COLOR_RGB2BGR),
+    )
 
     dataset = BaselineInstanceDataset(
-        dataset_root=str(dataset_root), split="train", image_size=64)
+        dataset_root=str(dataset_root), split="train", image_size=64
+    )
 
     with pytest.raises(ValueError, match="128x128"):
         _ = dataset[0]
@@ -116,7 +127,9 @@ def test_baseline_instance_dataset_requires_depth_file_when_depth_requested(
     (dataset_root / "depth" / "train" / "000001.npy").unlink()
 
     dataset = BaselineInstanceDataset(
-        dataset_root=str(dataset_root), split="train", image_size=64,
+        dataset_root=str(dataset_root),
+        split="train",
+        image_size=64,
         include_depth=True,
     )
 

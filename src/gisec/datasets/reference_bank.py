@@ -98,14 +98,18 @@ class ReferenceBankSource:
         self.root = Path(self.root).resolve()
         self._is_single_bank = _is_bank_root(self.root)
         self._bank_cache: dict[Path, ReferenceBank] = {}
-        self._available_parts = sorted(
-            [
-                path.name
-                for path in self.root.iterdir()
-                if path.is_dir() and _is_bank_root(path)
-            ],
-            key=lambda item: (-len(item), item),
-        ) if not self._is_single_bank else []
+        self._available_parts = (
+            sorted(
+                [
+                    path.name
+                    for path in self.root.iterdir()
+                    if path.is_dir() and _is_bank_root(path)
+                ],
+                key=lambda item: (-len(item), item),
+            )
+            if not self._is_single_bank
+            else []
+        )
 
     @property
     def available_parts(self) -> list[str]:
@@ -128,7 +132,8 @@ class ReferenceBankSource:
         if candidate.name not in self._available_parts or not candidate.exists():
             raise ValueError(
                 f"Unknown part key for reference bank source: {part_key}; "
-                f"available parts: {self._available_parts}")
+                f"available parts: {self._available_parts}"
+            )
         return candidate
 
     def load_for_query(self, file_name: str) -> ReferenceBank:
@@ -165,12 +170,21 @@ def reference_tensors_from_bank(
         mask=bank.masks.float(),
     )
     return (
-        F.interpolate(bank.images.float().to(device), size=(
-            crop_size, crop_size), mode="bilinear", align_corners=False).unsqueeze(0),
-        F.interpolate(normalized_ref_depth.to(device), size=(
-            crop_size, crop_size), mode="bilinear", align_corners=False).unsqueeze(0),
-        F.interpolate(bank.masks.float().to(device), size=(
-            crop_size, crop_size), mode="nearest").unsqueeze(0),
+        F.interpolate(
+            bank.images.float().to(device),
+            size=(crop_size, crop_size),
+            mode="bilinear",
+            align_corners=False,
+        ).unsqueeze(0),
+        F.interpolate(
+            normalized_ref_depth.to(device),
+            size=(crop_size, crop_size),
+            mode="bilinear",
+            align_corners=False,
+        ).unsqueeze(0),
+        F.interpolate(
+            bank.masks.float().to(device), size=(crop_size, crop_size), mode="nearest"
+        ).unsqueeze(0),
     )
 
 
@@ -201,7 +215,8 @@ def extract_reference_part_key(file_name: str, available_parts: list[str]) -> st
             return part_key
     raise ValueError(
         f"Could not resolve part key from reference file name: {file_name}; "
-        f"available parts: {sorted(available_parts)}")
+        f"available parts: {sorted(available_parts)}"
+    )
 
 
 def load_reference_bank(
@@ -227,13 +242,13 @@ def load_reference_bank(
         raise FileNotFoundError(f"Reference directory not found: {missing[0]}")
 
     rgb_files = {p.stem: p for p in sorted(rgb_dir.glob("*")) if p.is_file()}
-    depth_files = {p.stem: p for p in sorted(
-        depth_dir.glob("*.npy")) if p.is_file()}
+    depth_files = {p.stem: p for p in sorted(depth_dir.glob("*.npy")) if p.is_file()}
     mask_files = {p.stem: p for p in sorted(mask_dir.glob("*")) if p.is_file()}
     view_ids = sorted(set(rgb_files) & set(depth_files) & set(mask_files))
     if not view_ids:
         raise FileNotFoundError(
-            f"No matched rgb/depth/mask reference views found under {root}")
+            f"No matched rgb/depth/mask reference views found under {root}"
+        )
     view_ids = _sample_view_ids(
         root=root,
         view_ids=view_ids,
@@ -283,8 +298,7 @@ def _uniform_sample_view_ids(view_ids: list[str], max_views: int) -> list[str]:
     if max_views == 1:
         return [view_ids[0]]
     selected = {
-        round(index)
-        for index in np.linspace(0, len(view_ids) - 1, num=max_views)
+        round(index) for index in np.linspace(0, len(view_ids) - 1, num=max_views)
     }
     # linspace rounding can collapse to fewer than max_views distinct
     # indices; fill the remaining slots with the lowest unselected ones so
@@ -306,14 +320,18 @@ def _pose_farthest_sample_view_ids(
         if not path.exists():
             print(
                 f"[gisec] reference bank: camera pose {path} is missing; "
-                "falling back to uniform view sampling", flush=True)
+                "falling back to uniform view sampling",
+                flush=True,
+            )
             return []
         payload = _read_json(path)
         position = payload.get("position")
         if not isinstance(position, list):
             print(
                 f"[gisec] reference bank: camera pose {path} has no position "
-                "list; falling back to uniform view sampling", flush=True)
+                "list; falling back to uniform view sampling",
+                flush=True,
+            )
             return []
         position_array = np.asarray(list(position), dtype=np.float32)
         if not bool(np.all(np.isfinite(position_array))):
@@ -324,7 +342,9 @@ def _pose_farthest_sample_view_ids(
             print(
                 f"[gisec] reference bank: camera pose {path} has a "
                 "non-finite position; falling back to uniform view "
-                "sampling", flush=True)
+                "sampling",
+                flush=True,
+            )
             return []
         # Distances use the camera position only: position is meters while
         # quaternions are unitless, so mixing them into one euclidean

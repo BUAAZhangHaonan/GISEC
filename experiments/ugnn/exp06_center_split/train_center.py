@@ -20,13 +20,10 @@ import time
 from pathlib import Path
 
 import cv2
-
 import numpy as np
-import torch
-import torch.nn.functional as F
-from torch.utils.data import DataLoader
-
 import segmentation_models_pytorch as smp
+import torch
+from torch.utils.data import DataLoader
 
 from gisec.datasets.coco_utils import ann_to_mask, load_depth_array
 
@@ -41,6 +38,7 @@ def dice_loss(logits, targets):
     inter = (p * targets).sum(dim=(1, 2, 3))
     union = p.sum(dim=(1, 2, 3)) + targets.sum(dim=(1, 2, 3))
     return 1.0 - ((2 * inter + 1) / (union + 1)).mean()
+
 
 RUNS = HERE / "runs"
 SIGMA = 4.0
@@ -58,8 +56,7 @@ def make_heatmap(insts, h: int, w: int, sigma: float = SIGMA) -> np.ndarray:
         y0, y1 = max(0, cy - r), min(h, cy + r + 1)
         x0, x1 = max(0, cx - r), min(w, cx + r + 1)
         gy, gx = np.mgrid[y0:y1, x0:x1].astype(np.float32)
-        patch = np.exp(-((gy - cy) ** 2 + (gx - cx) ** 2)
-                       / (2 * sigma * sigma))
+        patch = np.exp(-((gy - cy) ** 2 + (gx - cx) ** 2) / (2 * sigma * sigma))
         hm[y0:y1, x0:x1] = np.maximum(hm[y0:y1, x0:x1], patch)
     return hm
 
@@ -74,11 +71,11 @@ class CenterDataset(DenseDataset):
         img = cv2.imread(str(self.img_dir / info["file_name"]))
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         depth = load_depth_array(self.depth_dir / f"{stem}.npy")
-        depth = np.clip((depth - DEPTH_LO) / (DEPTH_HI - DEPTH_LO),
-                        -1.0, 2.0)
+        depth = np.clip((depth - DEPTH_LO) / (DEPTH_HI - DEPTH_LO), -1.0, 2.0)
         x = np.concatenate(
-            [img.astype(np.float32) / 255.0, depth[..., None].astype(
-                np.float32)], axis=-1)
+            [img.astype(np.float32) / 255.0, depth[..., None].astype(np.float32)],
+            axis=-1,
+        )
         gt = np.zeros(img.shape[:2], dtype=np.float32)
         insts = []
         for ann in self.coco.loadAnns(self.coco.getAnnIds(imgIds=[img_id])):
@@ -114,21 +111,31 @@ def main() -> None:
     print(f"train {len(train_ds)} imgs, val {len(val_ds)} imgs")
 
     dl = DataLoader(
-        train_ds, batch_size=args.batch, shuffle=True, num_workers=4,
-        pin_memory=True, drop_last=True, persistent_workers=True,
+        train_ds,
+        batch_size=args.batch,
+        shuffle=True,
+        num_workers=4,
+        pin_memory=True,
+        drop_last=True,
+        persistent_workers=True,
     )
     vdl = DataLoader(
-        val_ds, batch_size=args.batch, shuffle=False, num_workers=2,
-        pin_memory=True, persistent_workers=True,
+        val_ds,
+        batch_size=args.batch,
+        shuffle=False,
+        num_workers=2,
+        pin_memory=True,
+        persistent_workers=True,
     )
 
     model = smp.Unet(
-        encoder_name="resnet18", encoder_weights="imagenet",
-        in_channels=4, classes=2,
+        encoder_name="resnet18",
+        encoder_weights="imagenet",
+        in_channels=4,
+        classes=2,
     ).cuda()
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr)
-    sched = torch.optim.lr_scheduler.CosineAnnealingLR(
-        opt, T_max=args.epochs * len(dl))
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.epochs * len(dl))
     bce = torch.nn.BCEWithLogitsLoss()
     mse = torch.nn.MSELoss()
 
@@ -140,9 +147,11 @@ def main() -> None:
         for x, y in dl:
             x, y = x.cuda(non_blocking=True), y.cuda(non_blocking=True)
             out = model(x)
-            loss = (bce(out[:, 0:1], y[:, 0:1])
-                    + dice_loss(out[:, 0:1], y[:, 0:1])
-                    + HM_W * mse(out[:, 1:2], y[:, 1:2]))
+            loss = (
+                bce(out[:, 0:1], y[:, 0:1])
+                + dice_loss(out[:, 0:1], y[:, 0:1])
+                + HM_W * mse(out[:, 1:2], y[:, 1:2])
+            )
             opt.zero_grad(set_to_none=True)
             loss.backward()
             opt.step()
@@ -154,11 +163,18 @@ def main() -> None:
             for x, y in vdl:
                 ious.append(miou(model(x.cuda())[:, 0:1], y[:, 0:1].cuda()))
         m = float(np.mean(ious))
-        log.append({"epoch": epoch, "val_miou": m,
-                    "lr": sched.get_last_lr()[0],
-                    "elapsed_min": (time.time() - t0) / 60})
-        print(f"epoch {epoch}: val mIoU {m:.4f} "
-              f"({(time.time() - t0) / 60:.1f} min)", flush=True)
+        log.append(
+            {
+                "epoch": epoch,
+                "val_miou": m,
+                "lr": sched.get_last_lr()[0],
+                "elapsed_min": (time.time() - t0) / 60,
+            }
+        )
+        print(
+            f"epoch {epoch}: val mIoU {m:.4f} ({(time.time() - t0) / 60:.1f} min)",
+            flush=True,
+        )
         if m > best:
             best = m
             torch.save(model.state_dict(), RUNS / "best.pth")

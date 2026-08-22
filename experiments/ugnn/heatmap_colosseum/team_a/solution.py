@@ -75,6 +75,5 @@ def build_heatmap(anns, img_shape=(1024, 1024)) -> np.ndarray:
         x0, x1 = max(0, cx - R), min(w, cx + R + 1)
         ky0, kx0 = y0 - (cy - R), x0 - (cx - R)
         view = hm[y0:y1, x0:x1]
-        np.maximum(view, KERNEL[ky0:ky0 + y1 - y0, kx0:kx0 + x1 - x0],
-                   out=view)
+        np.maximum(view, KERNEL[ky0 : ky0 + y1 - y0, kx0 : kx0 + x1 - x0], out=view)
     return hm

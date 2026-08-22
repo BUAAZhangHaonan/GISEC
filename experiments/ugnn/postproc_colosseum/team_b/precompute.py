@@ -4,8 +4,10 @@ depth->elevation is input-only and may be cached; C5: keyed
 
 Usage (from postproc_colosseum/):  python team_b/precompute.py
 """
-from pathlib import Path
+
 import sys
+from pathlib import Path
+
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
@@ -16,8 +18,10 @@ DUMPS = HERE.parent / "data" / "dumps"
 OUT = S.CACHE_DIR / "val"
 OUT.mkdir(parents=True, exist_ok=True)
 
-metas = [int(m["image_id"]) for m in __import__("json").loads(
-    (DUMPS / "metajs.json").read_text())]
+metas = [
+    int(m["image_id"])
+    for m in __import__("json").loads((DUMPS / "metajs.json").read_text())
+]
 for iid in sorted(metas):
     d = np.load(DUMPS / f"{iid}.npz")
     depth = d["depth"]

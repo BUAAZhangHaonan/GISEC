@@ -12,22 +12,24 @@ Wins over reference (all exact, no resolution change in this file):
 Watershed / merge / cn_markers logic imported from the same modules the
 reference uses, untouched.
 """
-from pathlib import Path
-import sys
+
 import hashlib
+import sys
+from pathlib import Path
+
 import numpy as np
+from pycocotools import mask as mask_utils
 from scipy import ndimage as ndi
 from skimage.segmentation import watershed
-from pycocotools import mask as mask_utils
 
 HERE = Path(__file__).resolve().parent
 R = HERE.parents[3]
-H = R / 'experiments' / 'ugnn'
-for p in ('exp03_unet_dense', 'exp04_instance_split', 'exp08_scale_32254'):
+H = R / "experiments" / "ugnn"
+for p in ("exp03_unet_dense", "exp04_instance_split", "exp08_scale_32254"):
     sys.path.insert(0, str(H / p))
 import eval_pipeline as ep
-from eval_watershed import postprocess, SMALL_AREA
 from eval_scale import HM_THR
+from eval_watershed import SMALL_AREA
 
 
 def merge_postprocess_fast(labels):
@@ -60,8 +62,9 @@ def merge_postprocess_fast(labels):
         q = labels[yy, xx]
         m = ~is_small[q] & (q > 0)
         if m.any():
-            chunks.append(np.stack((vv[m], q[m],
-                                    yy[m].astype(np.int64) * W + xx[m]), axis=1))
+            chunks.append(
+                np.stack((vv[m], q[m], yy[m].astype(np.int64) * W + xx[m]), axis=1)
+            )
     out = labels.copy()
     if not chunks:
         for i in small.tolist():
@@ -101,14 +104,15 @@ def merge_postprocess_fast(labels):
         win[win == i] = best[i]  # 0 if island
     return out
 
+
 STRIDE = 4
 MIN_AREA = ep.MIN_AREA
 CAT_ID = ep.CAT_ID
-ELEV_CACHE = HERE / 'cache' / 'elev'
+ELEV_CACHE = HERE / "cache" / "elev"
 
 
 def _cn_markers(hm, off):
-    mx = ndi.maximum_filter(hm, size=3, mode='nearest')
+    mx = ndi.maximum_filter(hm, size=3, mode="nearest")
     peaks = (hm >= mx) & (hm > HM_THR)
     ys, xs = np.nonzero(peaks)
     y = ys * STRIDE + off[0, ys, xs]
@@ -127,8 +131,10 @@ def _elevation(depth):
 def elevation_cached(image_id, depth):
     """Cache key: (split=val package, image_id, md5(depth)). f32 exact."""
     d = np.ascontiguousarray(depth)
-    key = hashlib.md5(d.shape.__repr__().encode() + d[::4, ::4].tobytes()).hexdigest()[:16]
-    f = ELEV_CACHE / f'val_{int(image_id)}_{key}.npy'
+    key = hashlib.md5(d.shape.__repr__().encode() + d[::4, ::4].tobytes()).hexdigest()[
+        :16
+    ]
+    f = ELEV_CACHE / f"val_{int(image_id)}_{key}.npy"
     if f.exists():
         try:
             return np.load(f)
@@ -143,8 +149,8 @@ def _rle_from_label_patch(labels, sl, lab, H, W):
     x0, x1 = sl[1].start, sl[1].stop - 1
     wc = x1 - x0 + 1
     m2 = np.zeros((H, wc), dtype=np.uint8)
-    m2[y0:y1 + 1, :] = (labels[sl] == lab)
-    v = m2.flatten(order='F')
+    m2[y0 : y1 + 1, :] = labels[sl] == lab
+    v = m2.flatten(order="F")
     change = np.flatnonzero(v[1:] != v[:-1]) + 1
     bounds = np.concatenate(([0], change, [v.size]))
     counts = np.diff(bounds).tolist()
@@ -161,11 +167,11 @@ def _rle_from_label_patch(labels, sl, lab, H, W):
             counts[-1] += trailing
         else:
             counts.append(trailing)
-    rle = mask_utils.frPyObjects({'size': [H, W], 'counts': counts}, H, W)
-    c = rle['counts']
+    rle = mask_utils.frPyObjects({"size": [H, W], "counts": counts}, H, W)
+    c = rle["counts"]
     if isinstance(c, bytes):
-        c = c.decode('utf-8')
-    return {'size': [H, W], 'counts': c}, [x0, y0, x1 - x0 + 1, y1 - y0 + 1]
+        c = c.decode("utf-8")
+    return {"size": [H, W], "counts": c}, [x0, y0, x1 - x0 + 1, y1 - y0 + 1]
 
 
 def run(image_id, sem, hm, off, depth, h, w):
@@ -187,7 +193,7 @@ def run(image_id, sem, hm, off, depth, h, w):
     if keep.size == 0:
         return []
     areas = counts[keep]
-    order = np.argsort(-areas, kind='stable')[:100]  # top-100, stable ties
+    order = np.argsort(-areas, kind="stable")[:100]  # top-100, stable ties
     sel = keep[order]
     sel_areas = areas[order]
     amax = int(sel_areas.max())
@@ -199,11 +205,13 @@ def run(image_id, sem, hm, off, depth, h, w):
         if sl is None:
             continue
         rle, bbox = _rle_from_label_patch(labels, sl, lab, H, W)
-        results.append({
-            'image_id': image_id,
-            'category_id': int(CAT_ID),
-            'score': float(area / denom),
-            'bbox': bbox,
-            'segmentation': rle,
-        })
+        results.append(
+            {
+                "image_id": image_id,
+                "category_id": int(CAT_ID),
+                "score": float(area / denom),
+                "bbox": bbox,
+                "segmentation": rle,
+            }
+        )
     return results

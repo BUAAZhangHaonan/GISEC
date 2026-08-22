@@ -47,8 +47,8 @@ def _make_kernel() -> np.ndarray:
     d = np.arange(-RADIUS, RADIUS + 1, dtype=np.float32)
     # identical expression/order to the reference patch
     return np.ascontiguousarray(
-        np.exp(-((d[:, None] ** 2 + d[None, :] ** 2)
-                 / (2 * SIGMA * SIGMA))))
+        np.exp(-((d[:, None] ** 2 + d[None, :] ** 2) / (2 * SIGMA * SIGMA)))
+    )
 
 
 _KERN = _make_kernel()
@@ -75,7 +75,7 @@ def _fused(c, h, w, hm, kern, K, stamp):
     sy = 0
     sx = 0
     pos = 0  # column-major running index
-    j = 0    # run index
+    j = 0  # run index
     prev2 = 0
     prev1 = 0
     m = c.size
@@ -99,10 +99,10 @@ def _fused(c, h, w, hm, kern, K, stamp):
             e = pos + x
             sf, sr = divmod(pos, h)
             ef, er = divmod(e, h)
-            sy += (ef * T + er * (er - 1) // 2
-                   - (sf * T + sr * (sr - 1) // 2))
-            sx += (h * (ef * (ef - 1) // 2) + ef * er
-                   - h * (sf * (sf - 1) // 2) - sf * sr)
+            sy += ef * T + er * (er - 1) // 2 - (sf * T + sr * (sr - 1) // 2)
+            sx += (
+                h * (ef * (ef - 1) // 2) + ef * er - h * (sf * (sf - 1) // 2) - sf * sr
+            )
             n += x
             pos = e
         else:

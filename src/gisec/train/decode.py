@@ -66,9 +66,8 @@ def select_refinement_instances(
             f"mask_probs and binary_masks must match, "
             f"got {tuple(mask_probs.shape)} and {tuple(binary_masks.shape)}"
         )
-    if (
-        instance_scores.ndim != 1
-        or int(instance_scores.shape[0]) != int(mask_probs.shape[0])
+    if instance_scores.ndim != 1 or int(instance_scores.shape[0]) != int(
+        mask_probs.shape[0]
     ):
         raise ValueError(
             f"Expected instance_scores with shape "
@@ -88,13 +87,13 @@ def select_refinement_instances(
     entropy_map = _bernoulli_entropy(mask_probs.float())
     for index in range(instance_count):
         band = boundary_band(
-            binary_masks[index].float(), width=int(boundary_band_width))
+            binary_masks[index].float(), width=int(boundary_band_width)
+        )
         if bool(band.any()):
             uncertainty = float(entropy_map[index][band].mean().item())
         else:
             uncertainty = float(entropy_map[index].mean().item())
-        rows.append(
-            (uncertainty, -float(instance_scores[index].item()), index))
+        rows.append((uncertainty, -float(instance_scores[index].item()), index))
 
     rows.sort(key=lambda item: (-item[0], item[1], item[2]))
     return [index for _uncertainty, _score_tiebreak, index in rows[:budget]]
@@ -114,8 +113,7 @@ def query_instances_from_outputs(
         return []
     fg_prob = class_prob[:, :-1]
     _, class_ids = fg_prob.max(dim=-1)
-    upsampled_mask_logits = _upscale_mask_logits(
-        mask_logits, image_shape=image_shape)
+    upsampled_mask_logits = _upscale_mask_logits(mask_logits, image_shape=image_shape)
     mask_probs = torch.sigmoid(upsampled_mask_logits)
     rows: list[dict[str, Any]] = []
     for query_index in range(int(mask_probs.shape[0])):
@@ -155,8 +153,7 @@ def match_query_predictions_to_gt(
 ) -> list[tuple[int, int, float]]:
     if not predictions or int(gt_masks.shape[0]) == 0:
         return []
-    cost = np.ones((len(predictions), int(
-        gt_masks.shape[0])), dtype=np.float32)
+    cost = np.ones((len(predictions), int(gt_masks.shape[0])), dtype=np.float32)
     for pred_index, prediction in enumerate(predictions):
         for gt_index in range(int(gt_masks.shape[0])):
             cost[pred_index, gt_index] = 1.0 - float(
@@ -165,7 +162,8 @@ def match_query_predictions_to_gt(
     pred_indices, gt_indices = linear_sum_assignment(cost)
     matches: list[tuple[int, int, float]] = []
     for pred_index, gt_index in zip(
-            pred_indices.tolist(), gt_indices.tolist(), strict=True):
+        pred_indices.tolist(), gt_indices.tolist(), strict=True
+    ):
         iou = 1.0 - float(cost[pred_index, gt_index])
         if iou <= 0.0:
             continue
@@ -239,8 +237,7 @@ def paste_refined_mask(
     apart and bilinear edge values are never truncated by a downstream uint8
     cast.
     """
-    pasted_prob = paste_mask_from_crop(
-        refined_prob, bbox=bbox, image_shape=image_shape)
+    pasted_prob = paste_mask_from_crop(refined_prob, bbox=bbox, image_shape=image_shape)
     pasted_binary = (pasted_prob >= float(mask_threshold)).float()
     return pasted_prob, pasted_binary
 
@@ -263,11 +260,13 @@ def apply_local_rescue(
     variant_spec = get_gisec_variant_spec(variant_name)
     if not variant_spec.use_local_refine or model.refiner is None or not predictions:
         return predictions, 0, 0
-    binary_masks = torch.stack([row["binary_mask"]
-                               for row in predictions], dim=0)
+    binary_masks = torch.stack([row["binary_mask"] for row in predictions], dim=0)
     mask_probs = torch.stack([row["mask_probs"] for row in predictions], dim=0)
-    scores = torch.tensor([float(row["score"]) for row in predictions],
-                          dtype=torch.float32, device=mask_probs.device)
+    scores = torch.tensor(
+        [float(row["score"]) for row in predictions],
+        dtype=torch.float32,
+        device=mask_probs.device,
+    )
     selected = select_refinement_instances(
         mask_probs=mask_probs,
         binary_masks=binary_masks,
@@ -283,7 +282,8 @@ def apply_local_rescue(
     updated = list(predictions)
     extra_rows: list[dict[str, Any]] = []
     projected_feature_map = project_local_features_float32(
-        model, feature_map.unsqueeze(0))[0]
+        model, feature_map.unsqueeze(0)
+    )[0]
     reference_rgb: torch.Tensor | None = None
     reference_depth: torch.Tensor | None = None
     reference_mask: torch.Tensor | None = None
@@ -302,11 +302,17 @@ def apply_local_rescue(
             pad=int(crop_pad),
         )
         feature_bbox = scale_bbox(
-            bbox, source_shape=image_shape, target_shape=feature_shape)
-        query_crop = crop_and_resize(full_input, bbox=bbox, output_size=int(
-            crop_size), mode="bilinear").unsqueeze(0)
-        coarse_mask_crop = crop_and_resize(row["mask_probs"].unsqueeze(
-            0), bbox=bbox, output_size=int(crop_size), mode="bilinear").unsqueeze(0)
+            bbox, source_shape=image_shape, target_shape=feature_shape
+        )
+        query_crop = crop_and_resize(
+            full_input, bbox=bbox, output_size=int(crop_size), mode="bilinear"
+        ).unsqueeze(0)
+        coarse_mask_crop = crop_and_resize(
+            row["mask_probs"].unsqueeze(0),
+            bbox=bbox,
+            output_size=int(crop_size),
+            mode="bilinear",
+        ).unsqueeze(0)
         feature_crop = crop_and_resize(
             projected_feature_map,
             bbox=feature_bbox,
@@ -328,7 +334,8 @@ def apply_local_rescue(
         if variant_spec.use_graph_rescue and model.graph_head is not None:
             component_map = rescue_component_map(
                 coarse_prob=coarse_mask_crop[0, 0],
-                threshold=float(graph_merge_threshold))
+                threshold=float(graph_merge_threshold),
+            )
             if int(component_map.max()) > 1:
                 node_features, edge_index, edge_features = build_rescue_graph_inputs(
                     component_map=component_map,
@@ -357,13 +364,17 @@ def apply_local_rescue(
                     # member maximum), fragments of different instances
                     # split into separate rows.
                     group_fields = grouped_probability_fields(
-                        merged_map=merged, refined_prob=refined_prob)
+                        merged_map=merged, refined_prob=refined_prob
+                    )
                     graph_invocations += 1
         group_rows: list[dict[str, Any]] = []
         for group_prob in group_fields:
             pasted_prob, pasted_binary = paste_refined_mask(
-                group_prob, bbox=bbox, image_shape=image_shape,
-                mask_threshold=float(mask_threshold))
+                group_prob,
+                bbox=bbox,
+                image_shape=image_shape,
+                mask_threshold=float(mask_threshold),
+            )
             if float(pasted_binary.sum()) > 0.0:
                 group_rows.append(
                     {
@@ -371,7 +382,8 @@ def apply_local_rescue(
                         "score": float(row["score"]),
                         "mask_probs": pasted_prob,
                         "binary_mask": pasted_binary,
-                    })
+                    }
+                )
         if group_rows:
             updated[int(index)] = group_rows[0]
             extra_rows.extend(group_rows[1:])
@@ -379,7 +391,10 @@ def apply_local_rescue(
             # Grouping yielded no positive support (the refiner moved the
             # mask off every fragment), so the refiner output stands as-is.
             row["mask_probs"], row["binary_mask"] = paste_refined_mask(
-                refined_prob, bbox=bbox, image_shape=image_shape,
-                mask_threshold=float(mask_threshold))
+                refined_prob,
+                bbox=bbox,
+                image_shape=image_shape,
+                mask_threshold=float(mask_threshold),
+            )
             updated[int(index)] = row
     return updated + extra_rows, refinement_invocations, graph_invocations

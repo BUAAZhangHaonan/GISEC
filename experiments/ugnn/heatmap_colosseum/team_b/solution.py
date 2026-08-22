@@ -42,8 +42,7 @@ RADIUS = int(3 * SIGMA)  # 12
 def _make_kernel() -> np.ndarray:
     d = np.arange(-RADIUS, RADIUS + 1, dtype=np.float32)
     # same expression/order as the reference patch: exp(-((dy^2+dx^2))/32)
-    return np.exp(-((d[:, None] ** 2 + d[None, :] ** 2)
-                    / (2 * SIGMA * SIGMA)))
+    return np.exp(-((d[:, None] ** 2 + d[None, :] ** 2) / (2 * SIGMA * SIGMA)))
 
 
 # ---------------------------------------------------------------------------
@@ -66,10 +65,11 @@ def _decode_counts(counts: bytes) -> np.ndarray:
     off = idx - starts[gid]
     v = (c & 0x1F) << (5 * off)
     # bincount in float64 is exact here (each x < 2^31, groups disjoint)
-    x = np.bincount(gid, weights=v.astype(np.float64),
-                    minlength=gid[-1] + 1).astype(np.int64)
+    x = np.bincount(gid, weights=v.astype(np.float64), minlength=gid[-1] + 1).astype(
+        np.int64
+    )
     # sign extension on terminator's 0x10 bit
-    neg = ((c[last] & 0x10) != 0)
+    neg = (c[last] & 0x10) != 0
     x[neg] |= np.int64(-1) << (5 * (off[last][neg] + 1))
     # reverse high-order differencing: cnts[i] = x[i] + cnts[i-2] for i>2
     # (recurrence decouples into even/odd interleaved prefix sums)
@@ -131,8 +131,7 @@ def build_heatmap(anns, img_shape=(1024, 1024)) -> np.ndarray:
     for cy, cx in instance_centroids(anns, (h, w)):
         y0, y1 = max(0, cy - K), min(h, cy + K + 1)
         x0, x1 = max(0, cx - K), min(w, cx + K + 1)
-        patch = kern[y0 - (cy - K):y1 - (cy - K),
-                     x0 - (cx - K):x1 - (cx - K)]
+        patch = kern[y0 - (cy - K) : y1 - (cy - K), x0 - (cx - K) : x1 - (cx - K)]
         np.maximum(hm[y0:y1, x0:x1], patch, out=hm[y0:y1, x0:x1])
     return hm
 

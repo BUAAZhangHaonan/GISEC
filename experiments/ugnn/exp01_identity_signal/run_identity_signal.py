@@ -28,21 +28,27 @@ HIST_BINS = 16
 
 FEATURES: dict[str, list[str]] = {
     "depth": [
-        "d_mean", "d_median", "d_q10", "d_q90", "d_std",
+        "d_mean",
+        "d_median",
+        "d_q10",
+        "d_q90",
+        "d_std",
     ],
     "spatial": [
-        "centroid_dist", "min_dist", "bbox_gap", "log_area_ratio",
+        "centroid_dist",
+        "min_dist",
+        "bbox_gap",
+        "log_area_ratio",
         "norm_centroid_dist",
     ],
     "appearance": [
-        "color_l1", "hist_intersect",
+        "color_l1",
+        "hist_intersect",
     ],
 }
 
 
-def component_features(
-    comp: np.ndarray, depth: np.ndarray, rgb: np.ndarray
-) -> dict:
+def component_features(comp: np.ndarray, depth: np.ndarray, rgb: np.ndarray) -> dict:
     ys, xs = np.nonzero(comp)
     area = float(len(ys))
     dvals = depth[ys, xs]
@@ -87,19 +93,15 @@ def pair_features(c1: dict, c2: dict) -> dict[str, float]:
     y1 = max(b1[3], b2[3])
     m1 = c1["comp_mask"][y0:y1, x0:x1]
     m2 = c2["comp_mask"][y0:y1, x0:x1]
-    dt = cv2.distanceTransform(
-        (m1 == 0).astype(np.uint8), cv2.DIST_L2, 3
-    )
+    dt = cv2.distanceTransform((m1 == 0).astype(np.uint8), cv2.DIST_L2, 3)
     ys2, xs2 = np.nonzero(m2)
     mdist = float(dt[ys2, xs2].min())
     centroid = float(np.hypot(c1["cx"] - c2["cx"], c1["cy"] - c2["cy"]))
     scale = float(np.sqrt(max(c1["area"], c2["area"])))
-    color_diff = float(
-        np.abs(c1["mean_color"] - c2["mean_color"]).mean() / 255.0
+    color_diff = float(np.abs(c1["mean_color"] - c2["mean_color"]).mean() / 255.0)
+    inter = float(
+        np.mean([np.minimum(c1["hist"][c], c2["hist"][c]).sum() for c in range(3)])
     )
-    inter = float(np.mean([
-        np.minimum(c1["hist"][c], c2["hist"][c]).sum() for c in range(3)
-    ]))
     return {
         "d_mean": abs(c1["d_mean"] - c2["d_mean"]),
         "d_median": abs(c1["d_median"] - c2["d_median"]),
@@ -109,9 +111,7 @@ def pair_features(c1: dict, c2: dict) -> dict[str, float]:
         "centroid_dist": centroid,
         "min_dist": mdist,
         "bbox_gap": bbox_gap(c1["bbox"], c2["bbox"]),
-        "log_area_ratio": float(
-            abs(np.log(c1["area"] / c2["area"] + 1e-6))
-        ),
+        "log_area_ratio": float(abs(np.log(c1["area"] / c2["area"] + 1e-6))),
         "norm_centroid_dist": centroid / (scale + 1e-6),
         "color_l1": color_diff,
         "hist_intersect": inter,
@@ -171,9 +171,7 @@ def main() -> None:
         comps = load_image_components(coco, image, depth_dir, image_dir)
         per_instance: dict[int, int] = {}
         for c in comps:
-            per_instance[c["instance"]] = (
-                per_instance.get(c["instance"], 0) + 1
-            )
+            per_instance[c["instance"]] = per_instance.get(c["instance"], 0) + 1
         n_instances += len(per_instance)
         n_multi += sum(1 for v in per_instance.values() if v > 1)
         n_components += len(comps)
@@ -181,8 +179,7 @@ def main() -> None:
             rows.append(pair_features(c1, c2))
             labels.append(int(c1["instance"] == c2["instance"]))
             groups.append(int(img_id))
-        print(f"img {img_id}: {len(comps)} comps, {len(rows)} pairs",
-              flush=True)
+        print(f"img {img_id}: {len(comps)} comps, {len(rows)} pairs", flush=True)
 
     y = np.array(labels)
     groups_arr = np.array(groups)
@@ -221,16 +218,12 @@ def main() -> None:
         for tr, te in GroupKFold(n_splits=5).split(Xs, y, groups_arr):
             model = make_pipeline(
                 StandardScaler(),
-                LogisticRegression(
-                    max_iter=2000, class_weight="balanced"
-                ),
+                LogisticRegression(max_iter=2000, class_weight="balanced"),
             )
             model.fit(Xs[tr], y[tr])
             if len(np.unique(y[te])) < 2:
                 continue
-            aucs.append(
-                roc_auc_score(y[te], model.predict_proba(Xs[te])[:, 1])
-            )
+            aucs.append(roc_auc_score(y[te], model.predict_proba(Xs[te])[:, 1]))
         return float(np.mean(aucs))
 
     results["combo_auc"] = {
@@ -261,9 +254,7 @@ def main() -> None:
         or results["depth_rule"]["best_accuracy"] >= 0.9
     )
 
-    (here / "results.json").write_text(
-        json.dumps(results, indent=2), encoding="utf-8"
-    )
+    (here / "results.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
     print(json.dumps(results, indent=2))
 
 

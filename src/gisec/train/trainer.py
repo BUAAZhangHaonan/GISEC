@@ -101,8 +101,7 @@ def _backward_gisec_loss(
 
 def _peak_memory_mb(device: torch.device) -> float:
     if device.type == "cuda" and torch.cuda.is_available():
-        return float(
-            torch.cuda.max_memory_allocated(device) / (1024.0 * 1024.0))
+        return float(torch.cuda.max_memory_allocated(device) / (1024.0 * 1024.0))
     return 0.0
 
 
@@ -202,17 +201,19 @@ def _prepare_training(args: argparse.Namespace) -> _TrainingRun:
     model = build_gisec_model(args).to(device)
     configure_model_for_stage(model, args)
     reference_source = build_reference_source(args)
-    trainable_params = [
-        param for param in model.parameters() if param.requires_grad]
-    optimizer = torch.optim.AdamW(trainable_params, lr=float(
-        args.learning_rate), weight_decay=float(args.weight_decay))
+    trainable_params = [param for param in model.parameters() if param.requires_grad]
+    optimizer = torch.optim.AdamW(
+        trainable_params,
+        lr=float(args.learning_rate),
+        weight_decay=float(args.weight_decay),
+    )
     scaler = GradScaler(enabled=bool(device.type == "cuda"))
-    ann_file = Path(args.dataset_root).resolve() / \
-        "annotations" / "instances_val.json"
+    ann_file = Path(args.dataset_root).resolve() / "annotations" / "instances_val.json"
     output_dir.mkdir(parents=True, exist_ok=True)
     params_trainable = sum(int(param.numel()) for param in trainable_params)
-    (output_dir /
-     "params_trainable.txt").write_text(f"{params_trainable}\n", encoding="utf-8")
+    (output_dir / "params_trainable.txt").write_text(
+        f"{params_trainable}\n", encoding="utf-8"
+    )
     metrics_log_path = output_dir / "metrics_log.jsonl"
     resume_requested = bool(str(getattr(args, "resume_checkpoint", "")).strip())
     if metrics_log_path.exists() and not resume_requested:
@@ -279,8 +280,7 @@ def _run_epoch_eval(
     best_updated = bool(segm_ap > best_ap_in)
     if best_updated:
         best_ap_in = segm_ap
-        save_torch_payload(run.best_checkpoint, checkpoint_payload(
-            run.model, run.args))
+        save_torch_payload(run.best_checkpoint, checkpoint_payload(run.model, run.args))
         _emit_gisec_log(
             run.metrics_log_path,
             {
@@ -326,8 +326,7 @@ def _run_training_loop(
     epoch_steps_total = len(run.train_loader)
     planned_total_steps = int(epoch_steps_total * int(args.epochs))
     if int(args.max_train_steps) > 0:
-        planned_total_steps = min(
-            planned_total_steps, int(args.max_train_steps))
+        planned_total_steps = min(planned_total_steps, int(args.max_train_steps))
     running_step_time_total = 0.0
     non_blocking = bool(run.device.type == "cuda")
     if bool(str(getattr(args, "resume_checkpoint", "")).strip()):
@@ -345,7 +344,8 @@ def _run_training_loop(
             args=args,
         )
         dropped_rows = _drop_stale_metrics_rows(
-            run.metrics_log_path, int(completed_epoch))
+            run.metrics_log_path, int(completed_epoch)
+        )
         if dropped_rows:
             print(
                 f"[gisec-train] dropped {dropped_rows} stale metrics rows "
@@ -373,9 +373,8 @@ def _run_training_loop(
         for epoch_step, samples in enumerate(run.train_loader, start=1):
             # Check before the optimizer step so a run that resumes already
             # at the cap trains exactly N steps, never N + 1.
-            if (
-                int(args.max_train_steps) > 0
-                and step_count >= int(args.max_train_steps)
+            if int(args.max_train_steps) > 0 and step_count >= int(
+                args.max_train_steps
             ):
                 break
             step_start = time.perf_counter()
@@ -388,10 +387,12 @@ def _run_training_loop(
                     [sample["depth"].float() for sample in samples], dim=0
                 ).to(run.device, non_blocking=non_blocking)
             pixel_values = prepare_gisec_input_batch(
-                images=images, depths=depths, depth_mode=str(args.depth_mode))
+                images=images, depths=depths, depth_mode=str(args.depth_mode)
+            )
             pixel_mask = build_pixel_mask(pixel_values)
             mask_labels, class_labels = build_label_targets(
-                samples, device=run.device, non_blocking=non_blocking)
+                samples, device=run.device, non_blocking=non_blocking
+            )
             with autocast(
                 device_type=run.device.type,
                 enabled=bool(run.device.type == "cuda"),
@@ -418,8 +419,7 @@ def _run_training_loop(
                 component_class_index=run.component_class_index,
                 boundary_loss_weight=float(args.boundary_loss_weight),
                 graph_loss_weight=float(args.graph_loss_weight),
-                reference_match_loss_weight=float(
-                    args.reference_match_loss_weight),
+                reference_match_loss_weight=float(args.reference_match_loss_weight),
                 mask_threshold=float(args.mask_threshold),
             )
             loss = backbone_loss + local_loss
@@ -433,11 +433,10 @@ def _run_training_loop(
             step_time_sec = float(time.perf_counter() - step_start)
             running_step_time_total += step_time_sec
             running_avg_step_time_sec = float(
-                running_step_time_total / max(step_count, 1))
-            elapsed_sec = run.prior_elapsed_sec + \
-                float(time.perf_counter() - run.start)
-            remaining_steps = max(
-                int(planned_total_steps) - int(step_count), 0)
+                running_step_time_total / max(step_count, 1)
+            )
+            elapsed_sec = run.prior_elapsed_sec + float(time.perf_counter() - run.start)
+            remaining_steps = max(int(planned_total_steps) - int(step_count), 0)
             eta_sec = float(running_avg_step_time_sec * remaining_steps)
             if (
                 step_count == 1
@@ -467,8 +466,7 @@ def _run_training_loop(
                 }
                 if isinstance(loss_dict, dict):
                     for key, value in loss_dict.items():
-                        row[f"loss_backbone_{key}"] = float(
-                            value.detach().cpu())
+                        row[f"loss_backbone_{key}"] = float(value.detach().cpu())
                 row.update(local_metrics)
                 _emit_gisec_log(run.metrics_log_path, row)
         epoch_train_sec = float(time.perf_counter() - epoch_train_start)
@@ -484,7 +482,8 @@ def _run_training_loop(
         )
         last_epoch = int(epoch_index + 1)
         stopping_early = int(args.max_train_steps) > 0 and step_count >= int(
-            args.max_train_steps)
+            args.max_train_steps
+        )
         should_eval = False
         if eval_interval > 0:
             should_eval = stopping_early or (
@@ -493,7 +492,8 @@ def _run_training_loop(
             )
         if should_eval:
             best_ap, epoch_metrics, epoch_speed = _run_epoch_eval(
-                run, epoch=int(epoch_index + 1), best_ap_in=best_ap)
+                run, epoch=int(epoch_index + 1), best_ap_in=best_ap
+            )
             if stopping_early:
                 final_metrics = epoch_metrics
                 final_speed = epoch_speed
@@ -547,15 +547,16 @@ def _finalize_run(
     )
     if final_eval_pending:
         best_ap, final_metrics, final_speed = _run_epoch_eval(
-            run, epoch=int(last_epoch), best_ap_in=best_ap)
-    peak_memory_mb = max(
-        run.prior_peak_memory_mb, _peak_memory_mb(run.device))
-    wall_time_sec = int(
-        run.prior_elapsed_sec + (time.perf_counter() - run.start))
-    (run.output_dir /
-     "peak_memory_mb.txt").write_text(f"{peak_memory_mb:.4f}\n", encoding="utf-8")
-    (run.output_dir /
-     "wall_time_sec.txt").write_text(f"{wall_time_sec}\n", encoding="utf-8")
+            run, epoch=int(last_epoch), best_ap_in=best_ap
+        )
+    peak_memory_mb = max(run.prior_peak_memory_mb, _peak_memory_mb(run.device))
+    wall_time_sec = int(run.prior_elapsed_sec + (time.perf_counter() - run.start))
+    (run.output_dir / "peak_memory_mb.txt").write_text(
+        f"{peak_memory_mb:.4f}\n", encoding="utf-8"
+    )
+    (run.output_dir / "wall_time_sec.txt").write_text(
+        f"{wall_time_sec}\n", encoding="utf-8"
+    )
     summary = build_run_summary_payload(
         model="mask2former",
         variant=run.variant_spec.name,
@@ -569,7 +570,8 @@ def _finalize_run(
         training_peak_memory_mb=peak_memory_mb,
         wall_time_sec=wall_time_sec,
         benchmark=gisec_benchmark_payload(
-            run.variant_spec.name, str(args.depth_mode), int(args.image_size)),
+            run.variant_spec.name, str(args.depth_mode), int(args.image_size)
+        ),
         # Records the protocol the epoch-val actually used: best-model
         # selection runs on the eval candidate set, never on the 0.5 save
         # threshold of --score-threshold, and a CLI override must land on

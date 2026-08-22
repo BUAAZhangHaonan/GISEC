@@ -37,15 +37,16 @@ def _adapt_patch_projection(projection: nn.Conv2d, input_channels: int) -> nn.Co
         bias=projection.bias is not None,
     )
     with torch.no_grad():
-        channels_to_copy = min(int(input_channels),
-                               int(projection.in_channels))
+        channels_to_copy = min(int(input_channels), int(projection.in_channels))
         extra_channels = int(input_channels) - channels_to_copy
         if extra_channels > 0:
             reference = projection.weight.mean(dim=1, keepdim=True)
             new_projection.weight[:, channels_to_copy:].copy_(
-                reference.repeat(1, extra_channels, 1, 1))
+                reference.repeat(1, extra_channels, 1, 1)
+            )
         new_projection.weight[:, :channels_to_copy].copy_(
-            projection.weight[:, :channels_to_copy])
+            projection.weight[:, :channels_to_copy]
+        )
         if new_projection.bias is not None and projection.bias is not None:
             new_projection.bias.copy_(projection.bias)
     return new_projection

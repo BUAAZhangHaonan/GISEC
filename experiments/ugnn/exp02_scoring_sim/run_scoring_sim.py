@@ -67,9 +67,7 @@ def grad_energy(gray: np.ndarray, mask: np.ndarray) -> float:
     return float(inside.mean())
 
 
-def normalize(global_raw: dict[tuple[int, int], float]) -> dict[
-    tuple[int, int], float
-]:
+def normalize(global_raw: dict[tuple[int, int], float]) -> dict[tuple[int, int], float]:
     vals = np.array(list(global_raw.values()))
     lo, hi = float(vals.min()), float(vals.max())
     span = hi - lo if hi > lo else 1.0
@@ -104,7 +102,7 @@ def depth_group_merge(
         return [frags[i] for i in order]
     sorted_means = np.array([means[i] for i in order])
     gaps = sorted_means[1:] - sorted_means[:-1]
-    cut_idx = np.argsort(gaps)[-(n_groups - 1):]
+    cut_idx = np.argsort(gaps)[-(n_groups - 1) :]
     bounds = sorted(cut_idx + 1)
     groups = []
     start = 0
@@ -174,9 +172,7 @@ def main() -> None:
         frag_owner[img_id] = owners
         if frags:
             depth = load_depth(coco, img_id, depth_dir)
-            depth_groups[img_id] = depth_group_merge(
-                frags, depth, len(masks)
-            )
+            depth_groups[img_id] = depth_group_merge(frags, depth, len(masks))
 
     total = sum(len(v) for v in gt_masks.values())
     n_frag = sum(len(v) for v in frag_masks.values())
@@ -184,9 +180,7 @@ def main() -> None:
     scores: dict[str, dict[tuple[int, int], float]] = {
         name: normalize(vals) for name, vals in raw.items()
     }
-    scores["const_0.5"] = {
-        k: 0.5 for k in scores["random"]
-    }
+    scores["const_0.5"] = {k: 0.5 for k in scores["random"]}
 
     def run_gt(scheme: dict[tuple[int, int], float], tag: str) -> dict:
         results = []
@@ -231,15 +225,9 @@ def main() -> None:
     ]
     for name in order[:5]:
         out["scoring"][name] = run_gt(scores[name], name)
-    out["scoring"]["oracle_1.0"] = run_gt(
-        {k: 1.0 for k in scores["random"]}, "oracle"
-    )
-    out["scoring"]["oracle_noise_sigma_0.1"] = run_gt(
-        oracle_noised(0.1), "noise01"
-    )
-    out["scoring"]["oracle_noise_sigma_0.3"] = run_gt(
-        oracle_noised(0.3), "noise03"
-    )
+    out["scoring"]["oracle_1.0"] = run_gt({k: 1.0 for k in scores["random"]}, "oracle")
+    out["scoring"]["oracle_noise_sigma_0.1"] = run_gt(oracle_noised(0.1), "noise01")
+    out["scoring"]["oracle_noise_sigma_0.3"] = run_gt(oracle_noised(0.3), "noise03")
 
     def run_frag(masks_by_img: dict[int, list[np.ndarray]], tag: str):
         results = []
@@ -261,13 +249,9 @@ def main() -> None:
             by_gt[o] = by_gt.get(o, np.zeros_like(f)) | f
         merged[img_id] = [by_gt[g] for g in sorted(by_gt)]
 
-    out["fragmentation"]["cc_split_oracle_conf"] = run_frag(
-        frag_masks, "cc_split"
-    )
+    out["fragmentation"]["cc_split_oracle_conf"] = run_frag(frag_masks, "cc_split")
     out["fragmentation"]["merge_by_gt_oracle"] = run_frag(merged, "merge_gt")
-    out["fragmentation"]["merge_by_depth_order"] = run_frag(
-        depth_groups, "merge_depth"
-    )
+    out["fragmentation"]["merge_by_depth_order"] = run_frag(depth_groups, "merge_depth")
 
     out_path = Path(__file__).resolve().parent / "results.json"
     out_path.write_text(json.dumps(out, indent=2))

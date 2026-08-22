@@ -1,4 +1,5 @@
 """Command line entrypoints for GISEC."""
+
 from __future__ import annotations
 
 import argparse
@@ -25,7 +26,8 @@ _COMMANDS: dict[str, tuple[str, Callable[[list[str]], Any], Callable[[Any], None
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="gisec", description="Standalone GISEC command line interface")
+        prog="gisec", description="Standalone GISEC command line interface"
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
     for name, (help_text, _parse_args, _handler) in _COMMANDS.items():
         subparsers.add_parser(name, help=help_text)

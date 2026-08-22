@@ -41,7 +41,6 @@ import numpy as np
 import torch
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
-from scipy import ndimage as ndi
 from skimage.feature import peak_local_max
 from skimage.segmentation import watershed
 
@@ -50,12 +49,11 @@ sys.path.insert(0, str(HERE.parent / "exp03_unet_dense"))
 sys.path.insert(0, str(HERE.parent / "exp04_instance_split"))
 
 import eval_pipeline as ep  # noqa: E402
+import segmentation_models_pytorch as smp  # noqa: E402
 from eval_watershed import elevation_map, postprocess  # noqa: E402
 
-from gisec.eval.coco_export import masks_to_coco_results  # noqa: E402
 from gisec.eval.coco_eval import evaluate_json  # noqa: E402
-
-import segmentation_models_pytorch as smp  # noqa: E402
+from gisec.eval.coco_export import masks_to_coco_results  # noqa: E402
 
 # E8: new data root, patched into the shared eval_pipeline helpers
 DATA = HERE.parents[2] / "datasets" / "20260318_1K_32254"
@@ -84,11 +82,16 @@ def load_split(split: str):
         dpath = DATA / "depth" / "depth_npy" / split / f"{stem}.npy"
         if not dpath.exists():
             continue
-        items.append({
-            "image_id": img_id, "file_name": info["file_name"],
-            "height": info["height"], "width": info["width"],
-            "dpath": str(dpath), "ann_ids": coco.getAnnIds(imgIds=[img_id]),
-        })
+        items.append(
+            {
+                "image_id": img_id,
+                "file_name": info["file_name"],
+                "height": info["height"],
+                "width": info["width"],
+                "dpath": str(dpath),
+                "ann_ids": coco.getAnnIds(imgIds=[img_id]),
+            }
+        )
     return items, coco
 
 
@@ -101,7 +104,8 @@ def load_image(meta, coco):
     depth = ep.load_depth_array(Path(meta["dpath"]))
     gt_insts = [
         ep.ann_to_mask(a, meta["height"], meta["width"])
-        for a in coco.loadAnns(meta["ann_ids"])]
+        for a in coco.loadAnns(meta["ann_ids"])
+    ]
     return {"img": img, "depth": depth, "gt_insts": gt_insts}
 
 
@@ -118,16 +122,18 @@ def scene_bootstrap(metas, results, n_boot=200, seed=0):
     (unchanged); no predictions are recomputed or held as masks."""
     scenes = {}
     for it in metas:
-        scenes.setdefault(scene_key(it["file_name"]),
-                          []).append(it["image_id"])
+        scenes.setdefault(scene_key(it["file_name"]), []).append(it["image_id"])
     coco_gt = COCO(str(DATA / "annotations" / "instances_val.json"))
     coco_dt = coco_gt.loadRes(results)
     keys = list(scenes)
     ap_s, ap_b = [], []
     rng = np.random.default_rng(seed)
     for _ in range(n_boot):
-        img_ids = sorted(itertools.chain.from_iterable(
-            scenes[keys[rng.integers(len(keys))]] for _ in keys))
+        img_ids = sorted(
+            itertools.chain.from_iterable(
+                scenes[keys[rng.integers(len(keys))]] for _ in keys
+            )
+        )
         row = []
         for metric in ("segm", "bbox"):
             ev = COCOeval(coco_gt, coco_dt, metric)
@@ -141,24 +147,29 @@ def scene_bootstrap(metas, results, n_boot=200, seed=0):
         ap_b.append(row[1])
     out = {"n_scenes": len(keys)}
     for name, vals in (("segm", ap_s), ("bbox", ap_b)):
-        out[name] = {"mean": float(np.mean(vals)),
-                     "ci95": [float(np.percentile(vals, 2.5)),
-                              float(np.percentile(vals, 97.5))]}
+        out[name] = {
+            "mean": float(np.mean(vals)),
+            "ci95": [float(np.percentile(vals, 2.5)), float(np.percentile(vals, 97.5))],
+        }
     return out
 
 
 def hm_markers(hm, sem, min_distance):
     coords = peak_local_max(
-        hm, min_distance=min_distance, labels=sem,
-        exclude_border=False, threshold_abs=HM_THR)
+        hm,
+        min_distance=min_distance,
+        labels=sem,
+        exclude_border=False,
+        threshold_abs=HM_THR,
+    )
     return [tuple(c) for c in coords]
 
 
 def depth_markers(depth, sem, min_distance):
     elev = elevation_map(depth, None, "depth_grad")
     coords = peak_local_max(
-        -elev, min_distance=min_distance, labels=sem,
-        exclude_border=False)
+        -elev, min_distance=min_distance, labels=sem, exclude_border=False
+    )
     return [tuple(c) for c in coords]
 
 
@@ -205,8 +216,9 @@ class SplitStats:  # E8b
             if gys.size == 0:
                 gt_bboxes.append(None)
                 continue
-            gt_bboxes.append((gys.min(), gys.max(), gxs.min(),
-                              gxs.max(), int(gm.sum())))
+            gt_bboxes.append(
+                (gys.min(), gys.max(), gxs.min(), gxs.max(), int(gm.sum()))
+            )
         claims = [0] * len(gt_insts)
         for m, a in insts:
             ys, xs = np.nonzero(m)
@@ -218,9 +230,12 @@ class SplitStats:  # E8b
                 gy0, gy1, gx0, gx1, garea = bb
                 if y1 < gy0 or y0 > gy1 or x1 < gx0 or x0 > gx1:
                     continue
-                inter = int((m[y0:y1 + 1, x0:x1 + 1]
-                             & gt_insts[gi][y0:y1 + 1,
-                                           x0:x1 + 1]).sum())
+                inter = int(
+                    (
+                        m[y0 : y1 + 1, x0 : x1 + 1]
+                        & gt_insts[gi][y0 : y1 + 1, x0 : x1 + 1]
+                    ).sum()
+                )
                 if inter / max(garea, 1) >= 0.5:
                     cover.append(gi)
             for gi in cover:
@@ -231,7 +246,8 @@ class SplitStats:  # E8b
 
     def row(self):
         return {
-            "n_gt": self.n_gt, "n_pred": self.n_pred,
+            "n_gt": self.n_gt,
+            "n_pred": self.n_pred,
             "oversplit_gt_rate": self.n_over / max(self.n_gt, 1),
             "undersplit_piece_rate": self.n_under / max(self.n_pred, 1),
         }
@@ -275,15 +291,16 @@ def forward_one(model, it):
     """E8b: single-image forward -> (sem mask uint8, hm prob or None).
     All torch tensors are dropped before returning."""
     x = np.concatenate(
-        [it["img"].astype(np.float32) / 255.0,
-         ep.norm_depth(it["depth"])[..., None].astype(np.float32)],
-        axis=-1)
-    x = torch.from_numpy(
-        np.ascontiguousarray(x.transpose(2, 0, 1)))[None].cuda()
+        [
+            it["img"].astype(np.float32) / 255.0,
+            ep.norm_depth(it["depth"])[..., None].astype(np.float32),
+        ],
+        axis=-1,
+    )
+    x = torch.from_numpy(np.ascontiguousarray(x.transpose(2, 0, 1)))[None].cuda()
     out = model(x)[0]
     sem = (torch.sigmoid(out[0]) > 0.5).cpu().numpy().astype(np.uint8)
-    hm = (torch.sigmoid(out[1]).cpu().numpy()
-          if out.shape[0] > 1 else None)
+    hm = torch.sigmoid(out[1]).cpu().numpy() if out.shape[0] > 1 else None
     return sem, hm
 
 
@@ -293,29 +310,40 @@ def to_results(image_id, insts, h, w):
     capped = sorted(insts, key=lambda t: -t[1])[:100]
     scores = ep.score_area(capped, h, w)
     return masks_to_coco_results(
-        image_id=image_id, masks=[m for m, _ in capped],
-        scores=scores, category_id=ep.CAT_ID)
+        image_id=image_id,
+        masks=[m for m, _ in capped],
+        scores=scores,
+        category_id=ep.CAT_ID,
+    )
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--ckpt", default=str(RUNS / "best.pth"))
-    ap.add_argument("--max-images", type=int, default=None,
-                    help="E8b: smoke-test subset of val images")
-    ap.add_argument("--out", default="eval_report.json",
-                    help="E8b: report file name under runs_resume/")
+    ap.add_argument(
+        "--max-images",
+        type=int,
+        default=None,
+        help="E8b: smoke-test subset of val images",
+    )
+    ap.add_argument(
+        "--out",
+        default="eval_report.json",
+        help="E8b: report file name under runs_resume/",
+    )
     args = ap.parse_args()
 
     sd = torch.load(args.ckpt, map_location="cpu")
     classes = sd["segmentation_head.0.weight"].shape[0]
-    model = smp.Unet(encoder_name="resnet18", encoder_weights=None,
-                     in_channels=4, classes=classes)
+    model = smp.Unet(
+        encoder_name="resnet18", encoder_weights=None, in_channels=4, classes=classes
+    )
     model.load_state_dict(sd)
     model.cuda().eval()
 
     metas, coco = load_split("val")
     if args.max_images:
-        metas = metas[:args.max_images]
+        metas = metas[: args.max_images]
     ann_file = DATA / "annotations" / "instances_val.json"
     RUNS.mkdir(exist_ok=True)
     report = {"grid": []}
@@ -339,38 +367,49 @@ def main() -> None:
         tp = time.perf_counter()
         sem, hm = forward_one(model, it)
         t_fwd += time.perf_counter() - tp
-        coords_by_tag = {
-            "oracle_gt_centers": gt_c,
-            "hm/md6": hm_markers(hm, sem, 6),
-            "hm/md12": hm_markers(hm, sem, 12),
-            "hm/md9": hm_markers(hm, sem, 9),
-        } if hm is not None else {
-            "oracle_gt_centers": gt_c,
-            "hm/md6": gt_c, "hm/md12": gt_c, "hm/md9": gt_c,
-        }
+        coords_by_tag = (
+            {
+                "oracle_gt_centers": gt_c,
+                "hm/md6": hm_markers(hm, sem, 6),
+                "hm/md12": hm_markers(hm, sem, 12),
+                "hm/md9": hm_markers(hm, sem, 9),
+            }
+            if hm is not None
+            else {
+                "oracle_gt_centers": gt_c,
+                "hm/md6": gt_c,
+                "hm/md12": gt_c,
+                "hm/md9": gt_c,
+            }
+        )
         # E8b: seed precision pairs (heatmap md9 vs depth md15)
         hm_seed.append((gc, coords_by_tag["hm/md9"]))
         dep_seed.append((gc, depth_markers(it["depth"], sem, 15)))
         for tag in tags:
             tp = time.perf_counter()
             insts = watershed_from_markers(
-                sem, it["depth"], it["img"], coords_by_tag[tag])
+                sem, it["depth"], it["img"], coords_by_tag[tag]
+            )
             if tag == "hm/md9":
                 t_ws += time.perf_counter() - tp
             stats[tag].add(it["gt_insts"], insts)  # uncapped, as E6/E8
             results[tag] += to_results(  # capped top-100, RLE only
-                meta["image_id"], insts, meta["height"], meta["width"])
+                meta["image_id"], insts, meta["height"], meta["width"]
+            )
             del insts  # E8b
         del it, sem, hm, coords_by_tag  # E8b
         if (n + 1) % 250 == 0 or n + 1 == len(metas):
             dt = time.perf_counter() - t0
-            print(f"  {n + 1}/{len(metas)} ({dt / (n + 1):.2f} s/img, "
-                  f"forward {t_fwd / (n + 1):.3f} s) rss={rss_gb():.2f} GB",
-                  flush=True)
+            print(
+                f"  {n + 1}/{len(metas)} ({dt / (n + 1):.2f} s/img, "
+                f"forward {t_fwd / (n + 1):.3f} s) rss={rss_gb():.2f} GB",
+                flush=True,
+            )
 
     report["latency_s_per_img"] = {
         "forward": t_fwd / len(metas),
-        "watershed_post": t_ws / len(metas)}
+        "watershed_post": t_ws / len(metas),
+    }
 
     # E8b: score each config from its compact RLE list, then CLEAR
     # the list before the next config is evaluated (no cross-config
@@ -380,12 +419,17 @@ def main() -> None:
     for tag in tags:
         ev = evaluate_json(Path(ann_file), results[tag])
         st = stats[tag].row()
-        row = {"tag": tag, "segm_AP": ev["segm/AP"],
-               "segm_AP50": ev["segm/AP50"], "segm_AP75": ev["segm/AP75"],
-               "bbox_AP": ev["bbox/AP"], "bbox_AP50": ev["bbox/AP50"],
-               "bbox_AP75": ev["bbox/AP75"],
-               "n_inst": st["n_pred"],
-               "n_inst_per_img": st["n_pred"] / len(metas)}
+        row = {
+            "tag": tag,
+            "segm_AP": ev["segm/AP"],
+            "segm_AP50": ev["segm/AP50"],
+            "segm_AP75": ev["segm/AP75"],
+            "bbox_AP": ev["bbox/AP"],
+            "bbox_AP50": ev["bbox/AP50"],
+            "bbox_AP75": ev["bbox/AP75"],
+            "n_inst": st["n_pred"],
+            "n_inst_per_img": st["n_pred"] / len(metas),
+        }
         row.update(st)
         print(row, flush=True)
         report["grid"].append(row)

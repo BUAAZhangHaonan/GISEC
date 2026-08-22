@@ -27,15 +27,15 @@ class BaselineInstanceDataset(Dataset):
         self.image_size = int(image_size)
         self.include_depth = bool(include_depth)
         self.include_annotations = bool(include_annotations)
-        self.coco = LiteCOCO(self.root / "annotations" /
-                             f"instances_{self.split}.json")
+        self.coco = LiteCOCO(self.root / "annotations" / f"instances_{self.split}.json")
         self.image_ids = sorted(self.coco.getImgIds())
         depth_candidates = [
             self.root / "depth" / self.split,
             self.root / "depth" / "depth_npy" / self.split,
         ]
         self.depth_dir = next(
-            (path for path in depth_candidates if path.exists()), None)
+            (path for path in depth_candidates if path.exists()), None
+        )
 
     @property
     def component_category_id(self) -> int:
@@ -93,12 +93,16 @@ class BaselineInstanceDataset(Dataset):
 
         depth_tensor = None
         if self.include_depth:
-            depth_dir = self.depth_dir if self.depth_dir is not None else \
-                self.root / "depth" / self.split
+            depth_dir = (
+                self.depth_dir
+                if self.depth_dir is not None
+                else self.root / "depth" / self.split
+            )
             depth_path = depth_dir / f"{Path(info['file_name']).stem}.npy"
             if not depth_path.exists():
                 raise FileNotFoundError(
-                    f"missing depth array for {info['file_name']}: {depth_path}")
+                    f"missing depth array for {info['file_name']}: {depth_path}"
+                )
             depth = load_depth_array(depth_path)
             depth = cv2.resize(
                 depth,
@@ -111,12 +115,12 @@ class BaselineInstanceDataset(Dataset):
         labels_tensor = None
         if self.include_annotations:
             if masks:
-                masks_tensor = torch.from_numpy(
-                    np.stack(masks, axis=0)).to(torch.uint8)
+                masks_tensor = torch.from_numpy(np.stack(masks, axis=0)).to(torch.uint8)
                 labels_tensor = torch.tensor(labels, dtype=torch.int64)
             else:
                 masks_tensor = torch.zeros(
-                    (0, self.image_size, self.image_size), dtype=torch.uint8)
+                    (0, self.image_size, self.image_size), dtype=torch.uint8
+                )
                 labels_tensor = torch.zeros((0,), dtype=torch.int64)
 
         return {

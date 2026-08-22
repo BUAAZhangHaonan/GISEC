@@ -1,5 +1,6 @@
 """Tiny synthetic: minimax relaxation vs skimage watershed."""
-import numpy as np, torch
+
+import numpy as np
 from skimage.segmentation import watershed
 
 rng = np.random.RandomState(3)
@@ -21,17 +22,28 @@ changed = True
 while changed:
     changed = False
     for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-        Dn = np.roll(D, (-dy, -dx), (0, 1)); Ln = np.roll(lab, (-dy, -dx), (0, 1))
-        if dy == 1: Dn[0] = np.inf; Ln[0] = 0
-        if dy == -1: Dn[-1] = np.inf; Ln[-1] = 0
-        if dx == 1: Dn[:, 0] = np.inf; Ln[:, 0] = 0
-        if dx == -1: Dn[:, -1] = np.inf; Ln[:, -1] = 0
+        Dn = np.roll(D, (-dy, -dx), (0, 1))
+        Ln = np.roll(lab, (-dy, -dx), (0, 1))
+        if dy == 1:
+            Dn[0] = np.inf
+            Ln[0] = 0
+        if dy == -1:
+            Dn[-1] = np.inf
+            Ln[-1] = 0
+        if dx == 1:
+            Dn[:, 0] = np.inf
+            Ln[:, 0] = 0
+        if dx == -1:
+            Dn[:, -1] = np.inf
+            Ln[:, -1] = 0
         cand = np.maximum(Dn, elev)
         ok = (Ln > 0) & sem
         cand = np.where(ok, cand, np.inf)
         upd = cand < D
-        D[upd] = cand[upd]; lab[upd] = Ln[upd]
+        D[upd] = cand[upd]
+        lab[upd] = Ln[upd]
         changed |= upd.any()
+
 
 def iou(a, b, m):
     out = []
@@ -41,6 +53,7 @@ def iou(a, b, m):
         out.append(((x & y).sum() / u) if u else 1.0)
     return out
 
-print('conn1 IoU', np.round(iou(lab, ref, 3), 3))
-print('conn2 IoU', np.round(iou(lab, ref2, 3), 3))
-print('agree conn1', (lab == ref).mean(), 'conn2', (lab == ref2).mean())
+
+print("conn1 IoU", np.round(iou(lab, ref, 3), 3))
+print("conn2 IoU", np.round(iou(lab, ref2, 3), 3))
+print("agree conn1", (lab == ref).mean(), "conn2", (lab == ref2).mean())
