@@ -60,9 +60,10 @@ from train_capacity import SeedNet as SeedNetE10  # noqa: E402
 
 ep.DATA = DATA
 
-N_WORKERS = 6
+N_WORKERS = 16
 RUNS = HERE / "runs"
 STRIDE = 4
+SEM_THR = 0.6  # semantic logit -> binary mask threshold (E13 sweep winner)
 RGB_CACHE = HERE / "cache_rgb"
 DEPTH_LO, DEPTH_HI = ep.DEPTH_LO, ep.DEPTH_HI
 _F255 = _FLO = _FRANGE = None
@@ -97,6 +98,16 @@ def _cn_markers(hm, off, thr=HM_THR):
     y = np.clip(np.round(y), 0, hm.shape[0] * STRIDE - 1).astype(int)
     x = np.clip(np.round(x), 0, hm.shape[1] * STRIDE - 1).astype(int)
     return list(zip(y.tolist(), x.tolist(), strict=True))
+
+
+def _marker_peaks(hm, coords):
+    """Per-marker heatmap peak: hm at the marker's seed cell (y//4,
+    x//4). Marker k -> index k-1; the E11 instance score."""
+    if not coords:
+        return np.zeros(0, dtype=np.float64)
+    ys = np.fromiter((c[0] for c in coords), dtype=np.int64, count=len(coords))
+    xs = np.fromiter((c[1] for c in coords), dtype=np.int64, count=len(coords))
+    return hm[ys // STRIDE, xs // STRIDE].astype(np.float64)
 
 
 def load_rgb_cached(meta):
@@ -150,11 +161,15 @@ def _worker_one(payload):
     """CPU side of one image. full: both configs + GT stats +
     seed-precision pairs (original E9 contract). fast: FINAL config
     only, no GT work at all."""
-    meta, sem, hm, off, depth = payload
+    meta, sem_logit, hm, off, depth = payload
     t0 = time.perf_counter()
     coords = _cn_markers(hm, off)
+    sem = (1.0 / (1.0 + np.exp(-sem_logit)) > SEM_THR).astype(np.uint8)
     if W_PROFILE == "fast":
-        insts, coco = postproc_fast.process(meta["image_id"], coords, sem, depth)
+        peaks = _marker_peaks(hm, coords)
+        insts, coco = postproc_fast.process(
+            meta["image_id"], coords, sem, depth, sem_logit, peaks
+        )
         return {
             "results": {"centernet": coco},
             "counts": {"centernet": {"n_pred": len(insts)}},
@@ -176,8 +191,9 @@ def _worker_one(payload):
         "hm_seed": (gc, coords_by_tag["centernet"]),
     }
     for tag in ("oracle_gt_centers", "centernet"):
+        peaks = _marker_peaks(hm, coords_by_tag[tag])
         insts, coco = postproc_fast.process(
-            meta["image_id"], coords_by_tag[tag], sem, depth
+            meta["image_id"], coords_by_tag[tag], sem, depth, sem_logit, peaks
         )
         st = SplitStats()
         st.add(gt_insts, insts)
@@ -208,10 +224,10 @@ def _forward(model, img, depth):
     dn = d_t.sub(_FLO).div(_FRANGE).clamp(-1.0, 2.0)
     x = torch.cat([rgbf, dn[..., None]], dim=-1).permute(2, 0, 1)[None].contiguous()
     sem, seed = model(x)
-    sem = (torch.sigmoid(sem[0, 0]) > 0.5).cpu().numpy().astype(np.uint8)
+    sem_logit = sem[0, 0].cpu().numpy()  # raw logits (f32); binarize on CPU
     hm = torch.sigmoid(seed[0, 0]).cpu().numpy()
     off = seed[0, 1:3].cpu().numpy()
-    return sem, hm, off
+    return sem_logit, hm, off
 
 
 def _boot_init(coco_gt, coco_dt, scenes):
@@ -330,10 +346,10 @@ def main() -> None:
                 depth = ep.load_depth_array(Path(meta["dpath"]))
                 t_depth += time.perf_counter() - tp
                 tp = time.perf_counter()
-                sem, hm, off = _forward(model, img, depth)
+                sem_logit, hm, off = _forward(model, img, depth)
                 t_fwd += time.perf_counter() - tp
                 del img
-                yield (meta, sem, hm, off, depth)
+                yield (meta, sem_logit, hm, off, depth)
 
         pending = []
         it_ = iter(payloads())

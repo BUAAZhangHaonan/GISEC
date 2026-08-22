@@ -1,0 +1,8 @@
+{
+  "base": {},
+  "mix4": {"elev": "mix:4.0"},
+  "mix8": {"elev": "mix:8.0"},
+  "mix16": {"elev": "mix:16.0"},
+  "mix2b": {"elev": "mix:2.0"},
+  "sem_only": {"elev": "mix:inf"}
+}

@@ -15,3 +15,8 @@ dist/
 docs/method/
 output/
 .worktree/
+
+# ugnn sweep artifacts (regenerable, large)
+experiments/ugnn/exp12_knife/_cache_fwd/
+experiments/ugnn/exp12_knife/sweep_raw_round*.json
+experiments/ugnn/exp11_recall_score/feats/

@@ -1,0 +1,23 @@
+{
+  "n_img": 500,
+  "gt_per_img": 57.164,
+  "pred_per_img_uncapped": 52.632,
+  "matched_per_img": 50.692,
+  "gap_per_img": 6.472,
+  "cls_counts": {
+    "matched": 25346,
+    "matched@large": 6659,
+    "matched@medium": 18211,
+    "a_semantic": 3236,
+    "a_semantic@small": 763,
+    "a_semantic@medium": 2446,
+    "matched@small": 476,
+    "a_semantic@large": 27
+  },
+  "size_totals": {
+    "large": 6686,
+    "medium": 20657,
+    "small": 1239
+  },
+  "ckpt": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/experiments/ugnn/exp10_semantic_capacity/runs/best.pth"
+}

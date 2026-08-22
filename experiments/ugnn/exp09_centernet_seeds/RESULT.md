@@ -79,3 +79,14 @@ vs 新路径（缓存+GPU 预处理），头部张量逐位相等 100/100，FINA
   高争用段 1.2 s/img——E10 训练 IO/CPU 争用主导，与剖析期 noop 地板
   581 ms 同源）。E10 空闲时 fast 档纯管线 ~0.09 s/img 量级
   （fwd 18 + rgb 25 + depth ~15 + worker 37 摊销）。
+
+## 2026-08-22 集成：峰值打分 + mix elevation 成为默认 FINAL 路径
+
+E11 峰值打分（实例 score = marker 种子热图峰值，top-100 按峰值排）
++ E12 mix elevation（re-rank(rank_d + 2·rank(sobel3(sem_logit)))，
+深度 rank 走原缓存）+ E13 thr=0.6 二值化，集成为
+postproc_fast.process 唯一默认路径（新签名 process(image_id,
+coords, sem, depth, sem_logit, peaks)）。全量 3276 val（fast 档，
+e10 ckpt）：segm AP 0.82137 / AP50 0.88188 / AP75 0.83312，
+n_pred 51.10/img，vs canonical 0.76968 ΔAP +5.17pt。wall
+0.049 s/img（2.02× 基线护栏内）。详见 ../exp13_integrate/RESULT.md。

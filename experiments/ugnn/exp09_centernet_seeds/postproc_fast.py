@@ -1,12 +1,17 @@
 """E9 production postprocess: numba CPU route (colosseum round-2
 champion, team_b, integrated verbatim in algorithm).
 
-Pipeline (identical semantics to the reference E8c path):
+Pipeline (E13 integrated default: peak scoring + mix elevation):
   markers : caller-supplied (CenterNet decode or GT centers)
-  elev/rank: numba separable sobel (f32) + hypot + order-preserving
-            integer rank; input-only (depth), cached under
-            runs/postproc_cache/val keyed (image_id)+md5(depth);
-            miss falls back to inline compute.
+  scoring : instance score = heatmap peak at the marker seed cell
+            (caller-supplied per-marker peaks array, E11 winner);
+            top-100 cutoff by this score, area ascending tiebreak.
+  elev/rank: mix elevation (E12 winner, lambda=2): depth rank
+            (numba separable sobel3 + hypot + order-preserving
+            integer rank, cached under runs/postproc_cache/val
+            keyed (image_id)+md5(depth), miss falls back to inline
+            compute) + 2 * inline rank(sobel3(sem logit gradient)),
+            then a full-image re-rank of the sum.
   watershed: numba hierarchical bucket queue (FIFO per rank), same
             algorithm as skimage _watershed_cy; only deviation is
             marker-plateau tie order (4/250 imgs +-1 instance,
@@ -17,7 +22,7 @@ Pipeline (identical semantics to the reference E8c path):
 
 `process()` returns (insts, results): insts is the uncapped
 [(mask, area)] list feeding SplitStats, results is the top-100
-COCO dicts (same score/area rule and bbox convention as
+COCO dicts scored by marker peak (bbox convention as
 masks_to_coco_results).
 
 CLI: `python postproc_fast.py` precomputes the full-val rank cache
@@ -38,6 +43,7 @@ from numba import njit
 MIN_AREA = 16
 SMALL_AREA = 32
 MAX_INST = 100
+MIX_LAMBDA = 2.0  # E12 winner: rank(depth grad) + 2*rank(sem-logit grad)
 
 HERE = Path(__file__).resolve().parent
 CACHE_DIR = Path(
@@ -92,6 +98,38 @@ def compute_elevation_rank(depth):
     uniq = np.unique(elev)
     rank = np.searchsorted(uniq, elev).astype(np.int32)
     return rank, np.int64(uniq.size)
+
+
+def _rank(elev):
+    """Order-preserving integer rank of any array (ties share a rank).
+
+    Single stable argsort + boundary grouping; yields the identical
+    rank array as unique+searchsorted at roughly half the cost."""
+    flat = np.ascontiguousarray(elev).ravel()
+    order = np.argsort(flat, kind="stable")
+    sv = flat[order]
+    grp = np.empty(flat.size, dtype=np.int64)
+    grp[0] = 0
+    if flat.size > 1:
+        np.cumsum(sv[1:] != sv[:-1], out=grp[1:])
+    rank = np.empty_like(grp)
+    rank[order] = grp
+    return rank.reshape(elev.shape).astype(np.int32), np.int64(grp[-1] + 1)
+
+
+def sem_logit_rank(sem_logit):
+    """Inline rank of the semantic-logit sobel3 gradient magnitude."""
+    sgx, sgy = _sobel_xy(np.ascontiguousarray(sem_logit, dtype=np.float32))
+    smag = _hypot_f32(sgx, sgy, np.empty_like(sgx))
+    return _rank(smag)
+
+
+def mix_elevation_rank(rank_d, rank_s):
+    """E12 mix elevation: re-rank(rank_d + MIX_LAMBDA * rank_s).
+
+    Integer arithmetic (exact, same ordering as the float64 sum)."""
+    mixed = rank_d.astype(np.int64) + np.int64(MIX_LAMBDA) * rank_s.astype(np.int64)
+    return _rank(mixed)
 
 
 def _depth_md5(depth):
@@ -304,17 +342,25 @@ def _counts_for_label(labels, lab, bx0, by0, bx1, by1, buf):
 
 
 # ---------------------------------------------------------------- entry
-def process(image_id, coords, sem, depth):
+def process(image_id, coords, sem, depth, sem_logit, peaks):
     """Full pipeline from caller-supplied markers.
 
+    sem is the binary mask (uint8); sem_logit is the raw semantic
+    logit map (f32) used for the mix elevation; peaks is the
+    per-marker heatmap peak array (len(coords), marker k -> index
+    k-1), used as the instance score (E11) and top-100 sort key
+    (peak desc, area asc tiebreak, stable).
+
     Returns (insts, results): insts = uncapped [(mask, area)] for
-    SplitStats; results = top-100-by-area COCO dicts with the same
-    score rule (area / max(amax, h*w*0.01)) and bbox convention as
-    the reference to_results/masks_to_coco_results path.
+    SplitStats; results = top-100-by-peak COCO dicts with the same
+    bbox convention as the reference to_results path.
     """
     if not coords:
         return [], []
-    rank, nrank = load_or_compute_rank(image_id, depth)
+    peaks = np.asarray(peaks, dtype=np.float64)
+    rank_d, _ = load_or_compute_rank(image_id, depth)
+    rank_s, _ = sem_logit_rank(sem_logit)
+    rank, nrank = mix_elevation_rank(rank_d, rank_s)
     markers = np.zeros(sem.shape, dtype=np.int32)
     for k, (y, x) in enumerate(coords, start=1):
         markers[y, x] = k
@@ -328,15 +374,12 @@ def process(image_id, coords, sem, depth):
         if area[lb] > MIN_AREA
     ]
     labs = [lb for lb in range(1, nmarkers + 1) if area[lb] > MIN_AREA]
-    labs.sort(key=lambda lb: -area[lb])
+    labs.sort(key=lambda lb: (-peaks[lb - 1], area[lb]))
     labs = labs[:MAX_INST]
     if not labs:
         return insts, []
-    h, w = sem.shape
-    amax = max(area[lb] for lb in labs)
-    denom = max(amax, h * w * 0.01)
-    buf = np.empty(sem.size + 8, dtype=np.uint32)
     H, W = sem.shape
+    buf = np.empty(sem.size + 8, dtype=np.uint32)
     results = []
     for lb in labs:
         n = _counts_for_label(
@@ -350,7 +393,7 @@ def process(image_id, coords, sem, depth):
             {
                 "image_id": int(image_id),
                 "category_id": 1,
-                "score": float(area[lb] / denom),
+                "score": float(peaks[lb - 1]),
                 "bbox": [
                     int(x0[lb]),
                     int(y0[lb]),
