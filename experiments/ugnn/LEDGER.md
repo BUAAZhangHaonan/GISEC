@@ -39,3 +39,5 @@ Killed at ep1 step 50 after ep0 completed (best.pth saved, val mIoU 0.9635). Roo
 | E11 recall_score | 召回缺口归因 + 峰值打分 | done | 100% 语义未覆盖（medium 为主 4.89/图，截断从不绑定）；峰值打分赢家 500 图 AP 0.7757→0.7918，CI [+1.08,+2.06]pt | AP 0.7918 (500img) | 2026-08-22 |
 | E12 knife | mix elevation λ=2 赢家；深度多尺度/腐蚀/merge 阈值全判负 | done | λ=2 AP 0.7757→0.7969，AP75 +2.17pt CI [+1.46,+3.05]；机理=语义 logit 梯度打散深度 32% 平局 | AP 0.7969 (500img) | 2026-08-22 |
 | E13 integrate | 零训练优化集成默认路径 + SEM_THR 0.6 | done | SEM_THR 0.6 +0.54pt CI [+0.31,+0.74]；全量 3276 fast FINAL segm AP 0.82137（AP50 0.88188 / AP75 0.83312 / n_pred 51.10），旧 canonical 0.76968 → +5.17pt；wall 0.049s/img，跨进程 CRC 一致 | 新 canonical segm AP 0.82137 | 2026-08-22 |
+| E13 fullboot | full-profile 无人值守评测（scene CI + oracle） | done | bootstrap 0.82056 [0.80817,0.83615]；oracle 0.81881，FINAL 反超 +0.26pt；AR@100 0.760 | CI 落定 | 2026-08-23 |
+| E14 tta | 推理期翻转 TTA（hflip/vflip/avg4，500 图） | done | 判负：hflip −5.28pt [−6.13,−4.37]，vflip −11.67pt，avg4 −9.27pt，全部 CI 不含 0；翻转平均糊刀口与峰，本管线不吃 TTA | TTA 死刑 | 2026-08-23 |

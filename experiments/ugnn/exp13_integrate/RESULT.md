@@ -66,3 +66,7 @@ stable，无随机。
 
 - `sweep_thr.py` / `sweep_thr.json` — thr 微扫 + bootstrap CI
 - `determinism_crc.py` — 100 图 CRC 抽查
+
+## Full-profile 评测（2026-08-23）
+
+单元 gisec-e13-fullboot2 无人值守跑完（08-23 00:28）：bootstrap 210 scene×100 draws，segm mean 0.82056 CI95 [0.80817, 0.83615]；oracle_gt_centers AP 0.81881（FINAL 反超 oracle +0.26pt）；AR@100 0.760；undersplit 5.57%。报告 eval_report_full_20260822.json。

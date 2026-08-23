@@ -20,3 +20,6 @@ output/
 experiments/ugnn/exp12_knife/_cache_fwd/
 experiments/ugnn/exp12_knife/sweep_raw_round*.json
 experiments/ugnn/exp11_recall_score/feats/
+
+# exp14 tta cache (6.1G, regenerable)
+experiments/ugnn/exp14_tta/_cache_tta/
