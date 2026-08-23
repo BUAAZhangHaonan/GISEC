@@ -23,3 +23,10 @@ experiments/ugnn/exp11_recall_score/feats/
 
 # exp14 tta cache (6.1G, regenerable)
 experiments/ugnn/exp14_tta/_cache_tta/
+
+# exp16 flow-seam forward cache (3.2G, regenerable)
+experiments/ugnn/exp16_flow_seam/_cache_fwd/
+
+# exp09/exp10 gt_records (7.2G generated pickles, regenerable)
+experiments/ugnn/exp09_centernet_seeds/gt_records/
+experiments/ugnn/exp10_semantic_capacity/gt_records

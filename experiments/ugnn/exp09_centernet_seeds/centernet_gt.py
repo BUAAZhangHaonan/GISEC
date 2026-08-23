@@ -235,3 +235,101 @@ def build_seed_targets(anns, img_shape=(1024, 1024)):
             _BANK,
         )
     return hm, off
+
+
+# --- E16: Cellpose-style 2-channel centroid flow ground truth ---------------
+#
+# E15 forensics: missed parts are dense same-depth contacts welded into one
+# sem blob (self coverage 0.998, local precision 0.35). Union supervision has
+# no instance identity; a Cellpose centroid-flow field gives every pixel
+# inside (or 2 px around) an instance a unit vector pointing at that
+# instance's centroid, so flows on opposite sides of a seam point in opposite
+# directions — the separability signal watershed needs.
+#
+# Conventions (Cellpose): flow is (2, H, W) float32 = (dy, dx), unit length
+# inside the dilated instance support, exactly 0 in background. Two-pass
+# stamping: instance interiors first, then the 2 px dilation rings, both
+# first-come (the Cellpose approximation for overlapping dilations).
+
+from scipy.ndimage import binary_dilation  # noqa: E402
+
+_FLOW_DIL_ITERS = 2  # 3x3 dilation x2 ~= 2 px ring
+
+
+def build_instance_idmap(masks, side=1024):
+    """Per-pixel instance id map (uint16, 0 = background).
+
+    masks: list of (side, side) bool arrays, one per instance, in
+    annotation order. Pass 1 stamps every interior (own mask wins over
+    any earlier dilation ring), pass 2 stamps the 3x3-dilated support of
+    each instance into still-free pixels (first-come on ring overlaps).
+    """
+    id_map = np.zeros((side, side), dtype=np.uint16)
+    for i, m in enumerate(masks):
+        m = m.astype(bool)
+        id_map[m & (id_map == 0)] = i + 1
+    struct = np.ones((3, 3), dtype=bool)
+    for i, m in enumerate(masks):
+        m = m.astype(bool)
+        dil = binary_dilation(m, structure=struct, iterations=_FLOW_DIL_ITERS)
+        id_map[dil & (id_map == 0)] = i + 1
+    return id_map
+
+
+def downsample_idmap(id_map, side=1024):
+    """1024-res id map -> stride-4 id map (block majority vote).
+
+    Majority, not max: a block straddling a seam contains pixels of
+    both instances and max() would hand the cell to whichever instance
+    has the larger index — mislabeling the seam cells with the
+    neighbour's flow. Majority keeps each seam cell with its dominant
+    owner, so the two cells flanking a seam point at different
+    centroids (the separability signal). Ties go to the lower id.
+    """
+    s4 = side // STRIDE
+    blocks = id_map.reshape(s4, 4, s4, 4).transpose(0, 2, 1, 3).reshape(s4, s4, 16)
+    n_inst = int(id_map.max())
+    assert n_inst < 65535
+    out = np.zeros((s4, s4), dtype=np.uint16)
+    best_cnt = np.zeros((s4, s4), dtype=np.int32)
+    for i in range(1, n_inst + 1):
+        cnt = (blocks == i).sum(axis=2, dtype=np.int32)
+        upd = cnt > best_cnt
+        out[upd] = i
+        best_cnt[upd] = cnt[upd]
+    return out
+
+
+def flow_from_idmap4(ids4, stats):
+    """Unit centroid-flow at stride 4 from a stride-4 id map + stats.
+
+    ids4: (H4, W4) uint16 instance ids. stats: (M, 3) (fy, fx, n)
+    pixel-coordinate centroids, row i <-> id i+1. Returns
+    (2, H4, W4) float32 (dy, dx); unit vectors on covered cells, 0 else.
+    """
+    flow = np.zeros((2, ids4.shape[0], ids4.shape[1]), dtype=np.float32)
+    ys, xs = np.nonzero(ids4)
+    if ys.size == 0:
+        return flow
+    st = np.asarray(stats, dtype=np.float64).reshape(-1, 3)[ids4[ys, xs] - 1]
+    cy = st[:, 0] / STRIDE
+    cx = st[:, 1] / STRIDE
+    dy = cy - ys
+    dx = cx - xs
+    norm = np.sqrt(dy * dy + dx * dx)
+    norm[norm == 0] = 1.0  # centroid pixel itself: keep 0-length flow
+    flow[0, ys, xs] = (dy / norm).astype(np.float32)
+    flow[1, ys, xs] = (dx / norm).astype(np.float32)
+    return flow
+
+
+def flow_from_idmap(id_map, stats, side=1024):
+    """(2, side//4, side//4) flow from a 1024-res id map (downsamples)."""
+    return flow_from_idmap4(downsample_idmap(id_map, side), stats)
+
+
+def build_flow_targets(masks, stats, side=1024):
+    """E16 entry point: masks + stats -> (2, side//4, side//4) flow GT."""
+    return flow_from_idmap4(
+        downsample_idmap(build_instance_idmap(masks, side), side), stats
+    )

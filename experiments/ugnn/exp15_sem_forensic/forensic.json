@@ -1,0 +1,144 @@
+{
+  "config": {
+    "sem_thr": 0.6,
+    "iou_miss": 0.5,
+    "n_imgs": 500
+  },
+  "overall": {
+    "n_instances": 28582,
+    "n_missed": 7574,
+    "miss_rate": 0.265,
+    "miss_per_img_mean": 15.148,
+    "imgs_with_miss": 453,
+    "bucket_miss_rate": {
+      "small": 0.9004,
+      "medium": 0.3255,
+      "large": 0.0004
+    }
+  },
+  "missed_logit_classes": {
+    "uncertain(n.3-.6)": 4,
+    "blind(<.3)": 19,
+    "above.6(ioU-fail)": 7551,
+    "uncertain_frac_of_missed": 0.0005,
+    "blind_frac_of_missed": 0.0025,
+    "blind_bucket": {
+      "small": 18,
+      "medium": 1
+    },
+    "uncertain_bucket": {
+      "small": 4
+    }
+  },
+  "model_rank": [
+    {
+      "model": "615008160321",
+      "total": 1524,
+      "missed": 902,
+      "miss_rate": 0.5919
+    },
+    {
+      "model": "686106148922",
+      "total": 1593,
+      "missed": 874,
+      "miss_rate": 0.5487
+    },
+    {
+      "model": "stm32f103c8t6",
+      "total": 497,
+      "missed": 266,
+      "miss_rate": 0.5352
+    },
+    {
+      "model": "690207102272",
+      "total": 1577,
+      "missed": 799,
+      "miss_rate": 0.5067
+    },
+    {
+      "model": "418121160809",
+      "total": 2395,
+      "missed": 1058,
+      "miss_rate": 0.4418
+    },
+    {
+      "model": "UX60SC-MB-5ST(80)",
+      "total": 796,
+      "missed": 307,
+      "miss_rate": 0.3857
+    },
+    {
+      "model": "RC-MASTER-SMD",
+      "total": 1980,
+      "missed": 708,
+      "miss_rate": 0.3576
+    },
+    {
+      "model": "A-DF15A",
+      "total": 2374,
+      "missed": 762,
+      "miss_rate": 0.321
+    },
+    {
+      "model": "615008138321",
+      "total": 799,
+      "missed": 162,
+      "miss_rate": 0.2028
+    },
+    {
+      "model": "658410821024",
+      "total": 1593,
+      "missed": 307,
+      "miss_rate": 0.1927
+    }
+  ],
+  "model_top10_missed_share": 0.8113,
+  "missed_profile": {
+    "n": 7574,
+    "bucket": {
+      "medium": 6613,
+      "small": 958,
+      "large": 3
+    },
+    "cov_median": 0.9982,
+    "cov_lt80pct_frac": 0.0059,
+    "prec_loc_median": 0.3535,
+    "prec_loc_lt50pct_frac": 0.9974,
+    "med_prob_median": 1.0,
+    "p90_prob_median": 1.0,
+    "nn_depth_diff_median": 0.0143,
+    "nn_depth_diff_p90": 0.0305,
+    "nn_same_model_frac": 1.0,
+    "edge_frac": 0.0244,
+    "dense_frac_ge3": 0.9712,
+    "touch_cnt_median": 7.0
+  },
+  "detected_profile": {
+    "n": 21008,
+    "bucket": {
+      "large": 7199,
+      "medium": 13703,
+      "small": 106
+    },
+    "cov_median": 0.9998,
+    "cov_lt80pct_frac": 0.0,
+    "prec_loc_median": 0.6959,
+    "prec_loc_lt50pct_frac": 0.0,
+    "med_prob_median": 1.0,
+    "p90_prob_median": 1.0,
+    "nn_depth_diff_median": 0.0104,
+    "nn_depth_diff_p90": 0.0242,
+    "nn_same_model_frac": 1.0,
+    "edge_frac": 0.0875,
+    "dense_frac_ge3": 0.8072,
+    "touch_cnt_median": 5.0
+  },
+  "fp": {
+    "clusters_per_img": 0.126,
+    "n_clusters": 63,
+    "area_median": 77.0,
+    "area_p90": 148.4,
+    "prob_median": 0.9823,
+    "prob_p90": 0.9986
+  }
+}
