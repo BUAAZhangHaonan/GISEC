@@ -63,7 +63,7 @@ ep.DATA = DATA
 N_WORKERS = 16
 RUNS = HERE / "runs"
 STRIDE = 4
-SEM_THR = 0.6  # semantic logit -> binary mask threshold (E13 sweep winner)
+SEM_THR = 0.97  # semantic logit -> binary mask threshold (E17 sweep winner)
 RGB_CACHE = HERE / "cache_rgb"
 DEPTH_LO, DEPTH_HI = ep.DEPTH_LO, ep.DEPTH_HI
 _F255 = _FLO = _FRANGE = None

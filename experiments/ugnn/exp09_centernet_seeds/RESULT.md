@@ -90,3 +90,19 @@ coords, sem, depth, sem_logit, peaks)）。全量 3276 val（fast 档，
 e10 ckpt）：segm AP 0.82137 / AP50 0.88188 / AP75 0.83312，
 n_pred 51.10/img，vs canonical 0.76968 ΔAP +5.17pt。wall
 0.049 s/img（2.02× 基线护栏内）。详见 ../exp13_integrate/RESULT.md。
+
+## 2026-08-24 canonical 切换：E17 ckpt + SEM_THR 0.97
+
+E17（band EMA，exp17_band_ema/runs/best.pth）救援重扫 SEM_THR 峰值 0.97
+（eval_centernet.py SEM_THR 已由 0.6 切到 0.97），全量 3276 复验（fast 档）
+过预注册线：
+
+- FINAL segm AP **0.83808** / AP50 0.88132 / AP75 0.84517，n_pred 51.66/img
+  （169228）。vs 旧 canonical（E10 ckpt + thr 0.6）0.82137：**ΔAP +1.67pt**，
+  AP75 +1.20pt，收益与 500 图外推（0.839±）一致。
+- 新 canonical：ckpt = exp17_band_ema/runs/best.pth（16.851M，架构零改动），
+  SEM_THR = 0.97，其余管线（HM_THR 0.3 / 峰值打分 / mix elevation）不变。
+- 确定性抽查：前 100 图 sweep 缓存路径 vs 主评测管线 CRC32 逐位一致
+  （crc_check_e17.json，100/100）。
+- full 档 bootstrap（eval_report_full.json）由 gisec-e17-fullboot 单元跑，
+  见 ../exp17_band_ema/STATUS.md。

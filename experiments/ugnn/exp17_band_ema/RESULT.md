@@ -44,3 +44,35 @@ E13 基线行复算与预注册值逐位一致，配对口径可信。
 - 若要救：先在 E17 前向缓存上重扫 SEM_THR（_cache_fwd 已在 exp17_band_ema/，零 GPU 成本）；仍负则 band×4 权重减档（×2）或 EMA decay 降档重训。
 
 产物：sweep_e17.py / sweep_e17.json / _cache_fwd/（500 图 E17 前向）/ eval_full_fast.json
+
+## SEM_THR 重扫（救援，2026-08-24）
+
+零 GPU，复用 E17 `_cache_fwd`（500 图）+ E13（exp12 缓存，固定 thr 0.6）。脚本 `sweep_thr_e17.py`，产物 `sweep_thr_e17.json`。
+
+预注册网格 0.3–0.7 中最优在边缘 0.7（AP 0.81350）仍配对负，扩展上扫到 0.99 后峰值收敛：
+
+| thr | 0.6（旧） | 0.8 | 0.9 | 0.97（最优） | 0.99 |
+|---|---|---|---|---|---|
+| AP | 0.80422 | 0.82410 | 0.83134 | **0.83357** | 0.83018 |
+| AP50 | 0.87952 | 0.88002 | 0.88028 | 0.88039 | 0.88037 |
+| AP75 | 0.81040 | 0.83591 | 0.83918 | 0.84155 | 0.84212 |
+
+**判决：REVIVED。** thr 0.97 下配对 vs E13(0.81503)：ΔAP **+1.80pt，CI95 [+1.09, +2.41]pt**，不含 0；AP50 持平、AP75 +2.0pt，收益全在掩膜质量。初判的 FAIL 完全是阈值失配：E17 的带加权 BCE 把 sigmoid 边界带像素占比从 0.0244% 推到 0.0311%（+27%），最优点从 0.6 右移到 0.97。种子与召回几乎不受 thr 影响（n_pred/img 53.38 vs E13 52.69）。
+
+注意：全量 3276 复验（预注册第二条 FINAL > 0.82137）尚未做，由后续 agent 用 thr 0.97 执行；E17 尚未正式进 canonical。
+
+## 全量 3276 复验（thr 0.97，2026-08-24）
+
+`eval_full_fast_097.json`（fast 档，systemd 单元 gisec-e17-fulleval）：
+
+- **FINAL segm AP 0.83808** / AP50 0.88132 / AP75 0.84517，bbox AP 0.74595，
+  n_pred 169228（51.66/img）。预注册线 0.82137：**PASS，ΔAP +1.67pt**。
+  与 500 图外推 0.839± 一致（500→全量漂移仅 −0.55pt，方向合理）。
+- **正式进 canonical**：新 canonical = E17 best.pth + SEM_THR 0.97
+  （eval_centernet.py 默认已切）。
+
+### 确定性抽查
+
+`sweep_thr_e17` 前向缓存路径 vs `eval_centernet` 主评测 live 前向路径，
+前 100 图逐图 CRC32(json 序列化 COCO results)：**100/100 逐位一致**
+（crc_check_e17.py / crc_check_e17.json）。sweep 与主管线等价性成立。

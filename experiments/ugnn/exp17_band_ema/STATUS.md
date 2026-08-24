@@ -38,3 +38,11 @@
 
 - 单元：`ugnn-e17-train`，MemoryMax=160G，CPUQuota=3200%，workers 16
 - 预计 ~8-9h（与 mrcnn16 并行争用下），2026-08-24 启动
+
+## full-profile bootstrap（2026-08-24 15:39 启动，无人值守）
+
+- systemd 单元：`gisec-e17-fullboot`（MemoryMax=160G, CPUQuota=3200%）
+- 命令：eval_centernet.py --arch e10 --profile full --ckpt runs/best.pth
+  --out runs/eval_report_full.json
+- ETA ~1-2h；查看：`journalctl --user -u gisec-e17-fullboot -f`
+- fast 全量数字已出（AP 0.83808），full 只补 oracle/seed/bootstrap CI。
