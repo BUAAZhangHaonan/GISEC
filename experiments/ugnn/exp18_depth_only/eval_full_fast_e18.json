@@ -1,0 +1,25 @@
+{
+  "profile": "fast",
+  "ckpt": "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/experiments/ugnn/exp18_depth_only/runs/best.pth",
+  "sem_thr": 0.97,
+  "grid": [
+    {
+      "tag": "centernet",
+      "segm_AP": 0.8320467984442966,
+      "segm_AP50": 0.8748953491164103,
+      "segm_AP75": 0.8389243033285665,
+      "bbox_AP": 0.7391778300778162,
+      "bbox_AP50": 0.8166483153257896,
+      "bbox_AP75": 0.7445811079457244,
+      "n_pred": 167821,
+      "n_pred_per_img": 51.22741147741148
+    }
+  ],
+  "max_markers_per_img": 108,
+  "latency_s_per_img": {
+    "forward": 0.022408735175665082,
+    "depth_load": 0.06537532628326528,
+    "worker_compute": 0.03370989298870967
+  },
+  "n_images": 3276
+}

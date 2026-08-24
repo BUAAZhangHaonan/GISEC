@@ -1,0 +1,190 @@
+Running scope as unit: gisec-e18-fulleval.scope
+/home/k100/miniconda3/envs/gisec/lib/python3.13/site-packages/segmentation_models_pytorch/encoders/__init__.py:136: UserWarning: Error loading resnet18 `imagenet` weights from Hugging Face Hub, trying loading from original url...
+  warnings.warn(message, UserWarning)
+loaded /home/k100/zhn/electronic-components-grasp-and-segment/gisec/experiments/ugnn/exp18_depth_only/runs/best.pth step=60914 thr=0.97
+  25/3276 (0.61 s/img, fwd 0.235 s) rss=4.54 GB
+  50/3276 (0.48 s/img, fwd 0.219 s) rss=4.69 GB
+  75/3276 (0.45 s/img, fwd 0.213 s) rss=4.55 GB
+  100/3276 (0.51 s/img, fwd 0.201 s) rss=4.58 GB
+  125/3276 (0.57 s/img, fwd 0.207 s) rss=4.59 GB
+  150/3276 (0.58 s/img, fwd 0.200 s) rss=4.61 GB
+  175/3276 (0.61 s/img, fwd 0.195 s) rss=4.62 GB
+  200/3276 (0.62 s/img, fwd 0.192 s) rss=4.63 GB
+  225/3276 (0.64 s/img, fwd 0.189 s) rss=4.64 GB
+  250/3276 (0.66 s/img, fwd 0.186 s) rss=4.65 GB
+  275/3276 (0.67 s/img, fwd 0.185 s) rss=4.66 GB
+  300/3276 (0.68 s/img, fwd 0.183 s) rss=4.68 GB
+  325/3276 (0.69 s/img, fwd 0.182 s) rss=4.69 GB
+  350/3276 (0.69 s/img, fwd 0.181 s) rss=4.70 GB
+  375/3276 (0.70 s/img, fwd 0.180 s) rss=4.72 GB
+  400/3276 (0.70 s/img, fwd 0.179 s) rss=4.73 GB
+  425/3276 (0.68 s/img, fwd 0.173 s) rss=4.73 GB
+  450/3276 (0.64 s/img, fwd 0.163 s) rss=4.72 GB
+  475/3276 (0.61 s/img, fwd 0.155 s) rss=4.72 GB
+  500/3276 (0.58 s/img, fwd 0.147 s) rss=4.72 GB
+  525/3276 (0.55 s/img, fwd 0.140 s) rss=4.72 GB
+  550/3276 (0.52 s/img, fwd 0.133 s) rss=4.72 GB
+  575/3276 (0.50 s/img, fwd 0.128 s) rss=4.72 GB
+  600/3276 (0.48 s/img, fwd 0.122 s) rss=4.72 GB
+  625/3276 (0.46 s/img, fwd 0.117 s) rss=4.72 GB
+  650/3276 (0.44 s/img, fwd 0.113 s) rss=4.72 GB
+  675/3276 (0.43 s/img, fwd 0.109 s) rss=4.72 GB
+  700/3276 (0.41 s/img, fwd 0.105 s) rss=4.72 GB
+  725/3276 (0.40 s/img, fwd 0.101 s) rss=4.72 GB
+  750/3276 (0.38 s/img, fwd 0.098 s) rss=4.72 GB
+  775/3276 (0.37 s/img, fwd 0.095 s) rss=4.72 GB
+  800/3276 (0.36 s/img, fwd 0.092 s) rss=4.72 GB
+  825/3276 (0.35 s/img, fwd 0.089 s) rss=4.71 GB
+  850/3276 (0.34 s/img, fwd 0.086 s) rss=4.70 GB
+  875/3276 (0.33 s/img, fwd 0.084 s) rss=4.70 GB
+  900/3276 (0.32 s/img, fwd 0.082 s) rss=4.70 GB
+  925/3276 (0.31 s/img, fwd 0.079 s) rss=4.70 GB
+  950/3276 (0.30 s/img, fwd 0.077 s) rss=4.70 GB
+  975/3276 (0.30 s/img, fwd 0.075 s) rss=4.70 GB
+  1000/3276 (0.29 s/img, fwd 0.073 s) rss=4.70 GB
+  1025/3276 (0.28 s/img, fwd 0.072 s) rss=4.70 GB
+  1050/3276 (0.27 s/img, fwd 0.070 s) rss=4.70 GB
+  1075/3276 (0.27 s/img, fwd 0.068 s) rss=4.70 GB
+  1100/3276 (0.26 s/img, fwd 0.067 s) rss=4.70 GB
+  1125/3276 (0.26 s/img, fwd 0.065 s) rss=4.70 GB
+  1150/3276 (0.25 s/img, fwd 0.064 s) rss=4.70 GB
+  1175/3276 (0.25 s/img, fwd 0.062 s) rss=4.70 GB
+  1200/3276 (0.24 s/img, fwd 0.061 s) rss=4.70 GB
+  1225/3276 (0.24 s/img, fwd 0.060 s) rss=4.70 GB
+  1250/3276 (0.23 s/img, fwd 0.059 s) rss=4.70 GB
+  1275/3276 (0.23 s/img, fwd 0.058 s) rss=4.70 GB
+  1300/3276 (0.22 s/img, fwd 0.056 s) rss=4.70 GB
+  1325/3276 (0.22 s/img, fwd 0.055 s) rss=4.70 GB
+  1350/3276 (0.21 s/img, fwd 0.054 s) rss=4.70 GB
+  1375/3276 (0.21 s/img, fwd 0.053 s) rss=4.70 GB
+  1400/3276 (0.21 s/img, fwd 0.052 s) rss=4.70 GB
+  1425/3276 (0.20 s/img, fwd 0.052 s) rss=4.70 GB
+  1450/3276 (0.20 s/img, fwd 0.051 s) rss=4.70 GB
+  1475/3276 (0.20 s/img, fwd 0.050 s) rss=4.70 GB
+  1500/3276 (0.19 s/img, fwd 0.049 s) rss=4.70 GB
+  1525/3276 (0.19 s/img, fwd 0.048 s) rss=4.70 GB
+  1550/3276 (0.19 s/img, fwd 0.047 s) rss=4.70 GB
+  1575/3276 (0.18 s/img, fwd 0.047 s) rss=4.70 GB
+  1600/3276 (0.18 s/img, fwd 0.046 s) rss=4.70 GB
+  1625/3276 (0.18 s/img, fwd 0.045 s) rss=4.70 GB
+  1650/3276 (0.17 s/img, fwd 0.044 s) rss=4.70 GB
+  1675/3276 (0.17 s/img, fwd 0.044 s) rss=4.70 GB
+  1700/3276 (0.17 s/img, fwd 0.043 s) rss=4.70 GB
+  1725/3276 (0.17 s/img, fwd 0.043 s) rss=4.70 GB
+  1750/3276 (0.16 s/img, fwd 0.042 s) rss=4.70 GB
+  1775/3276 (0.16 s/img, fwd 0.041 s) rss=4.70 GB
+  1800/3276 (0.16 s/img, fwd 0.041 s) rss=4.70 GB
+  1825/3276 (0.16 s/img, fwd 0.040 s) rss=4.70 GB
+  1850/3276 (0.16 s/img, fwd 0.040 s) rss=4.70 GB
+  1875/3276 (0.15 s/img, fwd 0.039 s) rss=4.70 GB
+  1900/3276 (0.15 s/img, fwd 0.039 s) rss=4.70 GB
+  1925/3276 (0.15 s/img, fwd 0.038 s) rss=4.70 GB
+  1950/3276 (0.15 s/img, fwd 0.038 s) rss=4.70 GB
+  1975/3276 (0.15 s/img, fwd 0.037 s) rss=4.70 GB
+  2000/3276 (0.14 s/img, fwd 0.037 s) rss=4.70 GB
+  2025/3276 (0.14 s/img, fwd 0.036 s) rss=4.70 GB
+  2050/3276 (0.14 s/img, fwd 0.036 s) rss=4.70 GB
+  2075/3276 (0.14 s/img, fwd 0.035 s) rss=4.70 GB
+  2100/3276 (0.14 s/img, fwd 0.035 s) rss=4.70 GB
+  2125/3276 (0.14 s/img, fwd 0.035 s) rss=4.70 GB
+  2150/3276 (0.13 s/img, fwd 0.034 s) rss=4.70 GB
+  2175/3276 (0.13 s/img, fwd 0.034 s) rss=4.70 GB
+  2200/3276 (0.13 s/img, fwd 0.033 s) rss=4.70 GB
+  2225/3276 (0.13 s/img, fwd 0.033 s) rss=4.70 GB
+  2250/3276 (0.13 s/img, fwd 0.033 s) rss=4.70 GB
+  2275/3276 (0.13 s/img, fwd 0.032 s) rss=4.70 GB
+  2300/3276 (0.13 s/img, fwd 0.032 s) rss=4.70 GB
+  2325/3276 (0.12 s/img, fwd 0.032 s) rss=4.70 GB
+  2350/3276 (0.12 s/img, fwd 0.031 s) rss=4.70 GB
+  2375/3276 (0.12 s/img, fwd 0.031 s) rss=4.70 GB
+  2400/3276 (0.12 s/img, fwd 0.031 s) rss=4.70 GB
+  2425/3276 (0.12 s/img, fwd 0.030 s) rss=4.70 GB
+  2450/3276 (0.12 s/img, fwd 0.030 s) rss=4.70 GB
+  2475/3276 (0.12 s/img, fwd 0.030 s) rss=4.70 GB
+  2500/3276 (0.12 s/img, fwd 0.029 s) rss=4.70 GB
+  2525/3276 (0.11 s/img, fwd 0.029 s) rss=4.70 GB
+  2550/3276 (0.11 s/img, fwd 0.029 s) rss=4.70 GB
+  2575/3276 (0.11 s/img, fwd 0.029 s) rss=4.70 GB
+  2600/3276 (0.11 s/img, fwd 0.028 s) rss=4.70 GB
+  2625/3276 (0.11 s/img, fwd 0.028 s) rss=4.70 GB
+  2650/3276 (0.11 s/img, fwd 0.028 s) rss=4.70 GB
+  2675/3276 (0.11 s/img, fwd 0.027 s) rss=4.70 GB
+  2700/3276 (0.11 s/img, fwd 0.027 s) rss=4.70 GB
+  2725/3276 (0.11 s/img, fwd 0.027 s) rss=4.70 GB
+  2750/3276 (0.10 s/img, fwd 0.027 s) rss=4.70 GB
+  2775/3276 (0.10 s/img, fwd 0.026 s) rss=4.70 GB
+  2800/3276 (0.10 s/img, fwd 0.026 s) rss=4.70 GB
+  2825/3276 (0.10 s/img, fwd 0.026 s) rss=4.70 GB
+  2850/3276 (0.10 s/img, fwd 0.026 s) rss=4.70 GB
+  2875/3276 (0.10 s/img, fwd 0.026 s) rss=4.70 GB
+  2900/3276 (0.10 s/img, fwd 0.025 s) rss=4.70 GB
+  2925/3276 (0.10 s/img, fwd 0.025 s) rss=4.70 GB
+  2950/3276 (0.10 s/img, fwd 0.025 s) rss=4.70 GB
+  2975/3276 (0.10 s/img, fwd 0.025 s) rss=4.70 GB
+  3000/3276 (0.10 s/img, fwd 0.024 s) rss=4.70 GB
+  3025/3276 (0.10 s/img, fwd 0.024 s) rss=4.70 GB
+  3050/3276 (0.09 s/img, fwd 0.024 s) rss=4.70 GB
+  3075/3276 (0.09 s/img, fwd 0.024 s) rss=4.70 GB
+  3100/3276 (0.09 s/img, fwd 0.024 s) rss=4.70 GB
+  3125/3276 (0.09 s/img, fwd 0.023 s) rss=4.70 GB
+  3150/3276 (0.09 s/img, fwd 0.023 s) rss=4.70 GB
+  3175/3276 (0.09 s/img, fwd 0.023 s) rss=4.70 GB
+  3200/3276 (0.09 s/img, fwd 0.023 s) rss=4.70 GB
+  3225/3276 (0.09 s/img, fwd 0.023 s) rss=4.70 GB
+  3250/3276 (0.09 s/img, fwd 0.023 s) rss=4.70 GB
+  3275/3276 (0.09 s/img, fwd 0.022 s) rss=4.70 GB
+  3276/3276 (0.09 s/img, fwd 0.022 s) rss=4.70 GB
+loading annotations into memory...
+Done (t=16.61s)
+creating index...
+index created!
+Loading and preparing results...
+DONE (t=0.21s)
+creating index...
+index created!
+Running per image evaluation...
+Evaluate annotation type *bbox*
+DONE (t=203.41s).
+Accumulating evaluation results...
+DONE (t=7.42s).
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ] = 0.739
+ Average Precision  (AP) @[ IoU=0.50      | area=   all | maxDets=100 ] = 0.817
+ Average Precision  (AP) @[ IoU=0.75      | area=   all | maxDets=100 ] = 0.745
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area= small | maxDets=100 ] = 0.043
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=medium | maxDets=100 ] = 0.698
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area= large | maxDets=100 ] = 0.955
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets=  1 ] = 0.017
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets= 10 ] = 0.171
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ] = 0.781
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area= small | maxDets=100 ] = 0.157
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=medium | maxDets=100 ] = 0.729
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area= large | maxDets=100 ] = 0.986
+Running per image evaluation...
+Evaluate annotation type *segm*
+DONE (t=226.99s).
+Accumulating evaluation results...
+DONE (t=2.40s).
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ] = 0.832
+ Average Precision  (AP) @[ IoU=0.50      | area=   all | maxDets=100 ] = 0.875
+ Average Precision  (AP) @[ IoU=0.75      | area=   all | maxDets=100 ] = 0.839
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area= small | maxDets=100 ] = 0.100
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=medium | maxDets=100 ] = 0.818
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area= large | maxDets=100 ] = 0.979
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets=  1 ] = 0.017
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets= 10 ] = 0.175
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ] = 0.859
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area= small | maxDets=100 ] = 0.275
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=medium | maxDets=100 ] = 0.832
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area= large | maxDets=100 ] = 0.993
+{
+  "tag": "centernet",
+  "segm_AP": 0.8320467984442966,
+  "segm_AP50": 0.8748953491164103,
+  "segm_AP75": 0.8389243033285665,
+  "bbox_AP": 0.7391778300778162,
+  "bbox_AP50": 0.8166483153257896,
+  "bbox_AP75": 0.7445811079457244,
+  "n_pred": 167821,
+  "n_pred_per_img": 51.22741147741148
+}
+rss_final=5.70 GB
