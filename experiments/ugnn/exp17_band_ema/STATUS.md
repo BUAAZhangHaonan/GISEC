@@ -46,3 +46,5 @@
   --out runs/eval_report_full.json
 - ETA ~1-2h；查看：`journalctl --user -u gisec-e17-fullboot -f`
 - fast 全量数字已出（AP 0.83808），full 只补 oracle/seed/bootstrap CI。
+
+- 2026-08-24：gisec-e17-fullboot 已完成，full-profile bootstrap CI 0.83756 [0.82488, 0.85084] 落定，E17 canonical 收尾。

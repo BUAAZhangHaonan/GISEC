@@ -76,3 +76,13 @@ E13 基线行复算与预注册值逐位一致，配对口径可信。
 `sweep_thr_e17` 前向缓存路径 vs `eval_centernet` 主评测 live 前向路径，
 前 100 图逐图 CRC32(json 序列化 COCO results)：**100/100 逐位一致**
 （crc_check_e17.py / crc_check_e17.json）。sweep 与主管线等价性成立。
+
+## full-profile CI 落定（2026-08-24，gisec-e17-fullboot）
+
+`runs/eval_report_full.json`（210 scene × 100 draws bootstrap）：
+
+- **bootstrap segm AP 0.83756，CI95 [0.82488, 0.85084]**；FINAL 0.83808 / AP75 0.84517。
+- oracle_gt_centers 0.83556 —— FINAL 反超 oracle **+0.25pt**（种子已不构成瓶颈）。
+- 种子精度 median **1.76px**（p90 3.56px，<8px 率 95.95%）；n_pred 51.66/img。
+- CI 对比：下界 **0.82488 > 旧 canonical 0.82137 均值**，即 E17 整个置信区间都在
+  旧 canonical 点估计之上，canonical 切换无统计疑义。
