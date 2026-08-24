@@ -46,3 +46,14 @@ at ~1/8 of raw mask bytes), 1 class (component, category id 1).
 
 See RESULT.md (appended after each eval).
 - mrcnn16 smoke: params 17.00M, 0.22 s/step, peak 6.8 GiB, ETA 3.8 h for 20 epochs
+
+## Incident 2026-08-24: mrcnn16 eval OOM
+- 根因: eval.py predict_* 把全部 3276 张图的全分辨率 uint8 掩码 (1024x1024x实例数)
+  累积在 results 列表里直到 COCOeval 前才 RLE 化, 与 E17 评测叠加内存后触发 cgroup OOM
+  (11:09, unit result=oom-kill)。训练产物 model_final.pth 完好。
+- 修法: 逐图即时 mask_util.encode RLE 化 (emit 回调内联进推理循环), 掩码用完即 del,
+  json_results 只存 RLE 级 COCO dict, RAM 全程平稳 (~12 GiB)。
+- 重跑: baselines16m-mrcnn16-eval (MemoryMax=64G) 全量 3276 图, 1345 s 完成,
+  segm AP 0.6082 / AP50 0.8649 / AP75 0.6926 (bbox AP 0.6840)。已写入 RESULT.md。
+- 链重启: mrcnn16 跳过 (已训完), chain_rest.sh (m2f16 -> m2f16cat) 于 13:35 启动。
+- m2f16 smoke: params 16.54M, 0.64 s/step, peak 25.4 GiB, ETA 11.5 h for 20 epochs

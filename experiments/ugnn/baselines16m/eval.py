@@ -3,6 +3,11 @@
 Same protocol as the GISEC eval path: score threshold 0.05, mask
 threshold 0.5, pycocotools COCOeval on the 'segm' task (and bbox for
 reference). Writes metrics.json + coco_instances_results.json.
+
+Memory discipline (per-image lazy, RLE-only intermediates, del after
+use): predictions are RLE-encoded inside the inference loop and
+appended to json_results as COCO dicts; no raw mask arrays survive
+past their image iteration, so RAM stays flat across the 3276 images.
 """
 
 from __future__ import annotations
@@ -37,9 +42,8 @@ def masks_to_rle(masks: np.ndarray) -> list[dict]:
     return rles
 
 
-def predict_mrcnn(model, loader, device):
+def predict_mrcnn(model, loader, device, emit):
     model.eval()
-    results = []
     with torch.no_grad():
         for images, _targets in loader:
             images = [img.to(device) for img in images]
@@ -47,17 +51,15 @@ def predict_mrcnn(model, loader, device):
             for out in outputs:
                 keep = out["scores"] > SCORE_THRESHOLD
                 scores = out["scores"][keep].cpu().numpy()
-                labels = out["labels"][keep].cpu().numpy()
                 masks = (out["masks"][keep, 0] > MASK_THRESHOLD).cpu().numpy()
-                results.append((scores, labels, masks))
-    return results
+                emit(scores, masks)
+                del masks
 
 
-def predict_m2f(model, loader, device, target_size=(1024, 1024)):
+def predict_m2f(model, loader, device, emit, target_size=(1024, 1024)):
     """Mask2Former decode: per-query softmax class score (null class
     dropped), sigmoid mask upsampled to 1024, mask threshold 0.5."""
     model.eval()
-    results = []
     with torch.no_grad():
         for pixel_values, _pm, _ml, _cl in loader:
             pixel_values = pixel_values.to(device)
@@ -72,10 +74,7 @@ def predict_m2f(model, loader, device, target_size=(1024, 1024)):
                 )
                 idx = torch.nonzero(keep).flatten()
                 if idx.numel() == 0:
-                    results.append(
-                        (np.zeros(0, np.float32), np.zeros(0, np.int64),
-                        np.zeros((0, *target_size), np.uint8),)
-                    )
+                    emit(np.zeros(0, np.float32), np.zeros((0, *target_size), np.uint8))
                     continue
                 masks = F.interpolate(
                     mask_logits[i : i + 1, idx].sigmoid(),
@@ -84,19 +83,15 @@ def predict_m2f(model, loader, device, target_size=(1024, 1024)):
                     align_corners=False,
                 )[0]
                 masks = (masks > MASK_THRESHOLD).to(torch.uint8).cpu().numpy()
-                results.append(
-                    (
-                        scores[i][idx].cpu().numpy(),
-                        labels[i][idx].cpu().numpy(),
-                        masks,
-                    )
-                )
-    return results
+                emit(scores[i][idx].cpu().numpy(), masks)
+                del masks
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--family", required=True, choices=["mrcnn16", "m2f16", "m2f16cat"])
+    parser.add_argument(
+        "--family", required=True, choices=["mrcnn16", "m2f16", "m2f16cat"]
+    )
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--out-dir", required=True)
     parser.add_argument("--batch-size", type=int, default=8)
@@ -126,34 +121,42 @@ def main() -> None:
         collate_fn=collate,
     )
 
-    t0 = time.time()
-    if args.family == "mrcnn16":
-        predictions = predict_mrcnn(model, loader, device)
-    else:
-        predictions = predict_m2f(model, loader, device)
-
     gt_path = Path(__file__).resolve().parents[3] / (
         "datasets/20260318_1K_32254/annotations/instances_val.json"
     )
     coco_gt = COCO(str(gt_path))
     category_id = int(dataset.coco.categories[0]["id"])
+    image_ids = [int(i) for i in dataset.image_ids]
 
     json_results = []
-    for item, (scores, labels, masks) in zip(
-        [dataset.coco.loadImgs([i])[0] for i in dataset.image_ids], predictions
-    ):
+    n_done = 0
+
+    def emit(scores: np.ndarray, masks: np.ndarray) -> None:
+        nonlocal n_done
+        image_id = image_ids[n_done]
+        n_done += 1
         if masks.shape[0] == 0:
-            continue
-        rles = masks_to_rle(masks)
-        for score, rle in zip(scores, rles):
+            return
+        for score, rle in zip(scores, masks_to_rle(masks)):
             json_results.append(
                 {
-                    "image_id": int(item["id"]),
+                    "image_id": image_id,
                     "category_id": category_id,
                     "segmentation": rle,
                     "score": float(score),
                 }
             )
+
+    t0 = time.time()
+    if args.family == "mrcnn16":
+        predict_mrcnn(model, loader, device, emit)
+    else:
+        predict_m2f(model, loader, device, emit)
+    print(
+        f"[{time.time() - t0:.0f}s] predicted {n_done} images, "
+        f"{len(json_results)} RLE instances",
+        flush=True,
+    )
 
     results_path = out_dir / "coco_instances_results.json"
     with results_path.open("w") as handle:
