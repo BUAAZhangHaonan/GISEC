@@ -57,3 +57,5 @@ See RESULT.md (appended after each eval).
   segm AP 0.6082 / AP50 0.8649 / AP75 0.6926 (bbox AP 0.6840)。已写入 RESULT.md。
 - 链重启: mrcnn16 跳过 (已训完), chain_rest.sh (m2f16 -> m2f16cat) 于 13:35 启动。
 - m2f16 smoke: params 16.54M, 0.64 s/step, peak 25.4 GiB, ETA 11.5 h for 20 epochs
+- m2f16cat smoke: params 16.54M, 0.67 s/step, peak 25.5 GiB, ETA 12.0 h for 20 epochs
+- m2f16 训完并评测: segm AP 0.43393 / AP50 0.62843 / AP75 0.52561 / APs≈0 / APm 0.45592, bbox 0.37456 (详见 RESULT.md)。m2f16cat 已由链自动启动 (systemctl is-active = active, 08-25 09:54 起)。
