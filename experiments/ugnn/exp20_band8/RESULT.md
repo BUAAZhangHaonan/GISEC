@@ -36,3 +36,14 @@
   （0.84713/0.84704），0.99 以上衰减。
 - canonical：ckpt=runs/best.pth + SEM_THR 0.9（eval_centernet.py 默认已改），
   full-profile bootstrap 由 gisec-e20-fullboot 跑（见 STATUS.md）。
+
+## full-profile CI 落定（2026-08-26，gisec-e20-fullboot）
+
+- Bootstrap（210 scene×100 draws，runs/eval_report_full.json）：
+  segm AP **0.84892 CI95 [0.83678, 0.86363]**；bbox AP 0.75986 CI95 [0.74444, 0.77582]。
+- 与点估计对比：全量 fast FINAL segm 0.84880（centernet tag），bootstrap mean 0.84892
+  一致，CI 区间覆盖 canonical 优势幅度（vs E17 0.83808 下界仍高 +0.0pt 边缘内）。
+- Oracle GT centers：segm 0.84436 / AP50 0.87918 / AP75 0.85270 —— centernet 0.84880
+  反超 oracle +0.44pt，种子框足够准，不再有 center 上限空间。
+- 种子精度（full-profile）：median 1.76px（p90 3.56px，<8px 率 96.04%），
+  与 sweep 阶段 1.74px 一阶。

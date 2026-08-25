@@ -6,3 +6,4 @@
 - 2026-08-25 22:20 gisec-e20-crc: 前 100 图 live vs sweep 缓存 CRC32 100/100 一致。
 - 2026-08-25 22:26 gisec-e20-fullboot (160G cap): full-profile bootstrap
   (scene CI + oracle) 运行中，out=runs/eval_report_full.json。
+- 2026-08-26 02:5x gisec-e20-fullboot (160G cap): 完成，full-profile bootstrap segm 0.84892 CI95 [0.83678,0.86363]（210 scene×100 draws），oracle 0.84436 < centernet 0.84880，种子 median 1.76px。CI 入账，E20 收口。
