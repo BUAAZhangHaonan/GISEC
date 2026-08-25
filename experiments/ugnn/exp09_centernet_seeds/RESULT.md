@@ -106,3 +106,20 @@ E17（band EMA，exp17_band_ema/runs/best.pth）救援重扫 SEM_THR 峰值 0.97
   （crc_check_e17.json，100/100）。
 - full 档 bootstrap（eval_report_full.json）由 gisec-e17-fullboot 单元跑，
   见 ../exp17_band_ema/STATUS.md。
+
+## 2026-08-25 canonical 切换：E20 ckpt + SEM_THR 0.9
+
+E20（band x8，BAND_GAIN 3.0→7.0，exp20_band8/runs/best.pth）500 图 sweep
+（sweep_e20.json）最优 thr **0.9**：配对 vs E17@0.97（0.83357 复算对齐）
+ΔAP +1.31pt CI95 [+0.85,+1.69]（线① PASS）；全量 3276 复验（fast 档，
+gisec-e20-fullval）过线（线② PASS）：
+
+- FINAL segm AP **0.84880** / AP50 0.88405 / AP75 0.85941，n_pred 51.31/img
+  （168085）。vs 旧 canonical（E17 ckpt + thr 0.97）0.83808：**ΔAP +1.07pt**，
+  AP75 +1.42pt。
+- 新 canonical：ckpt = exp20_band8/runs/best.pth（16.851M，架构零改动），
+  SEM_THR = 0.9（eval_centernet.py 默认已由 0.97 切到 0.9），其余管线不变。
+- 确定性抽查：前 100 图 sweep 缓存路径 vs 主评测管线 CRC32 逐位一致
+  （crc_check_e20.json，100/100）。
+- full 档 bootstrap（runs/eval_report_full.json）由 gisec-e20-fullboot 单元跑，
+  见 ../exp20_band8/STATUS.md。

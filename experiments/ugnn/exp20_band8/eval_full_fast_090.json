@@ -1,0 +1,26 @@
+{
+  "profile": "fast",
+  "grid": [
+    {
+      "tag": "centernet",
+      "segm_AP": 0.8487990078762424,
+      "segm_AP50": 0.8840490380561777,
+      "segm_AP75": 0.8594147638746736,
+      "bbox_AP": 0.7597354699282145,
+      "bbox_AP50": 0.8300910946376873,
+      "bbox_AP75": 0.7703944685301575,
+      "n_pred": 168085,
+      "n_pred_per_img": 51.30799755799756
+    }
+  ],
+  "max_markers_per_img": 108,
+  "latency_s_per_img": {
+    "forward": 0.02248991068755504,
+    "rgb_load": 0.0452051378700354,
+    "depth_load": 0.020363759952240542,
+    "worker_compute": 0.03447429284480435,
+    "wall_total": 0.08875600837670143,
+    "dispatch_residual": -0.0337770929779339
+  },
+  "seed_precision": null
+}
