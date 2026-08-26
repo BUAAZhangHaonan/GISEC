@@ -18,8 +18,7 @@ from pathlib import Path
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent / "exp03_unet_dense"))
-sys.path.insert(0, str(HERE.parent / "exp08_scale_32254"))
+sys.path.insert(0, str(HERE.parent / "lib"))
 sys.path.insert(0, str(HERE))
 
 import eval_pipeline as ep  # noqa: E402

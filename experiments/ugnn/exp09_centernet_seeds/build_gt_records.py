@@ -176,7 +176,7 @@ def verify(split: str, out: Path, n: int = 20) -> None:
     with open(out / f"{split}_items.pkl", "rb") as f:
         items = pickle.load(f)
     with open(out / f"{split}_stats.pkl", "rb") as f:
-        ids, offs, flat = pickle.load(f)
+        _ids, offs, flat = pickle.load(f)
     sem = np.memmap(
         out / f"{split}_sem.dat", dtype=np.uint8, mode="r", shape=(len(items), PACK)
     )

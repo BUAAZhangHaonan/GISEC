@@ -36,9 +36,7 @@ from pycocotools.cocoeval import COCOeval
 from scipy import ndimage as ndi
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent / "exp03_unet_dense"))
-sys.path.insert(0, str(HERE.parent / "exp04_instance_split"))
-sys.path.insert(0, str(HERE.parent / "exp08_scale_32254"))
+sys.path.insert(0, str(HERE.parent / "lib"))
 sys.path.insert(0, str(HERE))
 
 import eval_pipeline as ep  # noqa: E402
@@ -53,10 +51,8 @@ from eval_scale import (  # noqa: E402
     scene_key,
     seed_precision,
 )
-from train_centernet import SeedNet as SeedNetE9  # noqa: E402
-
-sys.path.insert(0, str(HERE.parent / "exp10_semantic_capacity"))
 from train_capacity import SeedNet as SeedNetE10  # noqa: E402
+from train_centernet import SeedNet as SeedNetE9  # noqa: E402
 
 ep.DATA = DATA
 

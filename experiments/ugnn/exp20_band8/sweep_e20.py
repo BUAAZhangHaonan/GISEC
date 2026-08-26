@@ -41,8 +41,7 @@ E9 = UGNN / "exp09_centernet_seeds"
 E12 = UGNN / "exp12_knife"
 E17 = UGNN / "exp17_band_ema"
 sys.path.insert(0, str(E9))
-sys.path.insert(0, str(UGNN / "exp08_scale_32254"))
-sys.path.insert(0, str(UGNN / "exp03_unet_dense"))
+sys.path.insert(0, str(UGNN / "lib"))
 
 import eval_centernet as ec  # noqa: E402
 import eval_pipeline as ep  # noqa: E402
@@ -97,7 +96,9 @@ def stage_a(ckpt_path: str) -> None:
             npz, sem_logit=sem_logit, hm=hm, off=off, depth=depth.astype(np.float32)
         )
         if (i + 1) % 50 == 0:
-            print(f"fwd {i + 1}/{len(metas)} {time.perf_counter() - t0:.0f}s", flush=True)
+            print(
+                f"fwd {i + 1}/{len(metas)} {time.perf_counter() - t0:.0f}s", flush=True
+            )
 
 
 # ---------------------------------------------------------------- stage B
@@ -260,9 +261,7 @@ def stage_b() -> None:
         "dAP_ci95": [float(np.percentile(d, 2.5)), float(np.percentile(d, 97.5))],
     }
     verdict = (
-        "PASS1"
-        if paired["dAP_mean"] > 0 and paired["dAP_ci95"][0] > 0
-        else "FAIL1"
+        "PASS1" if paired["dAP_mean"] > 0 and paired["dAP_ci95"][0] > 0 else "FAIL1"
     )
 
     seed = seed_precision(_seed_pairs(metas))

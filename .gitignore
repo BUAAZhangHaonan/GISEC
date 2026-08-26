@@ -16,24 +16,8 @@ docs/method/
 output/
 .worktree/
 
-# ugnn sweep artifacts (regenerable, large)
-experiments/ugnn/exp12_knife/_cache_fwd/
-experiments/ugnn/exp12_knife/sweep_raw_round*.json
-experiments/ugnn/exp11_recall_score/feats/
-
-# exp14 tta cache (6.1G, regenerable)
-experiments/ugnn/exp14_tta/_cache_tta/
-
-# exp16 flow-seam forward cache (3.2G, regenerable)
-experiments/ugnn/exp16_flow_seam/_cache_fwd/
-
-# exp09/exp10 gt_records (7.2G generated pickles, regenerable)
+# exp09 gt_records (7.2G generated pickles, regenerable via build_gt_records.py)
 experiments/ugnn/exp09_centernet_seeds/gt_records/
-experiments/ugnn/exp10_semantic_capacity/gt_records
 
-# exp17 band+ema forward cache + gt records (regenerable)
-experiments/ugnn/exp17_band_ema/_cache_fwd/
+# exp17 band records (canonical band overlay, regenerable via build_band_records.py)
 experiments/ugnn/exp17_band_ema/gt_records/
-
-# exp18 depth-only forward cache (regenerable)
-experiments/ugnn/exp18_depth_only/_cache_fwd/

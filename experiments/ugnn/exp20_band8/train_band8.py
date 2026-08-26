@@ -59,7 +59,7 @@ from torch.utils.data import DataLoader
 from gisec.datasets.coco_utils import load_depth_array
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent / "exp03_unet_dense"))
+sys.path.insert(0, str(HERE.parent / "lib"))
 sys.path.insert(0, str(HERE.parent / "exp09_centernet_seeds"))
 
 from centernet_gt import build_seed_targets_from_stats  # noqa: E402

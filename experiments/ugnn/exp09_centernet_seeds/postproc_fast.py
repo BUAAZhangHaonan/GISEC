@@ -412,8 +412,7 @@ def process(image_id, coords, sem, depth, sem_logit, peaks):
 # ---------------------------------------------------------------- precompute
 def _pre_one(args):
     image_id, dpath = args
-    sys.path.insert(0, str(HERE.parent / "exp03_unet_dense"))
-    sys.path.insert(0, str(HERE.parent / "exp08_scale_32254"))
+    sys.path.insert(0, str(HERE.parent / "lib"))
     import eval_pipeline as ep
 
     depth = ep.load_depth_array(Path(dpath))
@@ -430,8 +429,7 @@ def _pre_one(args):
 def precompute_main() -> None:
     import multiprocessing as mp
 
-    sys.path.insert(0, str(HERE.parent / "exp03_unet_dense"))
-    sys.path.insert(0, str(HERE.parent / "exp08_scale_32254"))
+    sys.path.insert(0, str(HERE.parent / "lib"))
     from eval_scale import load_split
 
     metas, _ = load_split("val")
