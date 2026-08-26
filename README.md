@@ -1,54 +1,70 @@
 # GISEC
 
-GISEC is a staged Mask2Former pipeline for electronic-component instance segmentation in dense clutter. It works on RGB or RGB-D input, can refine coarse masks locally, can rescue difficult cases with a reference bank, and can merge overlapping fragments with a graph head.
+Instance segmentation for electronic components in dense clutter. The dataset is `datasets/20260318_1K_32254` (32254 rendered scenes, 1024x1024 RGB-D, single class). The current route is a small U-Net with three heads (semantic mask + CenterNet seeds + offsets) whose predictions are split into instances by a depth-guided watershed: 16.851M parameters, 20 epochs / 64K iterations from scratch. The earlier staged Mask2Former pipeline and its rescue stages are retired; see History.
 
-## Headline Result
+## Canonical Result
 
-Mask2Former Swin-T with RGB-D early concat, trained on the 32254-image dataset (`datasets/20260318_1K_32254`), reaches **segm AP 90.6** on val:
+E20 (band-weighted BCE x8 + EMA), full 3276-image val:
 
-- AP 90.63, AP50 96.02, AP75 93.97, APs 33.05, APm 90.40, APl 98.61 (best checkpoint `model_0264999.pth`, iteration 264979 of a 300K-iteration schedule, stopped at 275K)
-- Trained for 275K iterations (batch 2, base LR 5e-5, 1024 resolution) on 2026-07-15 with the detectron2/Mask2Former stack in the magformer workspace on server 4028: `~/magformer/output/experiments/baselines_v2/m2f_swin_t_rgbd_concat/`. The checkpoints and logs live there; they are not archived in this repo.
+- segm AP **0.84880**, CI95 [0.8368, 0.8636] (scene bootstrap, point estimate 0.84892)
+- AP50 0.88405, AP75 0.85941, 51.31 predictions/image
+- guardrails: seed offset median 1.74 px (< 8 px), semantic mIoU 0.9983
+- checkpoint: `experiments/ugnn/exp20_band8/runs/best.pth`; decode `SEM_THR = 0.9` (sweep winner, now the default in `eval_centernet.py`)
 
-## Results
+Oracle GT centers score 0.84436, below the CenterNet front end (0.84880): the seeds are no longer the ceiling.
 
-| Model | Dataset | segm AP | bbox AP | boundary_band_iou | Artifacts |
-| --- | --- | ---: | ---: | ---: | --- |
-| Mask2Former Swin-T, RGB-D concat | `20260318_1K_32254` | 0.9063 | – | – | 4028 magformer workspace (not in repo) |
-| GISEC `base_rgb_1024` rerun, best epoch 19 | `0831_1K` | 0.6267 | 0.6155 | 0.1886 | `output/experiments/2026-04-13-rgb-full-rerun/phase_c/active_rgb_official/train/base_rgb_1024/` |
-| Mask2Former Swin-T baseline (phase A) | `20260318_1K_1566` | 0.5381 | 0.5054 | 0.1904 | `output/experiments/baselines/mask2former_swin_t_1024_phasea_full` |
-| Mask R-CNN R50 baseline (phase A) | `20260318_1K_1566` | 0.5151 | 0.4890 | 0.1434 | `output/experiments/baselines/mask_rcnn_r50_1024_phasea_full` |
-| U-Net dense + connected components | `20260318_1K_1566` | ~0 | – | – | failed route, artifacts deleted |
+## Equal-budget Baselines
 
-Measurement protocol notes:
+Same 16-17M params, same 20-epoch / 64K-iteration budget, same data. Numbers and fairness notes in `experiments/ugnn/baselines16m/RESULT.md`; baseline checkpoints were not retained, only metrics and prediction artifacts.
 
-1. Protocol ledger: the 0.6267 rerun row and the Mask2Former phase A baseline (0.5381) were produced with the old score>=0.5 candidate truncation at decode time, a conservative lower bound on AP rather than standard COCO AP. The Mask R-CNN phase A baseline (0.5151) is the odd one out: its run_summary decode_config records a 0.05 candidate set, so the two phase A rows were not measured under one protocol and their gap should be read with that in mind. The ordering Mask2Former > Mask R-CNN survives either way, because 0.05 is a relaxation of 0.5 that can only raise AP, and Mask R-CNN is the row measured under the looser protocol yet still lower. Since the 2026-08-16 fixes, `gisec eval`, infer's metrics, and the trainer's epoch-val all use the standard protocol (score>=0.05 candidate set, COCOeval maxDets 100); numbers from before and after the fix are not directly comparable, and neither protocol matches the detectron2 stack that produced the 90.63 headline. The rerun best checkpoint re-evaluated under the standard protocol (2026-08-16, all 110 `0831_1K` val images) gives segm AP 0.6003, bbox AP 0.6069, boundary_band_iou 0.1865; the artifacts live in `output/validation/protocol_rerun/`.
-2. `boundary_band_iou` is a repo-defined metric, not the Boundary IoU of Cheng et al.: it takes the union of all instance boundary bands (each band is the mask minus its 1-px erosion), computes an image-level IoU between the predicted and ground-truth union maps, and averages per image. Historical artifacts keep the old `boundary/IoU` key for the same quantity.
-3. The 0.6267 rerun row was trained and evaluated on the `0831_1K` dataset, which lives outside the repo at `../magformer_datasets/0831_1K` and is not covered by the in-repo dataset table.
-4. The Historical Ladder numbers below have no surviving artifacts: the checkpoints were deleted during cleanup and the values are transcribed from historical documents, not re-derived from runnable outputs.
-
-The U-Net dense-prediction-plus-connected-components route produced near-zero instance AP and its outputs were removed. The best-epoch-19 numbers of the rerun come from its `metrics_log.jsonl`; the `run_summary.json` in that directory records the final epoch instead (segm AP 0.6115).
-
-### Historical Ladder (checkpoints not preserved)
-
-The staged RGB ladder on the 1566-scene dataset, measured before the repo split:
-
-| Stage | segm/AP | bbox/AP | boundary_band_iou |
+| Model | params | segm AP | AP50 |
 | --- | ---: | ---: | ---: |
-| `base_rgb_1024` | 0.5496 | 0.5140 | 0.1939 |
-| `base_rgb_1024_refine` | 0.5761 | 0.5156 | 0.2512 |
-| `base_rgb_1024_refine_ref` | 0.5747 | 0.5142 | 0.2501 |
-| `base_rgb_1024_refine_ref_graph` | 0.5746 | 0.5153 | 0.2488 |
+| GISEC E20 (canonical) | 16.851M | **0.84880** | 0.88405 |
+| mrcnn16 (Mask R-CNN R50) | 17.00M | 0.6082 | 0.8649 |
+| m2f16 (Mask2Former R18) | 16.54M | 0.4339 | 0.6284 |
+| m2f16cat (4ch-concat stem) | 16.54M | 0.2244 | 0.3931 |
+| m2f16fix (official config) | 16.54M | 0.2345 | 0.4621 |
 
-The ladder weights were lost during cleanup. The numbers say the refine stage improved boundary_band_iou (0.19 to 0.25) but the reference and graph rescue stages added nothing on top. Combined with the U-Net route collapsing to near-zero instance AP, the conclusion is that on this data the wins come from the backbone, input modality, and dataset scale, not from the rescue modules.
+The query paradigm (Mask2Former) severely underfits at this budget (APs near 0). `m2f16fix` falsified the implementation-handicap hypothesis: restoring the official normalization, aux loss, and point sampling made AP drop 19.9pt instead of rising. A ~16M magformer-family baseline is queued on a separate server (pending).
 
-### History
+## Repository Layout
 
-- 2026-03/04: staged Mask2Former line on the 1566-scene dataset; refine stage best at 0.5761, rescue stages no gain.
-- 2026-04-13: phase A baselines (Mask2Former Swin-T 0.5381, Mask R-CNN R50 0.5151) on the 1566-scene dataset, per the artifact mtimes and run_summary wall times (both finished in the early hours of 04-13).
-- 2026-04-13: full rerun of `base_rgb_1024` on `0831_1K`; best epoch 19 reaches segm AP 0.6267.
-- 2026-07-15: Mask2Former Swin-T RGB-D concat reaches segm AP 90.6 on the 32254-scene dataset (server 4028); current project benchmark.
-- 2026-08-15: repository refactor; only the rerun best and phase A baseline checkpoints kept on disk.
-- 2026-08-16: measurement correctness fixes; refined-mask paste keeps the probability as the single source of truth, eval switches to the standard COCO candidate protocol, latency covers the full pipeline, dependencies pin the tested stack, and training summaries/metrics rows record the eval protocol actually used.
+- `src/gisec/`: the shared kernel — COCO data utilities (`datasets/coco_utils.py`), COCO evaluation and export (`eval/coco_eval.py`, `eval/coco_export.py`), variant config. Experiment code imports data loading and COCO evaluation from here; copying implementations into experiment directories is forbidden (see `experiments/ugnn/common/README.md`).
+- `experiments/ugnn/exp09_centernet_seeds/`: the evaluation pipeline (`eval_centernet.py`, `postproc_fast.py`), GT-record and RGB-cache builders (9.7G `cache_rgb/`, 3.6G `gt_records/`).
+- `experiments/ugnn/exp17_band_ema/`: band-record builder (`build_band_records.py`) that produced the band training GT.
+- `experiments/ugnn/exp20_band8/`: canonical training (`train_band8.py`), checkpoint, thr sweep, and full-val artifacts.
+- `experiments/ugnn/baselines16m/`: equal-budget baselines — train/eval tooling and `RESULT.md`.
+- `experiments/ugnn/lib/`: shared model classes and loaders (train_unet / train_centernet / train_capacity, eval_pipeline / eval_watershed / eval_scale).
+- `experiments/ugnn/common/`: thin E1-E5 wrappers (pair features, scoring, dataset wrappers).
+- `experiments/ugnn/archive/`: 63 frozen RESULT / VERDICT files from the E1-E19 chain.
+- `experiments/ugnn/LEDGER.md`: one line per experiment, the full route history.
+- `docs/HANDOVER_20260822.md`, `docs/PHASE_REVIEW_20260826.md`: handover and closing phase review.
+- `datasets/20260318_1K_32254/`: images, depth, annotations, masks, QC reports.
+- `tests/`: pytest for the COCO export path.
+
+## Usage
+
+All entrypoints are plain scripts inside `experiments/ugnn/`. Launch compute-heavy or long runs under `systemd-run --user` cgroup caps with the absolute interpreter — an uncapped eval once accumulated 248G RSS and froze this shared machine (incident record in `docs/HANDOVER_20260822.md`).
+
+```bash
+# fast eval of the canonical checkpoint (default profile is full)
+cd experiments/ugnn/exp09_centernet_seeds
+systemd-run --user --unit=gisec-eval -p MemoryMax=64G -p CPUQuota=3200% \
+  --working-directory=$PWD /home/k100/miniconda3/envs/gisec/bin/python \
+  eval_centernet.py --arch e10 --profile fast \
+  --ckpt ../exp20_band8/runs/best.pth --out eval_report_fast.json
+
+# reproduce canonical training (GT records ship in the repo)
+cd experiments/ugnn/exp20_band8
+/home/k100/miniconda3/envs/gisec/bin/python train_band8.py --out-dir runs
+
+# baseline eval (families: mrcnn16 | m2f16 | m2f16cat | m2f16fix)
+cd experiments/ugnn/baselines16m
+/home/k100/miniconda3/envs/gisec/bin/python eval.py --family mrcnn16 \
+  --checkpoint <ckpt> --out-dir <dir>
+```
+
+`systemd-run` does not inherit the conda PATH or the shell cwd; absolute python plus `--working-directory` is the convention. Training prerequisites are the exp09 GT records and the band records from `build_band_records.py`; both are already checked in, and the builders regenerate them if needed.
 
 ## Install
 
@@ -58,128 +74,27 @@ conda activate gisec
 pip install -e . --index-url https://download.pytorch.org/whl/cu130 --extra-index-url https://pypi.org/simple
 ```
 
-`pyproject.toml` is the single dependency declaration and pins the tested stack. Tested local stack: Python 3.13 (3.13.12), CUDA 13.0 (cu130 wheels), PyTorch 2.10.0, torchvision 0.25.0, transformers 4.57.6, numpy 2.4.3. A CUDA-capable GPU is required for training.
+`pyproject.toml` is the single dependency declaration and pins the tested stack (Python 3.13, PyTorch 2.10.0 / cu130, torchvision 0.25.0, transformers 4.57.6, numpy 2.4.3). A CUDA GPU is required for training.
 
 ## Data
 
-The dataset root must follow the layout expected by `BaselineInstanceDataset`:
+Dataset layout:
 
 - `images/<split>/*.png|jpg`
 - `annotations/instances_<split>.json`
-- optional depth data in `depth/<split>/` or `depth/depth_npy/<split>/`
+- depth in `depth/<split>/`
 
-Datasets in this repo (all 1024x1024 rendered scenes):
+`datasets/20260318_1K_32254` holds 25654 train / 3276 val / rest test scenes, all 1024x1024.
 
-| Root | Content | Splits |
-| --- | --- | --- |
-| `datasets/20260318_1K_32254` | main dataset, 32254 scenes | 25654 train / 3276 val / rest test |
-| `datasets/20260318_1K_1566` | small debugging dataset, 1566 scenes | 1261 train / 149 val / rest test |
-| `datasets/20260318_1K_13440` | reference bank, 48 part directories with `rgb/`, `depth/`, `mask/`, `camera/`, `meta/` views | used by the rescue stages |
+## History and Lessons
 
-## Train
+- 2026-03/04: staged Mask2Former line on a 1566-scene subset. The refine stage helped boundaries (band IoU 0.19 -> 0.25); reference and graph rescue added nothing.
+- 2026-07-15: Mask2Former Swin-T RGB-D concat reached segm AP 90.6 on the 32254 dataset, trained in the magformer workspace on server 4028 (47.4M params, long schedule). Artifacts are not in this repo; it stays the accuracy reference the 16.851M route chases at 36% of the parameters.
+- 2026-08-15..18: repository refactor; the original dense+merge U-Net/GNN conception was killed by evidence (91% CC fusion means merge has no input); the depth-watershed split survived.
+- 2026-08-18..27: E6-E21 chain (seeds, capacity, band weighting, EMA, thr sweeps, equal-budget baselines) to the E20 canonical.
 
-The `gisec` command is the public entrypoint:
-
-```bash
-gisec train \
-  --variant base_rgb_1024 \
-  --dataset-root datasets/20260318_1K_32254 \
-  --output-dir output/gisec/base_rgb_1024
-```
-
-For a reference or graph rescue variant, add the reference root:
-
-```bash
-gisec train \
-  --variant base_rgbd_1024_refine_ref_graph \
-  --dataset-root datasets/20260318_1K_1566 \
-  --reference-root datasets/20260318_1K_13440 \
-  --init-checkpoint output/gisec/base_rgb_1024/model_best.pth \
-  --output-dir output/gisec/base_rgbd_1024_refine_ref_graph
-```
-
-The variant is selected with `--variant`; the registered names are listed below. Loss weights (`--boundary-loss-weight`, `--graph-loss-weight`, `--reference-match-loss-weight`) and training schedule (`--epochs`, `--learning-rate`) are CLI parameters.
-
-To run a whole stage group with the shared runner:
-
-```bash
-bash scripts/experiments/run_gisec.sh --dry-run          # print commands only
-bash scripts/experiments/run_gisec.sh --run              # execute
-```
-
-The runner defaults to `datasets/20260318_1K_32254` for training data and `datasets/20260318_1K_13440` (the reference bank dataset) for `--reference-root`; override with `--dataset-root`, `--reference-root`, or `--group`.
-
-## Eval
-
-```bash
-gisec eval \
-  --variant base_rgb_1024 \
-  --dataset-root datasets/20260318_1K_1566 \
-  --output-dir output/gisec/base_rgb_1024_eval \
-  --checkpoint-dir output/gisec/base_rgb_1024 \
-  --checkpoint model_best.pth
-```
-
-`--checkpoint-dir` must differ from `--output-dir`. The usual checkpoint file is `model_best.pth`. Pass an absolute path to `--checkpoint`; with a relative path, run_summary auto-provenance may resolve to the default variant. A mismatch is hard-rejected by the variant check embedded in the checkpoint, never silently.
-
-Eval builds its candidate set with the standard COCO protocol: score >= 0.05 by default (`--eval-score-threshold` to override), COCOeval maxDets 100. The threshold actually used is recorded in `run_summary.json` under `decode_config` as `eval_score_threshold` (infer additionally records the `save_score_threshold` applied to its saved predictions). Training run summaries record the same actual value since the 2026-08-16 protocol fixes; earlier training summaries recorded the unused `score_threshold` field instead. `inference_speed.json` records the latency scope (`full_pipeline`).
-
-## Infer
-
-```bash
-gisec infer \
-  --variant base_rgb_1024 \
-  --dataset-root datasets/20260318_1K_1566 \
-  --output-dir output/gisec/base_rgb_1024_infer \
-  --checkpoint-dir output/gisec/base_rgb_1024 \
-  --checkpoint model_best.pth
-```
-
-Inference uses the same checkpoint loading path as eval and writes raw prediction artifacts into the output directory. Metrics come from the same standard-protocol candidate set as eval (since the 2026-08-16 fixes; infer metrics from older versions were computed on the 0.5-threshold set and are not comparable), while the saved predictions (`coco_instances_results.json`, `coco_instances_results.raw.json`) are filtered at `--score-threshold`.
-
-## Project Structure
-
-- `src/gisec/cli/`: `gisec train` / `gisec eval` / `gisec infer` entrypoints
-- `src/gisec/config/`: variant definitions
-- `src/gisec/datasets/`: `BaselineInstanceDataset`, COCO utilities, reference bank loader
-- `src/gisec/backbones/`: Mask2Former adapter
-- `src/gisec/models/`: the GISEC model and graph head
-- `src/gisec/engine.py`: shared run machinery (device selection, JSON artifact writing, latency benchmark payload)
-- `src/gisec/geometry.py`: the single torch dilate-erode boundary-band implementation, used by train/decode and train/losses
-- `src/gisec/train/`: training orchestration, split into single-responsibility modules (`args`, `data`, `model_builder`, `graph`, `decode`, `losses`, `evaluate`, `trainer`)
-- `src/gisec/eval/`: COCO evaluation and export, boundary and split/merge metrics, run summaries
-- `scripts/experiments/run_gisec.sh`: stage-group runner
-
-Training writes `model_best.pth`, `model_final.pth`, `resume_last.pth`, `run_summary.json`, `metrics_log.jsonl`, `wall_time_sec.txt`, `peak_memory_mb.txt`, and `params_trainable.txt` into the output directory. Resumed runs (`--resume-checkpoint`) append to the existing `metrics_log.jsonl` instead of truncating it, and refine variants no longer need `--init-checkpoint` when resuming. Eval and infer write `coco_instances_results.json`, `metrics.cocoeval.json`, `inference_speed.json`, and `run_summary.json`.
-
-## Model Variants
-
-Variants are registered in `src/gisec/config/variants.py` and selected with `--variant`. The model variants are:
-
-- `base_rgb_1024`, `base_rgb_1024_refine`
-- `base_rgbd_1024`, `base_rgbd_1024_refine`, `base_rgbd_1024_refine_ref`, `base_rgbd_1024_refine_ref_graph`
-
-## Architecture Summary
-
-1. The Mask2Former backbone predicts coarse instance masks from RGB or RGB-D input.
-2. The local refinement stage crops each candidate instance, mixes the coarse mask with local features, and predicts a cleaner mask and boundary.
-3. The reference rescue stage matches candidate views against the reference bank and injects the closest match into the refinement path.
-4. The graph rescue stage scores component-to-component edges (connected components via OpenCV, `src/gisec/train/graph.py`) and merges fragments into final instances.
-
-End-to-end data flow:
-
-1. `BaselineInstanceDataset` loads images, annotations, and optional depth maps from the dataset root.
-2. The training loop converts each batch into Mask2Former inputs.
-3. The backbone predicts coarse masks and class scores.
-4. The refine stage optionally reprocesses each predicted instance crop.
-5. The reference stage optionally looks up matching reference views.
-6. The graph stage optionally merges component fragments through the connected-components helper and graph head.
-7. Evaluation exports COCO results, speed stats, and a run summary into the output directory.
-
-### Reference Bank Contract
-
-Reference rescue expects a prepared bank root that contains one directory per part, each with `rgb/`, `depth/`, and `mask/` subdirectories, plus an optional `camera/` directory of per-view JSON poses used for pose-farthest view sampling. The loader checks that the `rgb/`, `depth/`, and `mask/` directories exist before the bank is used, so a missing bank directory fails early instead of producing a silent fallback.
+The per-experiment record is `experiments/ugnn/LEDGER.md`; the ten closing insights are in `docs/PHASE_REVIEW_20260826.md`; the detailed handover is `docs/HANDOVER_20260822.md`.
 
 ## What Is Not Included
 
-This repository keeps only the standalone GISEC package. It does not include the split-out fragment-graph or object-query codebases, process notebooks, audit notes, archive material, supporting docs (removed during the 2026-08-15 cleanup), or generated output artifacts.
+The repo keeps only the active pipeline, the canonical checkpoint, GT caches, and records. The old staged-pipeline CLI (`gisec train/eval/infer`), superseded checkpoints, output artifacts, and the reference-bank dataset were removed during the 2026-08-15 and 2026-08-27 minimizations.
