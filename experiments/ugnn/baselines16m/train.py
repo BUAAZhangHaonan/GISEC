@@ -14,8 +14,6 @@ import time
 from pathlib import Path
 
 import torch
-from torch.utils.data import DataLoader
-
 from build_models import build_model
 from common import (
     EPOCH_STEPS,
@@ -27,6 +25,7 @@ from common import (
     num_params,
     unpack_masks,
 )
+from torch.utils.data import DataLoader
 
 WARMUP_STEPS = 500
 LOG_EVERY = 100
@@ -75,7 +74,11 @@ def lr_lambda(step: int) -> float:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--family", required=True, choices=["mrcnn16", "m2f16", "m2f16cat"])
+    parser.add_argument(
+        "--family",
+        required=True,
+        choices=["mrcnn16", "m2f16", "m2f16cat", "m2f16fix"],
+    )
     parser.add_argument("--out-dir", required=True)
     parser.add_argument("--epochs", type=int, default=EPOCHS)
     parser.add_argument("--smoke-steps", type=int, default=0)
@@ -88,6 +91,7 @@ def main() -> None:
     logger = JsonLogger(out_dir / "history.jsonl")
 
     include_depth = args.family == "m2f16cat"
+    imagenet_norm = args.family == "m2f16fix"
     model = build_model(args.family).cuda()
     optimizer, groups = make_optimizer(args.family, model)
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
@@ -96,7 +100,10 @@ def main() -> None:
 
     collate = collate_m2f if args.family != "mrcnn16" else collate_mrcnn
     dataset = Baseline16mDataset(
-        "train", include_depth=include_depth, include_annotations=True
+        "train",
+        include_depth=include_depth,
+        include_annotations=True,
+        imagenet_norm=imagenet_norm,
     )
     generator = torch.Generator().manual_seed(0)
     loader = DataLoader(

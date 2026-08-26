@@ -90,8 +90,12 @@ def _load_imagenet_r18(timm_backbone: nn.Module, in_chans: int) -> None:
         timm_backbone.conv1 = new
 
 
-def build_m2f(in_chans: int) -> Mask2FormerForUniversalSegmentation:
-    """HF Mask2Former with timm R18 backbone, ~16.5M trainable params."""
+def build_m2f(in_chans: int, family: str = "m2f16") -> Mask2FormerForUniversalSegmentation:
+    """HF Mask2Former with timm R18 backbone, ~16.5M trainable params.
+
+    m2f16fix restores the official Mask2Former training defaults:
+    train_num_points=12544, oversample_ratio=3.0, use_auxiliary_loss=True.
+    """
     backbone_config = TimmBackboneConfig(
         backbone="resnet18",
         in_chans=3,
@@ -109,10 +113,10 @@ def build_m2f(in_chans: int) -> Mask2FormerForUniversalSegmentation:
         dim_feedforward=M2F_FFN_DIM,
         encoder_feedforward_dim=M2F_FFN_DIM,
         num_queries=M2F_NUM_QUERIES,
-        train_num_points=M2F_TRAIN_POINTS,
-        oversample_ratio=1.0,
+        train_num_points=M2F_TRAIN_POINTS if family != "m2f16fix" else 12544,
+        oversample_ratio=1.0 if family != "m2f16fix" else 3.0,
         importance_sample_ratio=0.75,
-        use_auxiliary_loss=False,
+        use_auxiliary_loss=family == "m2f16fix",
         output_auxiliary_logits=False,
         use_pretrained_backbone=False,
         backbone_config=backbone_config,
@@ -128,6 +132,8 @@ def build_model(family: str) -> torch.nn.Module:
         return build_mrcnn()
     if family == "m2f16":
         return build_m2f(in_chans=3)
+    if family == "m2f16fix":
+        return build_m2f(in_chans=3, family="m2f16fix")
     if family == "m2f16cat":
         return build_m2f(in_chans=4)
     raise ValueError(f"unknown family: {family}")

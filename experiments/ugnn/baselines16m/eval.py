@@ -21,12 +21,11 @@ import numpy as np
 import pycocotools.mask as mask_util
 import torch
 import torch.nn.functional as F
+from build_models import build_model
+from common import Baseline16mDataset, collate_m2f, collate_mrcnn
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 from torch.utils.data import DataLoader
-
-from build_models import build_model
-from common import Baseline16mDataset, collate_m2f, collate_mrcnn
 
 SCORE_THRESHOLD = 0.05
 MASK_THRESHOLD = 0.5
@@ -90,7 +89,9 @@ def predict_m2f(model, loader, device, emit, target_size=(1024, 1024)):
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--family", required=True, choices=["mrcnn16", "m2f16", "m2f16cat"]
+        "--family",
+        required=True,
+        choices=["mrcnn16", "m2f16", "m2f16cat", "m2f16fix"],
     )
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--out-dir", required=True)
@@ -105,11 +106,17 @@ def main() -> None:
 
     model = build_model(args.family)
     state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
+    if "state_dict" in state:  # resume_last.pth training payload
+        state = state["state_dict"]
     model.load_state_dict(state)
     model.to(device)
 
     include_depth = args.family == "m2f16cat"
-    dataset = Baseline16mDataset("val", include_depth=include_depth)
+    dataset = Baseline16mDataset(
+        "val",
+        include_depth=include_depth,
+        imagenet_norm=args.family == "m2f16fix",
+    )
     if args.limit:
         dataset.image_ids = dataset.image_ids[: args.limit]
     collate = collate_m2f if args.family != "mrcnn16" else collate_mrcnn
@@ -137,7 +144,7 @@ def main() -> None:
         n_done += 1
         if masks.shape[0] == 0:
             return
-        for score, rle in zip(scores, masks_to_rle(masks)):
+        for score, rle in zip(scores, masks_to_rle(masks), strict=True):
             json_results.append(
                 {
                     "image_id": image_id,

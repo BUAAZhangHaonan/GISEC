@@ -61,3 +61,18 @@ See RESULT.md (appended after each eval).
 - m2f16 训完并评测: segm AP 0.43393 / AP50 0.62843 / AP75 0.52561 / APs≈0 / APm 0.45592, bbox 0.37456 (详见 RESULT.md)。m2f16cat 已由链自动启动 (systemctl is-active = active, 08-25 09:54 起)。
 - m2f16cat 训完并评测: segm AP 0.22437 / AP50 0.39306 / AP75 0.24364 / APs 0.0 / APm 0.26398, bbox 0.04918 (详见 RESULT.md)。
 - 收官: 基线链 3/3 完成 (mrcnn16 -> m2f16 -> m2f16cat), 2026-08-25。总结表见 RESULT.md。
+
+## m2f16fix 重跑 (2026-08-26)
+
+修正 m2f16 三条实现折损后以新 family m2f16fix 重训，预算不变（20ep/64K iter/16.54M）：
+
+1. ImageNet 归一化：common.py Baseline16mDataset 加 imagenet_norm 参数（mean/std 0.485.. / 0.229..），train/eval 两侧 m2f16fix 分支启用。
+2. use_auxiliary_loss=True（HF 官方默认）：build_models.py m2f16fix 分支开启；HF forward 给 labels 时自动聚合 aux loss，train.py 取 outputs.loss 不变。
+3. train_num_points=12544 / oversample_ratio=3.0（官方值，原 512/1.0）：build_models.py m2f16fix 分支。
+
+冒烟（unit baselines16m-m2f16fix-smoke）：50 step loss 107.5→98.8 单调降，峰值 26.7 GiB，~0.9-1.9 s/step（与 E22 并卡）；eval 8 图跑通（AP 0，50 步预期）。
+
+全量训练：systemd --user unit baselines16m-m2f16fix（MemoryMax=160G, CPUQuota=3200%），log runs/m2f16fix/train.log，history runs/m2f16fix/history.jsonl。共存 E22 下 ETA ~16h。
+
+完成后 eval：
+cd /home/k100/zhn/electronic-components-grasp-and-segment/gisec/experiments/ugnn/baselines16m && HF_HUB_OFFLINE=1 PYTHONPATH=$B/../../../src:$B /home/k100/miniconda3/envs/gisec/bin/python eval.py --family m2f16fix --checkpoint runs/m2f16fix/model_final.pth --out-dir runs/m2f16fix

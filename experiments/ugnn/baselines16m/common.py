@@ -43,9 +43,11 @@ class Baseline16mDataset(Dataset):
         *,
         include_depth: bool = False,
         include_annotations: bool = True,
+        imagenet_norm: bool = False,
     ) -> None:
         self.split = str(split)
         self.include_depth = bool(include_depth)
+        self.imagenet_norm = bool(imagenet_norm)
         self.include_annotations = bool(include_annotations)
         self.coco = LiteCOCO(DATA / "annotations" / f"instances_{self.split}.json")
         self.img_dir = DATA / "images" / self.split
@@ -64,6 +66,10 @@ class Baseline16mDataset(Dataset):
             raise FileNotFoundError(file_name)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         image_t = torch.from_numpy(image.transpose(2, 0, 1)).float() / 255.0
+        if self.imagenet_norm:
+            mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
+            std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+            image_t = (image_t - mean) / std
 
         depth_t = None
         if self.include_depth:
