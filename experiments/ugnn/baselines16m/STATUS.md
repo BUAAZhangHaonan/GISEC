@@ -76,3 +76,4 @@ See RESULT.md (appended after each eval).
 
 完成后 eval：
 cd /home/k100/zhn/electronic-components-grasp-and-segment/gisec/experiments/ugnn/baselines16m && HF_HUB_OFFLINE=1 PYTHONPATH=$B/../../../src:$B /home/k100/miniconda3/envs/gisec/bin/python eval.py --family m2f16fix --checkpoint runs/m2f16fix/model_final.pth --out-dir runs/m2f16fix
+- m2f16fix 训完并评测 (2026-08-27): segm AP 0.23449 / AP50 0.46210 / AP75 0.22505 / APs 0.00029 / APm 0.18317, bbox 0.05522 (unit baselines16m-m2f16fix-eval, 1386s)。修折损反降 19.9pt, "折损压低 m2f" 假设证伪 (详见 RESULT.md)。
