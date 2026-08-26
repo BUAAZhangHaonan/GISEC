@@ -41,3 +41,15 @@
 | magformer-16M | ~16M | 同 | pending | | | 6401 排队中 |
 
 结论: 同参数同预算下 GISEC 领先 +24~+62pt, 优势压倒性。两阶段检测器好于 query 范式, 欠拟合程度排序 MRCNN > M2F-RGB > M2F-concat (朴素 4ch concat 反而有害)。magformer-16M 基线在 6401 排队中, 数字出来后回填。
+
+### 公平性注记（2026-08-26）：m2f16/m2f16cat 三条实现折损
+
+如实记录，m2f16 系数字存在三处压低方向的折损：
+
+- (a) HF M2F 无内部归一化，timm R18 吃了裸 [0,1] RGB；mrcnn16 侧 torchvision 自动归一化，两侧不对称。
+- (b) `use_auxiliary_loss=False`（官方默认 True）。
+- (c) `train_num_points=512` / oversample 1.0（官方 12544 / 3.0）。
+
+方向均为压低 m2f，乐观修正估 +5~15pt → m2f16 约 0.50-0.58。结论稳健性：修正后 GISEC（0.84880）仍领先 27-35pt；最保守下界证据 = 干净无折损的 mrcnn16（+24pt）。
+
+后续可选：修配置重跑 m2f16（~13h）得到无折损数字。

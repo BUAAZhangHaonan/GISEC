@@ -179,7 +179,7 @@ def main() -> None:
     }
     verdict = (
         "REVIVED"
-        if paired["dAP_mean"] > 0 and paired["dAP_ci95"][1] > 0
+        if paired["dAP_mean"] > 0 and paired["dAP_ci95"][0] > 0
         else "DEAD"
     )
 
