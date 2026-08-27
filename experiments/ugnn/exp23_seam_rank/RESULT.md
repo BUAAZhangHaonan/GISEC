@@ -1,19 +1,32 @@
 # E23: 接触缝排序损失（seam-rank）
 
-状态：**准备完成，未训练**（等解码修复 + CI 修复后的修正 canonical 基线数字，
-以及 k100 GPU 窗口）。本文件头部判据在训练启动前写定并冻结。
+状态：**预注册已冻结（2026-08-27），训练启动**（unit gisec-e23-train）。
+判据在训练完成、评测做出之前不得增删改。
 
 ## 预注册（2026-08-27，跑前冻结）
 
 - **超参冻结**：margin=1.0，lambda=1.0，tau_fg=2.0，floor_w=0.25，
-  max_pairs=4096（即 argparse 默认值；启动后不得改）。
-- **PASS**：500 图配对 scene CI（修正后 bootstrap）**下界 > 0**，且全量 3276
-  确认 > 修正后 canonical 基线。
-- **主看指标**：AP75 / APm（接触缝是中目标切分的主瓶颈；E15 局部精度 0.3535）。
-- **护栏**：实例语义覆盖率 cov_median 不降（防"压背景造假缝"换覆盖）；
-  种子 median < 8px。
-- **基线数字**：TBD——等解码修复 + CI 修复后的修正 canonical（E20 0.84880
-  为修复前口径，仅作参考锚点，不作为判据行）。
+  max_pairs=4096，offset-mode=on（即 argparse 默认值；启动后不得改），
+  配方其余逐字 E20（band BCE×8、dice、CenterNet focal+offset L1、EMA 0.999、
+  AdamW 3e-4 cosine 20ep、batch 8@1024、16.851M 参数锁、无 hflip）。
+- **PASS 判据（全部满足才算过，训练完前不许改）**：
+  1. 500 图自扫 thr（同一 500 图集合与 thr 网格）后，用 scene_boot
+     cross-fitting 配对 CI **下界 > 0** vs E20 行（legacy@0.9 = 0.847133）；
+  2. 全量 3276 segm AP **> 0.84880**；
+  3. 护栏：实例语义覆盖率 cov_median 不低于基线量级（~0.9982，防"压背景
+     造假缝"换覆盖）；种子 median < 8px；
+  4. 主看 AP75 / APm 与接触子集（seam>0 的图）AP（接触缝是中目标切分的
+     主瓶颈；E15 局部精度 0.3535；val 41.4% 图有缝）。
+- **基线数字（判据对照行，已冻结）**：E20 canonical（best.pth + legacy
+  decode + thr0.9）——全量 3276 segm AP **0.84880**（点估计
+  0.8487990940，multiplicity-aware scene bootstrap 210 scene×2000 draws：
+  mean 0.84872，**CI95 [0.83217, 0.86454]**）；500 图行 **0.847133@thr0.9**
+  （legacy@0.9 与 grid@0.9 恒等，同一 500 图集合与网格
+  {0.8,0.9,0.95,0.97,0.98,0.99,0.995}，exp20_band8/decode_fix/sweep_decode.json）。
+  来源：Wave1a 2701ba5（decode 修复）/ Wave1b 29bca1c（scene CI 修复）。
+- **offset-mode 冻结为 on**：decode_fix（2701ba5）零训练对照显示 offset 头
+  对 watershed 分裂无贡献（fixed decode 种子 median 1.74→0.60px 但 AP 不涨），
+  按 E20 逐字单变量原则保留 offset L1 项。
 - **评测选择（M6）**：后半程（epoch ≥ 10）每个 epoch 的 EMA ckpt 全保留
   （runs/ema_ep10..19.pth + best.pth + last.pth），(epoch, thr) 由独立校准
   场景联合选出，不做单点 best-mIoU 选择。
@@ -80,10 +93,29 @@ rank(sobel(语义 logit 梯度))，所以直接训练部署场的导数：
     w ∈ [0.01, 2.45]、s（batch 中位 |∇d|）≈ 4e-4~2e-3（归一深度单位）。
 - ruff format + ruff check 全过。
 
-## 训练启动前还差
+## 冒烟（2026-08-27，unit gisec-e23-smoke，64G cap）
 
-1. 解码修复 + CI 修复后的修正 canonical 基线数字（判据的对照行）。
-2. GPU 窗口（k100 GPU 当前被占；按四服务器用卡规范选卡）。
-3. 冒烟：`train_seam.py --max-steps 50 --smoke-val 2`（确认 seam 分量
-   有限、无死头、速度退化 <30% 预算）。
-4. offset 去留由解码对照实验决定后再选 `--offset-mode`。
+`train_seam.py --max_steps 50 --smoke-val 2 --out-dir runs_smoke`（注意是
+`--max_steps` 下划线，E22 同款 argparse 坑）：
+
+- ep0 step0 **loss 159.2027** 与 E20 仓库极简验证冒烟逐位一致（band_frac
+  0.0399 同）——首个 batch 恰为全零缝 batch（seam=0.0000，λ·0 不改总损失），
+  证明 E20 配方逐字复现。
+- step50 分量全有限：**seam 1.3104 / rank 1.2276 / floor 0.3312 / n_pos 194**
+  （对照 CPU 理论值 L(z=0)=1.8450、L(randn×2)≈2.52；50 步后 logit 已部分
+  有序，1.31 合理；n_pos 194 证实缝边在真实 batch 命中）。
+- 梯度范数 seed_head 21.378 / seg_head 5.886 / encoder 18.866，dead-head
+  断言过（反传正常）；smoke val mIoU raw 0.8141 / EMA 0.3056（EMA 0.999
+  影子初期未跟上，正常），eval 管线不炸。
+- 50 步 + 2×2 val batch 共 33s（step0 打点 7s 含 loader 预热），训练段
+  ~0.45s/step，退化 <30% 预算内。
+
+## 训练记录
+
+- **2026-08-27 19:0x CST 启动**：unit `gisec-e23-train`（systemd-run --user，
+  MemoryMax=160G / CPUQuota=3200%，GPU 独占空闲窗口），命令
+  `train_seam.py --out-dir runs --lock-file /tmp/gisec_gpu_priority`，
+  全部冻结超参=argparse 默认（margin 1.0 / λ 1.0 / tau_fg 2.0 / floor_w 0.25
+  / max_pairs 4096 / offset-mode on）。20ep×3206 step=64120 iter，
+  预计 ~8h。评测（500 图 sweep + scene_boot cross-fit + 全量 3276 + 护栏）
+  由后续会话按上文判据执行。
