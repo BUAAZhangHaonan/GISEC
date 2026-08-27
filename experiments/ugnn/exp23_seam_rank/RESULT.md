@@ -1,6 +1,6 @@
 # E23: 接触缝排序损失（seam-rank）
 
-状态：**预注册已冻结（2026-08-27），训练启动**（unit gisec-e23-train）。
+状态：**已判决：输**（2026-08-28，判据 1/2/3cov 失败、4 反向，见文末评测节）。
 判据在训练完成、评测做出之前不得增删改。
 
 ## 预注册（2026-08-27，跑前冻结）
@@ -119,3 +119,52 @@ rank(sobel(语义 logit 梯度))，所以直接训练部署场的导数：
   / max_pairs 4096 / offset-mode on）。20ep×3206 step=64120 iter，
   预计 ~8h。评测（500 图 sweep + scene_boot cross-fit + 全量 3276 + 护栏）
   由后续会话按上文判据执行。
+
+## 评测与判决（2026-08-28）
+
+- **训练完成**：unit gisec-e23-train 08-28 00:56 结束，355.0 min，best EMA
+  mIoU 0.9948（ep18）；`runs/ema_ep10..19.pth` 后半程 EMA ckpt 10 个齐全
+  （best.pth 与 ema_ep18.pth 同权重）。判据未改一字。
+- **评测流程**（`eval/{sweep_e23,crossfit_e23,eval_full_e23,cov_check}.py`，
+  全部 systemd-run MemoryMax 32–64G）：
+  - 500 图 sweep：冻结 500 图集合（decode_fix metas.json；e20 行与
+    sweep_decode.json 逐位一致 max|dAP|=0）× 同一 thr 网格 × legacy decode，
+    候选 ep13/15/17/18/19。全部 best thr=0.95，ep 单调升，最高
+    **ep19@0.95 = 0.810190**（e20@0.9 = 0.847133）。
+  - (epoch,thr) 选择：`cross_fit_threshold`（逐变体，lib/scene_boot 23d3854）
+    + epoch 级联合 cross-fit（每 draw 在 calib 半区重选 thr 与 epoch，只在
+    gate 半区打分；A1 1e-9 / A2 5e-6 门过，e20@0.9 复现 0.8471329）。
+    联合模态赢家 **ep19@0.95**（850/2000 draws）。
+  - 全量 3276：赢家 legacy decode；G1 门 e20@0.9 全量 = 0.84879909 vs
+    预注册 0.8487991（|Δ|=6e-9），n_pred 168085 与 eval_full_fast_090.json
+    逐位一致。
+
+### 判决：输（ckpt 不进 canonical，维持 E20 best.pth + legacy@0.9）
+
+| 判据 | 结果 | 证据 |
+|---|---|---|
+| ① 500 图 cross-fit 配对 CI 下界>0 | **FAIL** | 联合 (epoch,thr) cross-fit delta **−0.044760，CI95 [−0.067323, −0.024684]**（2000 draws，32 场景对半 16/16） |
+| ② 全量 3276 > 0.84880 | **FAIL** | ep19@0.95 = **0.811662**（−3.71pt）；全量配对 delta −0.035448 [−0.041004, −0.030069] |
+| ③ 护栏 cov_median ~0.9982 / seed <8px | **cov FAIL / seed PASS** | cov_median 0.98995 vs e20 0.99892（各自工作点）；**同 thr0.95 复测排除阈值伪影**：e20 0.99831 vs e23 0.98995（cov_check），接触子集 0.99635 vs 0.98420，cov<80% 实例 0.39% vs 1.49%（3.8×）；seed median 1.885px（e20 1.740px）<8px |
+| ④ 主看 AP75/APm + 接触子集 | **反向** | AP75 0.82780 vs 0.85941（−3.16pt）、APm 0.78939 vs 0.83024（−4.08pt）、APs 0.0888 vs 0.1161；**接触子集（1357 图）0.751275 vs 0.802912，配对 delta −0.051953 [−0.058880, −0.044759]**，比非接触（−0.020339 [−0.024976, −0.015560]）伤 2.6× —— 缝损失恰在其目标子群上伤害最大 |
+
+### 机理（训练日志 + 护栏的直接证据）
+
+终段日志 g⁺ ≈ 13–18（margin=1.0 过冲 13–18×）、g⁻ ≈ 1–2：排序本身
+"成功"。但 floor 只把缝侧像素钉在 tau_fg=2.0（sigmoid 0.881），而赢家
+工作阈值 0.95 需要 logit ≥ ln(0.95/0.05)=2.94——缝带像素落在 2~2.94
+之间，二值化时成片掉出前景。与护栏完全一致：cov 在接触图掉最狠
+（同 thr 0.9964→0.9842），AP50 几乎不动（0.8746 vs 0.8840）而
+AP75/APm 崩，种子不受影响（marker 头与语义头解耦，1.885px）。E15 的
+诊断是接触带邻域局部精度（prec_loc 0.35，precision 侧）而非覆盖/排序
+（recall 侧）——本损失攻错了边：把"缝两侧可分"做出来的代价是缝带
+覆盖塌陷，恰恶化了本来不是瓶颈的一侧。
+
+### 产物
+
+- `eval/sweep_e23.json`（6 tag × 7 thr + seed）、
+  `eval/crossfit_e23.json`（per-variant + joint cross-fit）、
+  `eval/eval_full_e23.json`（全量 + 子集 + cov + seed + CI）、
+  `eval/cov_e20_at_095.json`（同 thr 护栏对照）。
+- `_cache_fwd/{ep13,ep15,ep17,ep18,ep19}/`（500 图）+ `ep19/` 全量 3276
+  前向缓存（git 忽略，可复现）。
