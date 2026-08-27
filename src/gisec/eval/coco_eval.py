@@ -7,7 +7,17 @@ from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 
 
-def evaluate_json(ann_file: Path, results: list[dict[str, Any]]) -> dict[str, Any]:
+def evaluate_json(
+    ann_file: Path,
+    results: list[dict[str, Any]],
+    img_ids: list[int] | None = None,
+) -> dict[str, Any]:
+    """COCO metrics for a result set.
+
+    img_ids restricts the evaluation to that subset of GT images (a
+    true subset AP); None keeps the historical behavior of scoring
+    against every image in the annotation file, which silently drags
+    AP down when results only cover a --max-images prefix."""
     if not results:
         # An empty candidate set is a legitimate outcome (a checkpoint may
         # predict nothing above the score threshold); report zero AP with a
@@ -22,6 +32,8 @@ def evaluate_json(ann_file: Path, results: list[dict[str, Any]]) -> dict[str, An
     payload = {}
     for metric in ("bbox", "segm"):
         coco_eval = COCOeval(coco_gt, coco_dt, metric)
+        if img_ids is not None:
+            coco_eval.params.imgIds = list(img_ids)
         # Standard COCO candidate protocol: evaluate over the full candidate
         # set with the default maxDets ladder instead of a truncated one.
         coco_eval.params.maxDets = [1, 10, 100]

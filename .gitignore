@@ -21,3 +21,6 @@ experiments/ugnn/exp09_centernet_seeds/gt_records/
 
 # exp17 band records (canonical band overlay, regenerable via build_band_records.py)
 experiments/ugnn/exp17_band_ema/gt_records/
+
+# forward caches (regenerable via sweep scripts)
+_cache_fwd/

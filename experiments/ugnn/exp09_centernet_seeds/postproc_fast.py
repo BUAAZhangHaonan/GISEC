@@ -2,7 +2,8 @@
 champion, team_b, integrated verbatim in algorithm).
 
 Pipeline (E13 integrated default: peak scoring + mix elevation):
-  markers : caller-supplied (CenterNet decode or GT centers)
+  markers : caller-supplied (CenterNet decode or GT centers);
+            same-pixel collisions deduped by peaks score (M5)
   scoring : instance score = heatmap peak at the marker seed cell
             (caller-supplied per-marker peaks array, E11 winner);
             top-100 cutoff by this score, area ascending tiebreak.
@@ -44,6 +45,9 @@ MIN_AREA = 16
 SMALL_AREA = 32
 MAX_INST = 100
 MIX_LAMBDA = 2.0  # E12 winner: rank(depth grad) + 2*rank(sem-logit grad)
+# mix_elevation_rank multiplies by np.int64(MIX_LAMBDA), which silently
+# truncates a non-integral value; fail fast on any future retune.
+assert int(MIX_LAMBDA) == MIX_LAMBDA, f"MIX_LAMBDA must be integral: {MIX_LAMBDA}"
 
 HERE = Path(__file__).resolve().parent
 CACHE_DIR = Path(
@@ -342,6 +346,24 @@ def _counts_for_label(labels, lab, bx0, by0, bx1, by1, buf):
 
 
 # ---------------------------------------------------------------- entry
+def dedup_markers(coords, peaks):
+    """Collision dedup for decoded markers landing on the same pixel:
+    keep the higher peaks score (stable — first wins on ties) so the
+    survivor set relabels to contiguous 1..M in kept order.
+
+    A no-op when every marker owns its pixel (always true under the
+    legacy/grid decodes, where cell -> pixel is injective)."""
+    peaks = np.asarray(peaks, dtype=np.float64)
+    best: dict[tuple[int, int], int] = {}
+    for i, (y, x) in enumerate(coords):
+        key = (int(y), int(x))
+        j = best.get(key)
+        if j is None or peaks[i] > peaks[j]:
+            best[key] = i
+    keep = sorted(best.values())
+    return [coords[i] for i in keep], peaks[keep]
+
+
 def process(image_id, coords, sem, depth, sem_logit, peaks):
     """Full pipeline from caller-supplied markers.
 
@@ -358,6 +380,7 @@ def process(image_id, coords, sem, depth, sem_logit, peaks):
     if not coords:
         return [], []
     peaks = np.asarray(peaks, dtype=np.float64)
+    coords, peaks = dedup_markers(coords, peaks)
     rank_d, _ = load_or_compute_rank(image_id, depth)
     rank_s, _ = sem_logit_rank(sem_logit)
     rank, nrank = mix_elevation_rank(rank_d, rank_s)
