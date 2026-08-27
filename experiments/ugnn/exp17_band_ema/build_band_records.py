@@ -14,6 +14,10 @@ the train loader cost literally zero.
 
 Writes gt_records/{split}_band.dat uint8 (N, 1024*1024//8), row i aligned
 with gt_records {split}_items.pkl entry i (id order verified at build).
+The .dat is built at a .tmp path and os.replace-d into place only after
+its spot checks pass; {split}_band.json (n_images x pack) is written
+last as the completion manifest, and a .dat without a matching
+manifest is treated as incomplete and rebuilt.
 
 Run: python build_band_records.py
 """
@@ -21,6 +25,7 @@ Run: python build_band_records.py
 from __future__ import annotations
 
 import json
+import os
 import pickle
 import sys
 import time
@@ -44,6 +49,28 @@ SIDE = 1024
 PACK = SIDE * SIDE // 8
 NPROC = 16
 STRUCT = np.ones((3, 3), dtype=bool)
+
+
+def _manifest_path(split: str) -> Path:
+    return OUT / f"{split}_band.json"
+
+
+def _write_manifest(split: str, n_items: int) -> None:
+    """Done marker: written only after the .dat is complete on disk."""
+    tmp = OUT / f"{split}_band.json.tmp"
+    tmp.write_text(json.dumps({"n_images": n_items, "pack": PACK}) + "\n")
+    os.replace(tmp, _manifest_path(split))
+
+
+def _is_done(split: str) -> bool:
+    """A bare .dat is not proof of completion (a crash mid-build used
+    to leave a truncated file that later runs skipped over); require
+    the manifest and a byte-size match."""
+    dat = OUT / f"{split}_band.dat"
+    if not (_manifest_path(split).exists() and dat.exists()):
+        return False
+    meta = json.loads(_manifest_path(split).read_text())
+    return dat.stat().st_size == meta["n_images"] * meta["pack"]
 
 
 def _one_image(args):
@@ -94,9 +121,8 @@ def build(split: str) -> None:
                 counts_list.append(rle["counts"])
         jobs.append((iid, counts_list))
 
-    out = np.memmap(
-        OUT / f"{split}_band.dat", dtype=np.uint8, mode="w+", shape=(len(items), PACK)
-    )
+    tmp_path = OUT / f"{split}_band.dat.tmp"
+    out = np.memmap(tmp_path, dtype=np.uint8, mode="w+", shape=(len(items), PACK))
     with Pool(NPROC) as pool:
         for pos, row in enumerate(pool.imap(_one_image, jobs, chunksize=32)):
             out[pos] = row
@@ -115,9 +141,7 @@ def build(split: str) -> None:
     sem = np.memmap(
         REC / f"{split}_sem.dat", dtype=np.uint8, mode="r", shape=(len(items), PACK)
     )
-    band = np.memmap(
-        OUT / f"{split}_band.dat", dtype=np.uint8, mode="r", shape=(len(items), PACK)
-    )
+    band = np.memmap(tmp_path, dtype=np.uint8, mode="r", shape=(len(items), PACK))
     rng = np.random.RandomState(0)
     for idx in rng.choice(len(items), 10, replace=False):
         s = np.unpackbits(sem[idx]).astype(bool).reshape(SIDE, SIDE)
@@ -125,6 +149,8 @@ def build(split: str) -> None:
         assert not (b & ~bd(s, STRUCT)).any(), (
             f"band leaks outside dilated sem at {idx}"
         )
+    os.replace(tmp_path, OUT / f"{split}_band.dat")
+    _write_manifest(split, len(items))
     print(
         f"[{split}] done {len(items)} imgs, spot checks ok, {time.time() - t0:.0f}s",
         flush=True,
@@ -134,7 +160,7 @@ def build(split: str) -> None:
 if __name__ == "__main__":
     OUT.mkdir(exist_ok=True)
     for split in ("val", "train"):
-        if not (OUT / f"{split}_band.dat").exists():
-            build(split)
+        if _is_done(split):
+            print(f"[{split}] band.dat complete (manifest ok), skip", flush=True)
         else:
-            print(f"[{split}] band.dat exists, skip", flush=True)
+            build(split)

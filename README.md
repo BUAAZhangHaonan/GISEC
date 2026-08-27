@@ -1,6 +1,6 @@
 # GISEC
 
-Instance segmentation for electronic components in dense clutter. The dataset is `datasets/20260318_1K_32254` (32254 rendered scenes, 1024x1024 RGB-D, single class). The current route is a small U-Net with three heads (semantic mask + CenterNet seeds + offsets) whose predictions are split into instances by a depth-guided watershed: 16.851M parameters, 20 epochs / 64K iterations from scratch. The earlier staged Mask2Former pipeline and its rescue stages are retired; see History.
+Instance segmentation for electronic components in dense clutter. The dataset is `datasets/20260318_1K_32254` (32254 rendered scenes, 1024x1024 RGB-D, single class). The current route is a small U-Net with three heads (semantic mask + CenterNet seeds + offsets) whose predictions are split into instances by a depth-guided watershed: 16.851M parameters, 20 epochs / 64K iterations, ImageNet-pretrained ResNet-18 encoder. The earlier staged Mask2Former pipeline and its rescue stages are retired; see History.
 
 ## Canonical Result
 
@@ -30,7 +30,7 @@ The query paradigm (Mask2Former) severely underfits at this budget (APs near 0).
 ## Repository Layout
 
 - `src/gisec/`: the shared kernel — COCO data utilities (`datasets/coco_utils.py`), COCO evaluation and export (`eval/coco_eval.py`, `eval/coco_export.py`), variant config. Experiment code imports data loading and COCO evaluation from here; copying implementations into experiment directories is forbidden (see `experiments/ugnn/common/README.md`).
-- `experiments/ugnn/exp09_centernet_seeds/`: the evaluation pipeline (`eval_centernet.py`, `postproc_fast.py`), GT-record and RGB-cache builders (9.7G `cache_rgb/`, 3.6G `gt_records/`).
+- `experiments/ugnn/exp09_centernet_seeds/`: the evaluation pipeline (`eval_centernet.py`, `postproc_fast.py`), GT-record and RGB-cache builders (9.7G `cache_rgb/`, 3.6G `gt_records/`, regenerated locally -- see Records Manifest).
 - `experiments/ugnn/exp17_band_ema/`: band-record builder (`build_band_records.py`) that produced the band training GT.
 - `experiments/ugnn/exp20_band8/`: canonical training (`train_band8.py`), checkpoint, thr sweep, and full-val artifacts.
 - `experiments/ugnn/baselines16m/`: equal-budget baselines — train/eval tooling and `RESULT.md`.
@@ -54,7 +54,7 @@ systemd-run --user --unit=gisec-eval -p MemoryMax=64G -p CPUQuota=3200% \
   eval_centernet.py --arch e10 --profile fast \
   --ckpt ../exp20_band8/runs/best.pth --out eval_report_fast.json
 
-# reproduce canonical training (GT records ship in the repo)
+# reproduce canonical training (records are local artifacts, see Records Manifest)
 cd experiments/ugnn/exp20_band8
 /home/k100/miniconda3/envs/gisec/bin/python train_band8.py --out-dir runs
 
@@ -64,7 +64,19 @@ cd experiments/ugnn/baselines16m
   --checkpoint <ckpt> --out-dir <dir>
 ```
 
-`systemd-run` does not inherit the conda PATH or the shell cwd; absolute python plus `--working-directory` is the convention. Training prerequisites are the exp09 GT records and the band records from `build_band_records.py`; both are already checked in, and the builders regenerate them if needed.
+`systemd-run` does not inherit the conda PATH or the shell cwd; absolute python plus `--working-directory` is the convention.
+
+### Records Manifest
+
+The record files below are large generated artifacts and are deliberately **not** committed: every `gt_records/` directory is gitignored, and `experiments/ugnn/exp20_band8/gt_records` is a local convenience symlink to the exp17 records (dangling on a fresh clone). Regenerate them from the dataset (`datasets/20260318_1K_32254`) with their builders before training; each builder self-checks (bitwise GT spot checks, id-order asserts, band containment).
+
+| records | directory | total | files | build command |
+| --- | --- | ---: | --- | --- |
+| exp09 GT records | `experiments/ugnn/exp09_centernet_seeds/gt_records/` | 3.6G | `{train,val}_items.pkl` (1.3M/165K), `{train,val}_stats.pkl` (34M/4.4M), `{train,val}_sem.dat` (3.36G/429M), `{train,val}_meta.json` | `python build_gt_records.py` |
+| exp17 band records | `experiments/ugnn/exp17_band_ema/gt_records/` | 3.7G | `train_band.dat` (3.36G), `val_band.dat` (429M), `{split}_band.json` (completion manifest) | `python build_band_records.py` (needs exp09 records) |
+| exp23 seam records | `experiments/ugnn/exp23_seam_rank/gt_records/` | 15G | `train_seam.dat` (13.5G), `val_seam.dat` (1.7G), `{split}_seam_stats.json` | `python build_seam_records.py` (systemd-run recipe in its docstring) |
+
+Both `.dat` builders write to a `.tmp` path and atomically `os.replace` it into place, so an interrupted build never leaves a half-written record that looks complete.
 
 ## Install
 
@@ -74,7 +86,7 @@ conda activate gisec
 pip install -e . --index-url https://download.pytorch.org/whl/cu130 --extra-index-url https://pypi.org/simple
 ```
 
-`pyproject.toml` is the single dependency declaration and pins the tested stack (Python 3.13, PyTorch 2.10.0 / cu130, torchvision 0.25.0, transformers 4.57.6, numpy 2.4.3). A CUDA GPU is required for training.
+`pyproject.toml` is the single dependency declaration: it pins the tested core stack (Python 3.13, PyTorch 2.10.0 / cu130, torchvision 0.25.0, transformers 4.57.6, numpy 2.4.3) and lists the remaining direct imports (segmentation-models-pytorch, numba, scikit-image, timm) with `>=` lower bounds at the tested versions. A CUDA GPU is required for training.
 
 ## Data
 

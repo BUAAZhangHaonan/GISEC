@@ -29,7 +29,7 @@ changes, zero new heads / zero new params (total stays 16.851M):
 
 Everything else is the E10 canonical recipe, unchanged: SeedNet
 (widened decoder, SEM_W=2, HM_W=OFF_W=1), AdamW 3e-4 cosine, 20 epochs
-from scratch, batch 8@1024, 16-worker gt_records loader, even-epoch val,
+(ImageNet-pretrained R18 encoder), batch 8@1024, 16-worker gt_records loader, even-epoch val,
 eval-time thresholds untouched (HM_THR .3 / SEM_THR .6 / peak scoring /
 mix lambda 2 all live in eval_centernet, not here).
 
@@ -75,7 +75,7 @@ OFF_W = 1.0
 BAND_GAIN = 7.0  # weight = 1 + 7*band -> band interior x8
 EMA_DECAY = 0.999
 DECODER_CHANNELS = (384, 192, 96, 48, 24)
-PARAM_BUDGET = 19_000_000
+PARAM_BUDGET = 17_000_000
 
 
 def dice_loss(logits, targets):

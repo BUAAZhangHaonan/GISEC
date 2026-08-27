@@ -142,12 +142,19 @@ def _depth_md5(depth):
 
 
 def load_or_compute_rank(image_id, depth):
-    """Cache keyed image_id, validated by md5(depth); miss -> inline."""
+    """Cache keyed image_id, validated by md5(depth); miss -> inline.
+
+    The md5 sidecar is the commit marker: _pre_one replaces the two
+    payload files first and the md5 last, so a crash mid-write leaves
+    a miss (inline fallback), never a torn or partial hit."""
     base = CACHE_DIR / "val" / f"{image_id}"
     f = base.with_suffix(".rank.npy")
     m = base.with_suffix(".rank.md5")
     nr = base.with_suffix(".rank.nrank.npy")
-    if f.exists() and m.read_text() == _depth_md5(depth):
+    complete = (
+        m.exists() and f.exists() and nr.exists() and m.read_text() == _depth_md5(depth)
+    )
+    if complete:
         return (
             np.load(f, allow_pickle=False),
             int(np.load(nr, allow_pickle=False)),
@@ -443,9 +450,19 @@ def _pre_one(args):
     out = CACHE_DIR / "val"
     out.mkdir(parents=True, exist_ok=True)
     base = out / f"{image_id}"
-    np.save(base.with_suffix(".rank.npy"), rank)
-    np.save(base.with_suffix(".rank.nrank.npy"), np.array(nrank))
-    base.with_suffix(".rank.md5").write_text(_depth_md5(depth))
+    # atomic commit: payloads land via tmp + os.replace, the md5
+    # sidecar last; readers treat a missing/stale md5 as a miss.
+    for suffix, payload in (
+        (".rank.npy", rank),
+        (".rank.nrank.npy", np.array(nrank)),
+    ):
+        tmp = base.with_suffix(suffix + ".tmp")
+        with open(tmp, "wb") as fh:
+            np.save(fh, payload)
+        os.replace(tmp, base.with_suffix(suffix))
+    tmp_md5 = base.with_suffix(".rank.md5.tmp")
+    tmp_md5.write_text(_depth_md5(depth))
+    os.replace(tmp_md5, base.with_suffix(".rank.md5"))
     return image_id, int(nrank)
 
 
