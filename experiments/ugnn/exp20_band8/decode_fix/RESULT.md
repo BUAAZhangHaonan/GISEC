@@ -73,3 +73,20 @@ ckpt = exp20_band8/runs/best.pth（canonical，不动），SEM_THR=0.9（E20 swe
 - sweep_decode.json：三变体 × 7 thr 全表 + 对齐门 + seed 统计。
 - eval_full_legacy.json：全量复现门（=赢家全量）报告。
 - _cache_fwd/：500 图前向缓存重建（仓库极简化时被删；gitignore）。
+
+## M3 cross-fitting + C2 canonical CI（2026-08-27 追加，stat 修复）
+
+- **M3（winner's curse）**：sweep 流程 best-thr 与变体对比共用同一 500 图，判决带选择性偏差。
+  修复 = scene-disjoint cross-fitting（`crossfit_decode.py` -> `crossfit_decode.json`，`lib/
+  scene_boot.cross_fit_threshold`）：32 场景一刀对半（calib 16 / gate 16），每个 draw 内两半独立
+  重抽样、calib 复本重选 thr、只把该选择记到 gate 复本，选择与打分不见同一场景。
+- **门**：A1 mult==1 加权点 == COCOeval stats[0]（14 累加器全过 1e-9）；A2 legacy 7 thr 复现
+  sweep_decode.json（<=5e-6 全过）。
+- **读数**：legacy in-sample best 0.847133 -> gate AP 0.838235 [0.7934,0.8852]，thr_hist
+  {0.95:1210, 0.97:501, 0.98:238, 0.9:51}；fixed 0.846876 -> 0.838771 [0.7942,0.8869]。
+  **in-sample thr 0.9 赢家在 calib 复抽样里仅 51/2000 中选**（thr 曲面平，0.9 的胜出是噪声）；
+  fixed−legacy cross-fit delta +0.000536 CI95 [−0.002710,+0.003991] 含 0 —— 三变体判决在
+  选择修复后是平局，legacy 维持 canonical 的理由退化为“零改动默认”，不是 AP 优势。
+- **C2（canonical CI）**：见 `boot_canonical.json`（multiplicity-aware，2000 draws，
+  G1 全过 + prereg 0.8487991 复现门全过）；旧 fullboot CI [0.83678,0.86363] 系 flawed
+  estimator（COCOeval np.unique 去重丢 multiplicity + n_boot=100），作废，以新值为准。
