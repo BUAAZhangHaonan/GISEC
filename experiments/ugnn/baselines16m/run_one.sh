@@ -1,6 +1,6 @@
 #!/bin/bash
 # One baseline: smoke -> full train -> eval -> RESULT append.
-# Usage: run_one.sh <mrcnn16|m2f16|m2f16cat>
+# Usage: run_one.sh <mrcnn16|mrcnn16d|m2f16|m2f16cat|m2f16fix>
 set -euo pipefail
 FAMILY=$1
 HERE="$(cd "$(dirname "$0")" && pwd)"

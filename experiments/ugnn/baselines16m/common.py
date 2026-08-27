@@ -1,14 +1,17 @@
 """Shared dataset/collate/utils for the 14-18M parameter-matched baselines.
 
-Dataset: datasets/20260318_1K_32254, 1024x1024 direct read (no resize,
-no multi-scale), train 25654 / val 3276. Instance masks are returned
-packbits-compressed to keep DataLoader worker IPC small (54 instances
-x 1024 x 1024 uint8 ~ 56 MB per image uncompressed).
+Dataset: datasets/20260318_1K_32254 (override the location with the
+GISEC_BASELINE_DATA env var or the data_root constructor argument),
+1024x1024 direct read (no resize, no multi-scale), train 25654 /
+val 3276. Instance masks are returned packbits-compressed to keep
+DataLoader worker IPC small (54 instances x 1024 x 1024 uint8 ~ 56 MB
+per image uncompressed).
 """
 
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +23,9 @@ from torch.utils.data import Dataset
 from gisec.datasets.coco_utils import LiteCOCO, ann_to_mask, load_depth_array
 
 REPO = Path(__file__).resolve().parents[3]
-DATA = REPO / "datasets" / "20260318_1K_32254"
+DATA = Path(
+    os.environ.get("GISEC_BASELINE_DATA", REPO / "datasets" / "20260318_1K_32254")
+)
 
 # Global depth calibration, identical to eval_pipeline / train_unet.
 DEPTH_LO = 0.245
@@ -41,6 +46,7 @@ class Baseline16mDataset(Dataset):
         self,
         split: str,
         *,
+        data_root: Path | None = None,
         include_depth: bool = False,
         include_annotations: bool = True,
         imagenet_norm: bool = False,
@@ -49,9 +55,10 @@ class Baseline16mDataset(Dataset):
         self.include_depth = bool(include_depth)
         self.imagenet_norm = bool(imagenet_norm)
         self.include_annotations = bool(include_annotations)
-        self.coco = LiteCOCO(DATA / "annotations" / f"instances_{self.split}.json")
-        self.img_dir = DATA / "images" / self.split
-        self.depth_dir = DATA / "depth" / "depth_npy" / self.split
+        root = Path(data_root) if data_root is not None else DATA
+        self.coco = LiteCOCO(root / "annotations" / f"instances_{self.split}.json")
+        self.img_dir = root / "images" / self.split
+        self.depth_dir = root / "depth" / "depth_npy" / self.split
         self.image_ids = sorted(self.coco.getImgIds())
 
     def __len__(self) -> int:
@@ -100,6 +107,8 @@ class Baseline16mDataset(Dataset):
                     w = float(xs.max()) - x + 1
                     h = float(ys.max()) - y + 1
                 box_list.append([x, y, x + w, y + h])
+                # Raw COCO category id (1 for this single-class dataset);
+                # family-specific 0/1-based conventions live in the collates.
                 label_list.append(int(ann["category_id"]))
                 packed_list.append(np.packbits(mask, axis=None))
             if packed_list:
@@ -119,9 +128,14 @@ class Baseline16mDataset(Dataset):
 
 
 def unpack_masks(packed: torch.Tensor) -> torch.Tensor:
-    """(N, 131072) uint8 -> (N, 1024, 1024) uint8, works on CPU or CUDA."""
+    """(N, 131072) uint8 -> (N, 1024, 1024) uint8, works on CPU or CUDA.
+
+    np.packbits defaults to bitorder='big' (pixel 0 lands in bit 7 of
+    byte 0), so the shifts must run MSB-first; arange(8) would mirror
+    every 8-pixel block horizontally.
+    """
     device = packed.device
-    shifts = torch.arange(8, device=device)
+    shifts = torch.arange(7, -1, -1, device=device)
     bits = (packed[:, :, None].to(torch.int64) >> shifts) & 1
     return bits.reshape(packed.shape[0], -1).to(torch.uint8).reshape(-1, 1024, 1024)
 
@@ -129,11 +143,14 @@ def unpack_masks(packed: torch.Tensor) -> torch.Tensor:
 def collate_mrcnn(batch: list[dict[str, Any]]):
     images, targets = [], []
     for item in batch:
-        images.append(item["image"])
+        image = item["image"]
+        if item["depth"] is not None:  # mrcnn16d: depth as 4th channel
+            image = torch.cat([image, item["depth"]], dim=0)
+        images.append(image)
         targets.append(
             {
                 "boxes": item["boxes"],
-                "labels": item["labels"],  # component category id is 1
+                "labels": item["labels"],  # torchvision: 0 is background
                 "packed_masks": item["packed_masks"],
             }
         )
@@ -148,7 +165,9 @@ def collate_m2f(batch: list[dict[str, Any]]):
         (len(batch), images.shape[-2], images.shape[-1]), dtype=torch.long
     )
     packed_masks = [item["packed_masks"] for item in batch]
-    class_labels = [item["labels"].clone() for item in batch]
+    # M2F class indices are 0-based (num_labels=1); the dataset stores
+    # the raw COCO category id, which is 1.
+    class_labels = [item["labels"] - 1 for item in batch]
     return images, pixel_mask, packed_masks, class_labels
 
 

@@ -32,7 +32,7 @@ LOG_EVERY = 100
 
 
 def make_optimizer(family: str, model: torch.nn.Module):
-    if family == "mrcnn16":
+    if family.startswith("mrcnn16"):
         optimizer = torch.optim.SGD(
             [p for p in model.parameters() if p.requires_grad],
             lr=0.02,
@@ -42,8 +42,7 @@ def make_optimizer(family: str, model: torch.nn.Module):
         groups = [group for group in optimizer.param_groups]
     else:
         backbone_ids = {
-            id(p)
-            for p in model.model.pixel_level_module.encoder._backbone.parameters()
+            id(p) for p in model.model.pixel_level_module.encoder._backbone.parameters()
         }
         backbone_params = [
             p for p in model.parameters() if p.requires_grad and id(p) in backbone_ids
@@ -77,7 +76,7 @@ def main() -> None:
     parser.add_argument(
         "--family",
         required=True,
-        choices=["mrcnn16", "m2f16", "m2f16cat", "m2f16fix"],
+        choices=["mrcnn16", "mrcnn16d", "m2f16", "m2f16cat", "m2f16fix"],
     )
     parser.add_argument("--out-dir", required=True)
     parser.add_argument("--epochs", type=int, default=EPOCHS)
@@ -90,7 +89,8 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     logger = JsonLogger(out_dir / "history.jsonl")
 
-    include_depth = args.family == "m2f16cat"
+    is_mrcnn = args.family.startswith("mrcnn16")
+    include_depth = args.family in ("m2f16cat", "mrcnn16d")
     imagenet_norm = args.family == "m2f16fix"
     model = build_model(args.family).cuda()
     optimizer, groups = make_optimizer(args.family, model)
@@ -98,7 +98,7 @@ def main() -> None:
     total_params = num_params(model)
     logger.write({"event": "start", "family": args.family, "params": total_params})
 
-    collate = collate_m2f if args.family != "mrcnn16" else collate_mrcnn
+    collate = collate_m2f if not is_mrcnn else collate_mrcnn
     dataset = Baseline16mDataset(
         "train",
         include_depth=include_depth,
@@ -142,7 +142,7 @@ def main() -> None:
         epoch_t0 = time.time()
         for batch in loader:
             step_t0 = time.time()
-            if args.family == "mrcnn16":
+            if is_mrcnn:
                 images, targets = batch
                 images = [img.cuda(non_blocking=True) for img in images]
                 targets = [
@@ -181,11 +181,7 @@ def main() -> None:
             optimizer.step()
             scheduler.step()
             global_step += 1
-            if (
-                global_step % LOG_EVERY == 0
-                or global_step <= 5
-                or smoke_limit
-            ):
+            if global_step % LOG_EVERY == 0 or global_step <= 5 or smoke_limit:
                 logger.write(
                     {
                         "event": "step",
@@ -225,12 +221,8 @@ def main() -> None:
             break
 
     if not smoke_limit:
-        torch.save(
-            model.state_dict(), out_dir / "model_final.pth"
-        )
-    logger.write(
-        {"event": "end", "family": args.family, "steps": global_step}
-    )
+        torch.save(model.state_dict(), out_dir / "model_final.pth")
+    logger.write({"event": "end", "family": args.family, "steps": global_step})
 
 
 if __name__ == "__main__":

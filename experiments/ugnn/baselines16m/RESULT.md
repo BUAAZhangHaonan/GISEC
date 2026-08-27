@@ -1,4 +1,9 @@
 # baselines16m results
+
+> Caveat 2026-08-27: the numbers below predate the supervision-path bug
+> fixes (packed-mask bit order, Mask2Former single-class config) and the
+> eval subset-imgIds fix; retrains are queued on 6401 (queue_6401.sh).
+> Treat them as lower bounds, not final baseline numbers.
 - mrcnn16: segm AP 0.6082 AP50 0.8649 AP75 0.6926 | bbox AP 0.6840
 - m2f16: segm AP 0.4339 AP50 0.6284 AP75 0.5256 | bbox AP 0.3746
 

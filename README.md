@@ -20,7 +20,7 @@ Same 16-17M params, same 20-epoch / 64K-iteration budget, same data. Numbers and
 | Model | params | segm AP | AP50 |
 | --- | ---: | ---: | ---: |
 | GISEC E20 (canonical) | 16.851M | **0.84880** | 0.88405 |
-| mrcnn16 (Mask R-CNN R50) | 17.00M | 0.6082 | 0.8649 |
+| mrcnn16 (Mask R-CNN R18) | 17.00M | 0.6082 | 0.8649 |
 | m2f16 (Mask2Former R18) | 16.54M | 0.4339 | 0.6284 |
 | m2f16cat (4ch-concat stem) | 16.54M | 0.2244 | 0.3931 |
 | m2f16fix (official config) | 16.54M | 0.2345 | 0.4621 |
