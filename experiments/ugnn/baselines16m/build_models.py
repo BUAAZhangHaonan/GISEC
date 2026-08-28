@@ -10,6 +10,12 @@
 - m2f16cat:  same as m2f16 with a 4-channel stem (depth channel
              initialised from the RGB mean), global depth calibration
              matching the GISEC pipeline.
+- m2f16v2:   m2f16 architecture and training recipe unchanged; only the
+             input pipeline differs (RGB ImageNet norm - see
+             common.family_data_flags). Clean replacement arm for the
+             bug-era m2f16 number.
+- m2f16catfix: m2f16cat architecture unchanged; RGB ImageNet norm on,
+             depth keeps the global calibration (never ImageNet stats).
 
 All Mask2Former families use num_labels=1: class index 0 is the single
 foreground class, class 1 is the null class.
@@ -43,7 +49,13 @@ M2F_TRAIN_POINTS = 512
 
 
 def build_mrcnn(in_chans: int = 3) -> mask_rcnn.MaskRCNN:
-    """Mask R-CNN R18-FPN(256), FastRCNNConvFCHead (192,192) -> ~17.0M.
+    """Mask R-CNN R18-FPN(256), FastRCNNConvFCHead (191,191) -> <17.0M.
+
+    Box-head width 191 (was 192): at 192 the 3ch/4ch arms measured
+    17.0003M / 17.0034M trainable params, both over the strict
+    <=17,000,000 budget. 191 lands both arms under it with ~10k margin;
+    the SAME change is applied to both arms so the mrcnn16 vs mrcnn16d
+    modality contrast stays free of structural differences.
 
     in_chans=4 (mrcnn16d) appends the calibrated depth as a 4th input
     channel: conv1 is widened with the extra channel set to the RGB
@@ -61,7 +73,7 @@ def build_mrcnn(in_chans: int = 3) -> mask_rcnn.MaskRCNN:
         sizes=((16,), (32,), (64,), (128,), (256,)),
         aspect_ratios=((0.5, 1.0, 2.0),) * 5,
     )
-    rep = 192
+    rep = 191
     image_mean = (0.485, 0.456, 0.406)
     image_std = (0.229, 0.224, 0.225)
     if in_chans == 4:
@@ -179,5 +191,9 @@ def build_model(family: str) -> torch.nn.Module:
     if family == "m2f16fix":
         return build_m2f(in_chans=3, family="m2f16fix")
     if family == "m2f16cat":
+        return build_m2f(in_chans=4)
+    if family == "m2f16v2":
+        return build_m2f(in_chans=3)
+    if family == "m2f16catfix":
         return build_m2f(in_chans=4)
     raise ValueError(f"unknown family: {family}")

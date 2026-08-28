@@ -1,9 +1,39 @@
 # baselines16m results
 
-> Caveat 2026-08-27: the numbers below predate the supervision-path bug
-> fixes (packed-mask bit order, Mask2Former single-class config) and the
-> eval subset-imgIds fix; retrains are queued on 6401 (queue_6401.sh).
-> Treat them as lower bounds, not final baseline numbers.
+> **勘误 (2026-08-28, 专家二轮)**: 下面全部旧数字 (mrcnn16 0.6082 / m2f16
+> 0.4339 / m2f16cat 0.2244 / m2f16fix 0.2345) 都出自监督路径带 bug 的训练
+> (packed-mask bit-order 反向、M2F 单类配置错位), 其中 m2f16 / m2f16cat /
+> m2f16fix 三条的 M2F 监督受害最深。**这些数字只进历史, 不再作为基线引用**;
+> 由此 m2f16fix 对 "折损压低 m2f" 假设的证伪判决同样作废 (对照臂本身带 bug)。
+> 干净重训按 protocol v2 (queue_6401.sh): mrcnn16fix / mrcnn16d /
+> m2f16v2 / m2f16catfix (+ 可选附录 m2f16fix-v2), 参数严格 < 17,000,000
+> (MRCNN box-head 宽度 192→191, 两臂一致), 每臂 训练 → 冻结 500 图校准
+> (scene-disjoint cross-fit 联合选 epoch/score/mask) → 冻结赢家全量 3276
+> 评测 → 对 E20 (0.84880) 做 multiplicity-aware 配对 scene bootstrap
+> (2000 draws)。新数字出来前本文件结论一律视为 pending。
+
+## Retrain protocol v2 arms (queue_6401.sh, 6401, pending)
+
+| arm | family | 配置 | params (实测) | segm AP | 状态 |
+|---|---|---|---|---|---|
+| mrcnn16fix | mrcnn16 | R18-FPN, box head 191, bit-order 修复 | 16,987,347 | pending | 6401 排队 |
+| mrcnn16d | mrcnn16d | + 4ch depth, RGB 路径与 mrcnn16 一致 | 16,990,483 | pending | 6401 排队 |
+| m2f16v2 | m2f16v2 | m2f16 配方 (512 pts/no aux) + 单类/bit-order/RGB ImageNet 归一化 | 16,536,770 | pending | 6401 排队 |
+| m2f16catfix | m2f16catfix | m2f16cat + RGB ImageNet 归一化, depth 维持全局标定 | 16,539,906 | pending | 6401 排队 |
+| m2f16fix-v2 (可选) | m2f16fix | 官方配置重训, 附录臂, 默认关 | 16,536,770 | pending | WITH_M2F16FIX_V2=1 |
+| magformer-16M | - | 外部基线 | ~16M | pending | 6401 另排队 |
+
+每臂完成后由 queue_6401.sh 第 4 步 (calibrate_and_report.py report) 产出
+如下模板行 (含对 E20 的配对 scene bootstrap CI), 手动誊入本节:
+
+```
+- <arm> (family <f>, <P>M, ep<E> score <S> mask <M>): segm AP <A> AP50 <..> AP75 <..> | bbox AP <..> | paired E20-minus-this <d> CI95 [<lo>, <hi>] (scene bootstrap, 2000 draws, seed 0)
+```
+
+---
+
+## Historical numbers (监督路径 bug 期产物, 只进历史, 见顶部勘误)
+
 - mrcnn16: segm AP 0.6082 AP50 0.8649 AP75 0.6926 | bbox AP 0.6840
 - m2f16: segm AP 0.4339 AP50 0.6284 AP75 0.5256 | bbox AP 0.3746
 

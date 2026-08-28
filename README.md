@@ -15,17 +15,19 @@ Oracle GT centers score 0.84436, below the CenterNet front end (0.84880): the se
 
 ## Equal-budget Baselines
 
-Same 16-17M params, same 20-epoch / 64K-iteration budget, same data. Numbers and fairness notes in `experiments/ugnn/baselines16m/RESULT.md`; baseline checkpoints were not retained, only metrics and prediction artifacts.
+Same <=17M params (strict), same 20-epoch / 64K-iteration budget, same data. Protocol and fairness notes in `experiments/ugnn/baselines16m/RESULT.md`.
 
-| Model | params | segm AP | AP50 |
-| --- | ---: | ---: | ---: |
-| GISEC E20 (canonical) | 16.851M | **0.84880** | 0.88405 |
-| mrcnn16 (Mask R-CNN R18) | 17.00M | 0.6082 | 0.8649 |
-| m2f16 (Mask2Former R18) | 16.54M | 0.4339 | 0.6284 |
-| m2f16cat (4ch-concat stem) | 16.54M | 0.2244 | 0.3931 |
-| m2f16fix (official config) | 16.54M | 0.2345 | 0.4621 |
+**Erratum 2026-08-28**: the first-round numbers (mrcnn16 0.6082, m2f16 0.4339, m2f16cat 0.2244, m2f16fix 0.2345) were trained with a broken supervision path (packed-mask bit order, Mask2Former single-class config); they are historical only — see the RESULT.md erratum. The retrain queue (`baselines16m/queue_6401.sh`, protocol v2) runs the clean arms below, each as train -> frozen-500-image scene-disjoint (epoch, score_thr, mask_thr) calibration -> full-val eval with the frozen winner -> multiplicity-aware paired scene bootstrap vs E20.
 
-The query paradigm (Mask2Former) severely underfits at this budget (APs near 0). `m2f16fix` falsified the implementation-handicap hypothesis: restoring the official normalization, aux loss, and point sampling made AP drop 19.9pt instead of rising. A ~16M magformer-family baseline is queued on a separate server (pending).
+| Arm | params | segm AP | status |
+| --- | ---: | ---: | --- |
+| GISEC E20 (canonical) | 16.851M | **0.84880** | reference |
+| mrcnn16fix (Mask R-CNN R18, box head 191) | 16,987,347 | pending | 6401 queued |
+| mrcnn16d (RGB-D 4ch, same-modality control) | 16,990,483 | pending | 6401 queued |
+| m2f16v2 (Mask2Former R18, clean input pipeline) | 16,536,770 | pending | 6401 queued |
+| m2f16catfix (4ch + RGB ImageNet norm) | 16,539,906 | pending | 6401 queued |
+| m2f16fix-v2 (official config, optional appendix) | 16,536,770 | pending | off by default |
+| magformer-16M (external family) | ~16M | pending | 6401 queued |
 
 ## Repository Layout
 

@@ -16,12 +16,16 @@ from pathlib import Path
 import torch
 from build_models import build_model
 from common import (
+    CALIB_EPOCHS,
     EPOCH_STEPS,
     EPOCHS,
+    FAMILIES,
+    PARAM_BUDGET,
     Baseline16mDataset,
     JsonLogger,
     collate_m2f,
     collate_mrcnn,
+    family_data_flags,
     num_params,
     unpack_masks,
 )
@@ -73,11 +77,7 @@ def lr_lambda(step: int) -> float:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--family",
-        required=True,
-        choices=["mrcnn16", "mrcnn16d", "m2f16", "m2f16cat", "m2f16fix"],
-    )
+    parser.add_argument("--family", required=True, choices=FAMILIES)
     parser.add_argument("--out-dir", required=True)
     parser.add_argument("--epochs", type=int, default=EPOCHS)
     parser.add_argument("--smoke-steps", type=int, default=0)
@@ -90,12 +90,15 @@ def main() -> None:
     logger = JsonLogger(out_dir / "history.jsonl")
 
     is_mrcnn = args.family.startswith("mrcnn16")
-    include_depth = args.family in ("m2f16cat", "mrcnn16d")
-    imagenet_norm = args.family == "m2f16fix"
+    include_depth, imagenet_norm = family_data_flags(args.family)
     model = build_model(args.family).cuda()
     optimizer, groups = make_optimizer(args.family, model)
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
     total_params = num_params(model)
+    assert total_params <= PARAM_BUDGET, (
+        f"{args.family}: {total_params:,} trainable params exceed the "
+        f"strict equal-budget ceiling {PARAM_BUDGET:,}"
+    )
     logger.write({"event": "start", "family": args.family, "params": total_params})
 
     collate = collate_m2f if not is_mrcnn else collate_mrcnn
@@ -217,6 +220,12 @@ def main() -> None:
             },
             out_dir / "resume_last.pth",
         )
+        # Calibration checkpoints: one state_dict per epoch in CALIB_EPOCHS
+        # (0-based index; epoch_19.pth duplicates model_final.pth - kept
+        # so calibrate_and_report.py sees a uniform epoch_10..19 grid).
+        # ~68 MB each, ~700 MB per arm.
+        if not smoke_limit and epoch in CALIB_EPOCHS:
+            torch.save(model.state_dict(), out_dir / f"epoch_{epoch}.pth")
         if done:
             break
 

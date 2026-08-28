@@ -6,11 +6,18 @@ reference). Writes metrics.json + coco_instances_results.json.
 --limit restricts both prediction and the COCOeval imgIds set, so a
 subset is scored against subset GT only.
 
+Frozen-winner evaluation (queue_6401.sh step 3): --checkpoint-epoch
+loads epoch_{N}.pth (10-19, saved by train.py for calibration) from
+the directory of --checkpoint, --score-thr / --mask-thr override the
+decode thresholds; the chosen values are recorded in metrics.json.
+Defaults keep the original behaviour unchanged.
+
 --calibrate sweeps mask_thr x score_thr over the same split (combine
 with --limit for a small calibration subset; inference reruns per
 combination) and reports the best combination by segm AP into
-calibration.json. Without the flag, behaviour and outputs are
-unchanged.
+calibration.json. Superseded for the retrain queue by
+calibrate_and_report.py (frozen 500-image set, scene-disjoint
+cross-fit). Without the flag, behaviour and outputs are unchanged.
 
 Memory discipline (per-image lazy, RLE-only intermediates, del after
 use): predictions are RLE-encoded inside the inference loop and
@@ -31,7 +38,15 @@ import pycocotools.mask as mask_util
 import torch
 import torch.nn.functional as F
 from build_models import build_model
-from common import DATA, Baseline16mDataset, collate_m2f, collate_mrcnn
+from common import (
+    CALIB_EPOCHS,
+    DATA,
+    FAMILIES,
+    Baseline16mDataset,
+    collate_m2f,
+    collate_mrcnn,
+    family_data_flags,
+)
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 from torch.utils.data import DataLoader
@@ -178,12 +193,30 @@ def run_coco_eval(
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--family",
-        required=True,
-        choices=["mrcnn16", "mrcnn16d", "m2f16", "m2f16cat", "m2f16fix"],
-    )
+    parser.add_argument("--family", required=True, choices=FAMILIES)
     parser.add_argument("--checkpoint", required=True)
+    parser.add_argument(
+        "--checkpoint-epoch",
+        type=int,
+        default=0,
+        help=(
+            "load epoch_{N}.pth from the directory of --checkpoint "
+            "instead of --checkpoint itself (10-19, the calibration "
+            "checkpoints); 0 keeps --checkpoint"
+        ),
+    )
+    parser.add_argument(
+        "--score-thr",
+        type=float,
+        default=SCORE_THRESHOLD,
+        help=f"score threshold (default {SCORE_THRESHOLD})",
+    )
+    parser.add_argument(
+        "--mask-thr",
+        type=float,
+        default=MASK_THRESHOLD,
+        help=f"mask binarisation threshold (default {MASK_THRESHOLD})",
+    )
     parser.add_argument("--out-dir", required=True)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--workers", type=int, default=8)
@@ -198,6 +231,15 @@ def main() -> None:
         ),
     )
     args = parser.parse_args()
+    if args.checkpoint_epoch and args.checkpoint_epoch not in CALIB_EPOCHS:
+        parser.error(
+            f"--checkpoint-epoch must be one of {CALIB_EPOCHS}, "
+            f"got {args.checkpoint_epoch}"
+        )
+    if args.checkpoint_epoch:
+        args.checkpoint = str(
+            Path(args.checkpoint).parent / f"epoch_{args.checkpoint_epoch}.pth"
+        )
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -210,11 +252,11 @@ def main() -> None:
     model.load_state_dict(state)
     model.to(device)
 
-    include_depth = args.family in ("m2f16cat", "mrcnn16d")
+    include_depth, imagenet_norm = family_data_flags(args.family)
     dataset = Baseline16mDataset(
         "val",
         include_depth=include_depth,
-        imagenet_norm=args.family == "m2f16fix",
+        imagenet_norm=imagenet_norm,
     )
     if args.limit:
         dataset.image_ids = dataset.image_ids[: args.limit]
@@ -274,9 +316,7 @@ def main() -> None:
     json_results = []
     emit = make_emitter(image_ids, json_results, category_id)
     t0 = time.time()
-    run_predict(
-        model, args.family, loader, device, emit, SCORE_THRESHOLD, MASK_THRESHOLD
-    )
+    run_predict(model, args.family, loader, device, emit, args.score_thr, args.mask_thr)
     print(
         f"[{time.time() - t0:.0f}s] predicted {len(image_ids)} images, "
         f"{len(json_results)} RLE instances",
@@ -287,7 +327,13 @@ def main() -> None:
     with results_path.open("w") as handle:
         json.dump(json_results, handle)
 
-    metrics: dict = {"family": args.family, "num_images": len(image_ids)}
+    metrics: dict = {
+        "family": args.family,
+        "num_images": len(image_ids),
+        "score_thr": args.score_thr,
+        "mask_thr": args.mask_thr,
+        "checkpoint_epoch": args.checkpoint_epoch or None,
+    }
     metrics.update(run_coco_eval(coco_gt, json_results, image_ids))
     metrics["eval_sec"] = round(time.time() - t0, 1)
     with (out_dir / "metrics.json").open("w") as handle:

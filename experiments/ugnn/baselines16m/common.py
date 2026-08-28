@@ -34,6 +34,41 @@ DEPTH_HI = 0.686
 EPOCH_STEPS = 3206  # 25654 // 8, matches the GISEC 32254 recipe
 EPOCHS = 20
 
+# Training saves a state_dict checkpoint per epoch in this range (0-based
+# epoch index; 19 == the final epoch) for the calibration protocol:
+# calibrate_and_report.py selects (epoch, score_thr, mask_thr) jointly
+# over these checkpoints on the frozen 500-image calibration set.
+CALIB_EPOCHS = tuple(range(10, 20))
+
+# Strict equal-budget ceiling shared by every family (train.py asserts
+# trainable params against this; the MRCNN box-head width 191 is chosen
+# to put both MRCNN arms under it).
+PARAM_BUDGET = 17_000_000
+
+FAMILIES = (
+    "mrcnn16",  # torchvision Mask R-CNN R18-FPN, box head width 191
+    "mrcnn16d",  # mrcnn16 + calibrated depth as a 4th input channel
+    "m2f16",  # historical: 512 pts / no aux / bare [0,1] RGB (bug-era)
+    "m2f16cat",  # historical: m2f16 + 4ch stem, bare [0,1] RGB (bug-era)
+    "m2f16fix",  # official M2F training config (12544 pts / aux / norm)
+    "m2f16catfix",  # m2f16cat recipe + RGB ImageNet norm (depth keeps
+    #   the global DEPTH_LO/HI calibration; ImageNet stats never touch it)
+    "m2f16v2",  # m2f16 recipe (512 pts / no aux) + bit-order / single
+    #   class / RGB ImageNet norm fixes - clean replacement for m2f16
+)
+
+
+def family_data_flags(family: str) -> tuple[bool, bool]:
+    """(include_depth, imagenet_norm) for one family - the single source
+    shared by train.py / eval.py / calibrate_and_report.py.
+
+    The historical families m2f16 / m2f16cat keep their original bare
+    [0,1] RGB so old runs stay reproducible; the *fix / *v2 families
+    are the arms with the corrected input pipeline."""
+    include_depth = family in ("m2f16cat", "m2f16catfix", "mrcnn16d")
+    imagenet_norm = family in ("m2f16fix", "m2f16catfix", "m2f16v2")
+    return include_depth, imagenet_norm
+
 
 def num_params(model: torch.nn.Module) -> int:
     return sum(p.numel() for p in model.parameters() if p.requires_grad)

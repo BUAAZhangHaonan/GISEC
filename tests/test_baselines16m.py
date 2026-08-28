@@ -199,7 +199,7 @@ _R18_CACHE = (
 
 
 @pytest.mark.skipif(not _R18_CACHE.exists(), reason="resnet18 V1 weights not cached")
-def test_build_mrcnn_4ch_conv1_init_and_budget() -> None:
+def test_build_mrcnn_4ch_conv1_init() -> None:
     build_models = _module("build_models")
 
     m3 = build_models.build_mrcnn()
@@ -211,12 +211,93 @@ def test_build_mrcnn_4ch_conv1_init_and_budget() -> None:
     assert torch.allclose(w4[:, :3], w3)
     assert torch.allclose(w4[:, 3:4], w3.mean(dim=1, keepdim=True))
 
-    def params(model):
-        return sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-    assert params(m4) - params(m3) == 64 * 7 * 7  # one extra input channel
-    assert params(m4) <= 17_100_000  # 17.0M + the widened conv1
-
     # The transform must accept the 4-channel input (4-entry mean/std).
     image_list, _ = m4.transform([torch.zeros(4, 64, 64)], None)
     assert image_list.tensors.shape[1] == 4
+
+
+@pytest.mark.skipif(not _R18_CACHE.exists(), reason="resnet18 V1 weights not cached")
+def test_mrcnn_param_budget_strict() -> None:
+    """Expert round-2 fix: box-head width 192 measured 17.0003M (3ch)
+    / 17.0034M (4ch) - both over the strict <=17,000,000 ceiling.
+    Width 191 must put BOTH arms strictly under it (train.py asserts
+    the same bound at runtime)."""
+    build_models = _module("build_models")
+
+    def params(model):
+        return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+    m3 = build_models.build_mrcnn()
+    m4 = build_models.build_mrcnn(in_chans=4)
+    assert params(m3) < 17_000_000
+    assert params(m4) < 17_000_000
+    assert params(m4) - params(m3) == 64 * 7 * 7  # one extra input channel
+
+
+def test_family_data_flags_table() -> None:
+    """Single source for the per-family input pipeline (train / eval /
+    calibrate share common.family_data_flags)."""
+    common = _module("common")
+    flags = {f: common.family_data_flags(f) for f in common.FAMILIES}
+    assert flags["mrcnn16"] == (False, False)
+    assert flags["mrcnn16d"] == (True, False)  # depth, no ImageNet norm
+    assert flags["m2f16"] == (False, False)  # historical: bare [0,1] RGB
+    assert flags["m2f16cat"] == (True, False)  # historical: bare [0,1] RGB
+    assert flags["m2f16fix"] == (False, True)
+    assert flags["m2f16v2"] == (False, True)  # clean m2f16 replacement
+    assert flags["m2f16catfix"] == (True, True)  # ImageNet on RGB only
+
+
+def test_dataset_imagenet_norm_touches_rgb_only(tmp_path: Path) -> None:
+    """m2f16v2 / m2f16catfix input pipeline: the RGB tensor gets the
+    ImageNet mean/std; the depth tensor keeps the global DEPTH_LO/HI
+    calibration and is never ImageNet-normalised."""
+    common = _module("common")
+    root = _make_fake_split(tmp_path)
+
+    raw = common.Baseline16mDataset("train", data_root=root)[0]
+    fixed = common.Baseline16mDataset(
+        "train", data_root=root, include_depth=True, imagenet_norm=True
+    )[0]
+
+    mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
+    std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+    assert torch.allclose(fixed["image"], (raw["image"] - mean) / std, atol=1e-6)
+
+    calibrated = np.clip(
+        (0.45 - common.DEPTH_LO) / (common.DEPTH_HI - common.DEPTH_LO), -1.0, 2.0
+    )
+    assert fixed["depth"] is not None
+    assert torch.allclose(
+        fixed["depth"][0], torch.tensor(calibrated, dtype=torch.float32)
+    )
+    # not the ImageNet-normalised version of anything:
+    assert not torch.allclose(
+        fixed["depth"], (fixed["depth"] - mean[0, 0, 0]) / std[0, 0, 0]
+    )
+    # plain (no-norm) depth arm is bit-identical
+    plain = common.Baseline16mDataset("train", data_root=root, include_depth=True)[0]
+    assert torch.equal(fixed["depth"], plain["depth"])
+
+
+def test_parse_scene_key_and_edge_dirs() -> None:
+    """calibrate_and_report.py pre-registered helpers: the scene key
+    matches lib/eval_scale.scene_key, and R4 edge detection reports the
+    violated direction only."""
+    cal = _module("calibrate_and_report")
+    assert (
+        cal.parse_scene_key("76030110x_50_scene_000028_000001_v0.png")
+        == "76030110x_50_000028"
+    )
+    assert cal.parse_scene_key("no_scene_marker.png") == "no_scene_marker.png"
+
+    score = list(cal.CORE_SCORE_THRS)
+    mask = list(cal.CORE_MASK_THRS)
+    assert cal.edge_dirs((12, 0.03, 0.5), score, mask) == ("lo", None)
+    assert cal.edge_dirs((12, 0.2, 0.5), score, mask) == ("hi", None)
+    assert cal.edge_dirs((12, 0.05, 0.3), score, mask) == (None, "lo")
+    assert cal.edge_dirs((12, 0.05, 0.7), score, mask) == (None, "hi")
+    assert cal.edge_dirs((12, 0.1, 0.5), score, mask) == (None, None)
+
+    assert cal.parse_epochs("10-19") == tuple(range(10, 20))
+    assert cal.parse_epochs("10,12") == (10, 12)
