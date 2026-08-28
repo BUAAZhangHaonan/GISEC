@@ -138,6 +138,12 @@ def _boot_init(coco_gt, dts):
 
 
 def _boot_one(args):
+    """DEPRECATED (2026-08-28): pre-multiplicity-aware bootstrap —
+    the repeated imgIds it feeds COCOeval.evaluate() are silently
+    de-duplicated by np.unique, so a scene drawn twice counts once
+    and the CI is mis-sized.  Kept only to reproduce the recorded
+    sweep_e20.json PASS1 verdict (500-img, 100 draws); the canonical
+    E20 CI is lib/scene_boot via decode_fix/boot_canonical.py."""
     v, img_ids = args
     return _score(BT_GT, BT_DTS[v], img_ids)
 

@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import itertools
 import json
 import multiprocessing as mp
 import sys
@@ -32,7 +31,6 @@ from pathlib import Path
 import numpy as np
 import torch
 from pycocotools.coco import COCO
-from pycocotools.cocoeval import COCOeval
 from scipy import ndimage as ndi
 
 HERE = Path(__file__).resolve().parent
@@ -51,6 +49,7 @@ from eval_scale import (  # noqa: E402
     scene_key,
     seed_precision,
 )
+from scene_boot import scene_bootstrap_report  # noqa: E402
 from train_capacity import SeedNet as SeedNetE10  # noqa: E402
 from train_centernet import SeedNet as SeedNetE9  # noqa: E402
 
@@ -74,7 +73,6 @@ def _gpu_divisors() -> None:
 
 W_PROFILE = "full"
 W_COCO = None
-BT_GT = BT_DT = BT_SCENES = None
 
 
 MAX_MARKERS = 512
@@ -274,55 +272,25 @@ def _forward(model, img, depth):
     return sem_logit, hm, off
 
 
-def _boot_init(coco_gt, coco_dt, scenes):
-    global BT_GT, BT_DT, BT_SCENES
-    BT_GT, BT_DT, BT_SCENES = coco_gt, coco_dt, scenes
+def scene_bootstrap_ci_report(metas, results, n_boot=2000, seed=0):
+    """Multiplicity-aware scene bootstrap CI on the FINAL config
+    (lib/scene_boot), segm + bbox, 2000 draws by default.
 
-
-def _boot_one(img_ids):
-    row = []
-    for metric in ("segm", "bbox"):
-        ev = COCOeval(BT_GT, BT_DT, metric)
-        ev.params.imgIds = img_ids
-        ev.params.maxDets = [1, 10, 100]
-        ev.evaluate()
-        ev.accumulate()
-        ev.summarize()
-        row.append(float(ev.stats[0]))
-    return row
-
-
-def scene_bootstrap_fast(metas, results, n_boot=100, seed=0):
-    """Scene-cluster bootstrap: n_boot draws (default 100) of one
-    scene per scene-slot with replacement, seed=0, run 6-way
-    parallel."""
-    scenes = {}
-    for it in metas:
-        scenes.setdefault(scene_key(it["file_name"]), []).append(it["image_id"])
+    Replaces the pre-2026-08-28 estimator (scene_bootstrap_fast),
+    which expanded each scene draw into repeated imgIds and handed
+    them to COCOeval.evaluate(); COCOeval's internal np.unique
+    de-duplicated them, so a scene drawn twice counted once and every
+    scene CI was mis-sized.  Same estimator, draws and seed as
+    exp20_band8/decode_fix/boot_canonical.py (the E20 canonical CI)."""
     coco_gt = COCO(str(DATA / "annotations" / "instances_val.json"))
-    coco_dt = coco_gt.loadRes(results)
-    rng = np.random.default_rng(seed)
-    keys = list(scenes)
-    draws = []
-    for _ in range(n_boot):
-        draws.append(
-            sorted(
-                itertools.chain.from_iterable(
-                    scenes[keys[rng.integers(len(keys))]] for _ in keys
-                )
-            )
-        )
-    with mp.get_context("fork").Pool(
-        N_WORKERS, initializer=_boot_init, initargs=(coco_gt, coco_dt, scenes)
-    ) as pool:
-        rows = pool.map(_boot_one, draws, chunksize=1)
-    out = {"n_scenes": len(scenes), "n_boot": n_boot}
-    for name, vals in (("segm", [r[0] for r in rows]), ("bbox", [r[1] for r in rows])):
-        out[name] = {
-            "mean": float(np.mean(vals)),
-            "ci95": [float(np.percentile(vals, 2.5)), float(np.percentile(vals, 97.5))],
-        }
-    return out
+    return scene_bootstrap_report(
+        coco_gt,
+        results,
+        [m["image_id"] for m in metas],
+        [scene_key(m["file_name"]) for m in metas],
+        n_boot=n_boot,
+        seed=seed,
+    )
 
 
 def main() -> None:
@@ -499,7 +467,7 @@ def main() -> None:
         report["seed_precision"] = {"heatmap": seed_precision(hm_seed)}
         print("seed_precision", report["seed_precision"])
         hm_seed = None
-        report["bootstrap_CI"] = scene_bootstrap_fast(metas, final_results)
+        report["bootstrap_CI"] = scene_bootstrap_ci_report(metas, final_results)
         print("bootstrap", report["bootstrap_CI"])
     else:
         report["seed_precision"] = None  # fast: diagnostic skipped

@@ -197,7 +197,15 @@ def wrong_merge_rate(items, frags_by_img, pairs_by_img):
 
 
 def scene_bootstrap(items, results, n_boot=1000, seed=0):
-    """Scene-level (87 clusters) bootstrap CI on segm/bbox AP."""
+    """Scene-level (87 clusters) bootstrap CI on segm/bbox AP.
+
+    DEPRECATED (2026-08-28): pre-multiplicity-aware estimator — the
+    repeated imgIds it feeds COCOeval.evaluate() are silently
+    de-duplicated by np.unique, so a scene drawn twice counts once
+    and the CI is mis-sized.  Kept only to reproduce the recorded
+    E1-E6 / eval_watershed numbers.  For any new CI use
+    lib/scene_boot.scene_bootstrap_report (the estimator behind the
+    E20 canonical CI, decode_fix/boot_canonical.py)."""
     pat = re.compile(r"scene_(\d+)")
     scenes = {}
     for it in items:

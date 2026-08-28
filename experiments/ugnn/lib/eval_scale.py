@@ -30,7 +30,6 @@ scoring, eval, bootstrap).
 from __future__ import annotations
 
 import argparse
-import itertools
 import json
 import re
 import sys
@@ -40,7 +39,6 @@ from pathlib import Path
 import numpy as np
 import torch
 from pycocotools.coco import COCO
-from pycocotools.cocoeval import COCOeval
 from skimage.feature import peak_local_max
 from skimage.segmentation import watershed
 
@@ -50,6 +48,7 @@ sys.path.insert(0, str(HERE))
 import eval_pipeline as ep  # noqa: E402
 import segmentation_models_pytorch as smp  # noqa: E402
 from eval_watershed import elevation_map, postprocess  # noqa: E402
+from scene_boot import scene_bootstrap_report  # noqa: E402
 
 from gisec.eval.coco_eval import evaluate_json  # noqa: E402
 from gisec.eval.coco_export import masks_to_coco_results  # noqa: E402
@@ -114,42 +113,22 @@ def scene_key(file_name: str):
 
 
 def scene_bootstrap(metas, results, n_boot=200, seed=0):
-    """E8: ep.scene_bootstrap with the part+scene cluster key
-    (same COCOeval resampling, output shape as E6).
-    E8b: only resamples metrics over the compact RLE results
-    (unchanged); no predictions are recomputed or held as masks."""
-    scenes = {}
-    for it in metas:
-        scenes.setdefault(scene_key(it["file_name"]), []).append(it["image_id"])
+    """E8 scene-cluster bootstrap CI (part+scene key, 210 val scenes),
+    multiplicity-aware since 2026-08-28: delegates to lib/scene_boot.
+
+    The pre-2026-08-28 body expanded each scene draw into repeated
+    imgIds and handed them to COCOeval.evaluate(), whose internal
+    np.unique de-duplicated them (a scene drawn twice counted once),
+    mis-sizing every scene CI.  Output shape kept, plus n_boot/seed."""
     coco_gt = COCO(str(DATA / "annotations" / "instances_val.json"))
-    coco_dt = coco_gt.loadRes(results)
-    keys = list(scenes)
-    ap_s, ap_b = [], []
-    rng = np.random.default_rng(seed)
-    for _ in range(n_boot):
-        img_ids = sorted(
-            itertools.chain.from_iterable(
-                scenes[keys[rng.integers(len(keys))]] for _ in keys
-            )
-        )
-        row = []
-        for metric in ("segm", "bbox"):
-            ev = COCOeval(coco_gt, coco_dt, metric)
-            ev.params.imgIds = img_ids
-            ev.params.maxDets = [1, 10, 100]
-            ev.evaluate()
-            ev.accumulate()
-            ev.summarize()
-            row.append(float(ev.stats[0]))
-        ap_s.append(row[0])
-        ap_b.append(row[1])
-    out = {"n_scenes": len(keys)}
-    for name, vals in (("segm", ap_s), ("bbox", ap_b)):
-        out[name] = {
-            "mean": float(np.mean(vals)),
-            "ci95": [float(np.percentile(vals, 2.5)), float(np.percentile(vals, 97.5))],
-        }
-    return out
+    return scene_bootstrap_report(
+        coco_gt,
+        results,
+        [m["image_id"] for m in metas],
+        [scene_key(m["file_name"]) for m in metas],
+        n_boot=n_boot,
+        seed=seed,
+    )
 
 
 def hm_markers(hm, sem, min_distance):

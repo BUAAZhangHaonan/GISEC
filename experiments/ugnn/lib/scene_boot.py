@@ -191,6 +191,36 @@ def scene_bootstrap_ci(acc: ApWeighted, resampler: SceneResampler, n_boot=2000, 
     }
 
 
+def scene_bootstrap_report(
+    coco_gt,
+    results,
+    img_ids,
+    scene_keys,
+    n_boot=2000,
+    seed=0,
+):
+    """Report-site adapter: multiplicity-aware scene bootstrap CI on
+    segm + bbox AP for one prediction set (the entry point behind
+    ``report["bootstrap_CI"]``).
+
+    img_ids / scene_keys are aligned per evaluated image, in any
+    order (sorted internally, so the draw sequence depends only on
+    the scene set, seed and n_boot).  Returns
+    ``{"n_scenes", "n_boot", "seed", "segm": {mean, ci95},
+    "bbox": {mean, ci95}}``."""
+    if len(img_ids) != len(scene_keys):
+        raise ValueError("img_ids and scene_keys must be aligned")
+    ids = [int(i) for i in img_ids]
+    order = np.argsort(np.asarray(ids), kind="mergesort")
+    resampler = SceneResampler([ids[k] for k in order], [scene_keys[k] for k in order])
+    coco_dt = coco_gt.loadRes(list(results))
+    out = {"n_scenes": resampler.n_scenes, "n_boot": n_boot, "seed": seed}
+    for metric in ("segm", "bbox"):
+        acc = ApWeighted(coco_gt, coco_dt, resampler.img_ids, metric)
+        out[metric] = scene_bootstrap_ci(acc, resampler, n_boot, seed)
+    return out
+
+
 def paired_scene_bootstrap(
     acc_a: ApWeighted,
     acc_b: ApWeighted,
