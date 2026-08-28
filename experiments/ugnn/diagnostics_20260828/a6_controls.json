@@ -1,0 +1,117 @@
+{
+ "n_images": 3276,
+ "config": {
+  "ckpt": "exp20_band8/runs/best.pth (via decode_fix/_cache_fwd, read-only)",
+  "sem_thr": 0.9,
+  "decode": "legacy (canonical)",
+  "constant_score": 1.0,
+  "note_gt_support": "conditional support control: GT union as the semantic gate, E20 elevation unchanged",
+  "note_valid_anchor": "constant anchor scores: AR@100 is rank-free w.r.t. scores; top-100 ties break by area ascending"
+ },
+ "counts": {
+  "n_gt": 181712,
+  "n_pred": {
+   "centernet": 168085,
+   "gtcent": 168955,
+   "projcent": 176435,
+   "valid_anchor": 176435,
+   "gt_support": 178996
+  },
+  "n_pred_per_img": {
+   "centernet": 51.30799755799756,
+   "gtcent": 51.573565323565326,
+   "projcent": 53.85683760683761,
+   "valid_anchor": 53.85683760683761,
+   "gt_support": 54.63858363858364
+  },
+  "anchor_pixel_collisions": 0
+ },
+ "rows": {
+  "centernet_cache_repro": {
+   "bbox_AP": 0.7597357827340503,
+   "bbox_AP50": 0.830091209137245,
+   "bbox_AP75": 0.7703946468889661,
+   "segm_AP": 0.8487990939994996,
+   "segm_AP50": 0.8840490436791175,
+   "segm_AP75": 0.8594148313721315
+  },
+  "gtcent_control": {
+   "bbox_AP": 0.7465148812824318,
+   "bbox_AP50": 0.821710980671855,
+   "bbox_AP75": 0.7567794493025265,
+   "segm_AP": 0.8443580014569075,
+   "segm_AP50": 0.8791757671491403,
+   "segm_AP75": 0.8526995503555083
+  },
+  "proj_control": {
+   "bbox_AP": 0.7728986133325836,
+   "bbox_AP50": 0.8515348368897655,
+   "bbox_AP75": 0.778345643379039,
+   "segm_AP": 0.8892725348791898,
+   "segm_AP50": 0.9494866975474076,
+   "segm_AP75": 0.8945983356960039
+  },
+  "oracle_score": {
+   "bbox_AP": 0.7758089883988601,
+   "bbox_AP50": 0.8392016873266667,
+   "bbox_AP75": 0.7866399159791903,
+   "segm_AP": 0.8613861386138614,
+   "segm_AP50": 0.8910891089108911,
+   "segm_AP75": 0.8712871287128713
+  },
+  "valid_anchor_AP_reference": {
+   "bbox_AP": 0.6702260891183882,
+   "bbox_AP50": 0.7712753615822071,
+   "bbox_AP75": 0.6737298601340326,
+   "segm_AP": 0.8382254063397416,
+   "segm_AP50": 0.9349773752519052,
+   "segm_AP75": 0.8421780790265732
+  },
+  "gt_support_AP_reference": {
+   "bbox_AP": 0.6878207138621666,
+   "bbox_AP50": 0.7785447541765879,
+   "bbox_AP75": 0.6927898802791755,
+   "segm_AP": 0.8682818973847718,
+   "segm_AP50": 0.9572752971741817,
+   "segm_AP75": 0.8668083159443255
+  }
+ },
+ "ar_rows": {
+  "centernet": {
+   "segm_AR100": 0.8648201549705028,
+   "segm_AR100_small": 0.28791922106022355,
+   "segm_AR100_medium": 0.8402511762956744,
+   "segm_AR100_large": 0.9935620356423579
+  },
+  "gtcent_control": {
+   "segm_AR100": 0.8683807343488598,
+   "segm_AR100_small": 0.34954922466642624,
+   "segm_AR100_medium": 0.8416321211803186,
+   "segm_AR100_large": 0.9931829336402254
+  },
+  "proj_control": {
+   "segm_AR100": 0.9015618120982654,
+   "segm_AR100_small": 0.4387546580117802,
+   "segm_AR100_medium": 0.8860313795455739,
+   "segm_AR100_large": 0.9967590163656981
+  },
+  "valid_anchor": {
+   "segm_AR100": 0.9015618120982654,
+   "segm_AR100_small": 0.4387546580117802,
+   "segm_AR100_medium": 0.8860313795455739,
+   "segm_AR100_large": 0.9967590163656981
+  },
+  "gt_support": {
+   "segm_AR100": 0.9242812802676763,
+   "segm_AR100_small": 0.538478182473855,
+   "segm_AR100_medium": 0.9132707141732697,
+   "segm_AR100_large": 0.9998933775619003
+  }
+ },
+ "gates": {
+  "repro_target": 0.8488,
+  "repro_tol": 0.0005,
+  "repro_pass": true,
+  "proj_minus_gtcent_ap_pt": 4.491453342228224
+ }
+}
