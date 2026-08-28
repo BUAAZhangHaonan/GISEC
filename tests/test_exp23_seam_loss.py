@@ -31,7 +31,12 @@ E23 = _REPO / "experiments" / "ugnn" / "exp23_seam_rank"
 sys.path.insert(0, str(E23))
 sys.path.insert(0, str(_REPO / "experiments" / "ugnn" / "lib"))
 
-from seam_loss import seam_edges_from_idmap, seam_rank_loss  # noqa: E402
+from seam_loss import (  # noqa: E402
+    _edge_index_pool,
+    _gather_edges,
+    seam_edges_from_idmap,
+    seam_rank_loss,
+)
 from train_unet import DEPTH_HI, DEPTH_LO  # noqa: E402
 
 DATA = _REPO / "datasets" / "20260318_1K_32254"
@@ -94,6 +99,88 @@ def test_synthetic_touching_blobs_separation() -> None:
     zmax = np.maximum(zn[ys, xs], zn[ys, xs + 1])
     assert float(zmin.mean()) > 1.5  # tau_fg = 2.0
     assert float(zmax.mean() - zmin.mean()) > 0.8
+
+
+def test_positive_pool_sampling_aligns_g_d_z() -> None:
+    """Subsampled E+ pool: g+/d+/z_min[i] must describe the same edge.
+
+    Regression for the positive-sampling misalignment: g+, d+, z_min
+    used to be drawn by three independent randperms of the same pool,
+    so the depth-flat weight w(d+) landed on g-edges it never saw.
+    Every positive edge carries a unique id encoded in all three
+    per-edge value fields; the ids recovered from the three gathered
+    outputs must agree elementwise (10000 edges > max_pairs=4096).
+    """
+    n_h, n_v, k = 6000, 4000, 4096
+    ph = torch.zeros(64 * 127, dtype=torch.bool)
+    ph[:n_h] = True
+    ph = ph.view(64, 127)
+    ids_h = torch.arange(n_h, dtype=torch.float32)
+    gh = torch.zeros(64 * 127).scatter_(0, torch.arange(n_h), ids_h * 0.001 + 0.0001)
+    dh = torch.zeros(64 * 127).scatter_(0, torch.arange(n_h), ids_h)
+    mh = torch.zeros(64 * 127).scatter_(0, torch.arange(n_h), ids_h * 0.002)
+    pv = torch.zeros(63 * 64, dtype=torch.bool)
+    pv[:n_v] = True
+    pv = pv.view(63, 64)
+    ids_v = torch.arange(n_h, n_h + n_v, dtype=torch.float32)
+    gv = torch.zeros(63 * 64).scatter_(0, torch.arange(n_v), ids_v * 0.001 + 0.0001)
+    dv = torch.zeros(63 * 64).scatter_(0, torch.arange(n_v), ids_v)
+    mv = torch.zeros(63 * 64).scatter_(0, torch.arange(n_v), ids_v * 0.002)
+
+    for seed in range(5):
+        torch.manual_seed(seed)
+        sel, idx_h, idx_v = _edge_index_pool(ph, pv, k)
+        g = _gather_edges(sel, idx_h, idx_v, gh.view(64, 127), gv.view(63, 64))
+        d = _gather_edges(sel, idx_h, idx_v, dh.view(64, 127), dv.view(63, 64))
+        m = _gather_edges(sel, idx_h, idx_v, mh.view(64, 127), mv.view(63, 64))
+        assert g.numel() == k
+        id_g = ((g - 0.0001) / 0.001).round()
+        id_d = d.round()
+        id_m = (m / 0.002).round()
+        assert torch.equal(id_g, id_d), f"seed {seed}: g+ decorrelated from d+"
+        assert torch.equal(id_d, id_m), f"seed {seed}: z_min decorrelated from d+"
+        ids = id_d.to(torch.long)
+        assert ids.numel() == ids.unique().numel()  # without replacement
+        assert int(ids.min()) >= 0 and int(ids.max()) < n_h + n_v
+
+
+def test_loss_draws_positive_pool_once(monkeypatch) -> None:
+    """seam_rank_loss must draw the E+ pool ONCE per image.
+
+    With n_pos > max_pairs and n_neg > k, the misaligned code consumed
+    four randperms per image (three for g+/d+/z_min plus one for E-);
+    the fixed path draws the E+ indices once and gathers every per-edge
+    quantity with them -> exactly two randperms (E+ pool n=5000 first,
+    E- pool n=6000 second).
+    """
+    h_pos = torch.zeros(96 * 95, dtype=torch.bool)
+    h_pos[:5000] = True
+    v_neg = torch.zeros(95 * 96, dtype=torch.bool)
+    v_neg[:6000] = True
+    seam_h = torch.zeros(1, 96, 96)
+    seam_h[0, :, :-1] = h_pos.view(96, 95).float()
+    neg_v = torch.zeros(1, 96, 96)
+    neg_v[0, :-1, :] = v_neg.view(95, 96).float()
+
+    calls: list[int] = []
+    orig_randperm = torch.randperm
+
+    def counting_randperm(n: int, device=None):
+        calls.append(n)
+        return orig_randperm(n, device=device)
+
+    monkeypatch.setattr(torch, "randperm", counting_randperm)
+    _loss, stats = seam_rank_loss(
+        torch.randn(1, 1, 96, 96),
+        seam_h,
+        torch.zeros(1, 96, 96),
+        torch.zeros(1, 96, 96),
+        neg_v,
+        torch.rand(1, 1, 96, 96),
+        max_pairs=4096,
+    )
+    assert calls == [5000, 6000]
+    assert stats["n_pos"] == 4096 and stats["n_neg"] == 4096
 
 
 def _row_bits(mm: np.memmap, idx: int, n_ch: int) -> np.ndarray:

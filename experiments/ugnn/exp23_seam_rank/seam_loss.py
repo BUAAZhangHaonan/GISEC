@@ -73,21 +73,24 @@ def seam_edges_from_idmap(
     return seam_h, seam_v, neg_h, neg_v
 
 
-def _sample_pool(
-    mask_h: torch.Tensor,
-    mask_v: torch.Tensor,
-    k: int,
-    vals_h: torch.Tensor,
-    vals_v: torch.Tensor,
-) -> torch.Tensor:
-    """Sample k edges from the pooled h/v candidate masks, return values.
+def _edge_index_pool(
+    mask_h: torch.Tensor, mask_v: torch.Tensor, k: int
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Draw the pooled h/v edge positions ONCE.
 
     mask_h / mask_v: bool (H, W-1) / (H-1, W) edge validity for
     horizontal / vertical pairs respectively (the last col / row of the
-    record bitmap is already dropped by the caller). vals_h / vals_v:
-    per-edge values of the same shapes. Sampling is uniform without
-    replacement, h-pool first
-    then v-pool, indices sorted for determinism.
+    record bitmap is already dropped by the caller). Sampling is
+    uniform without replacement over the concatenated h-then-v nonzero
+    index list, indices sorted for determinism; all edges are kept
+    when the pool fits (k >= n).
+
+    Returns (sel, idx_h, idx_v). Gathering ANY set of per-edge
+    quantities with the same sel through _gather_edges keeps the i-th
+    element of every gathered tensor on the same physical edge -- the
+    caller MUST sample once and gather many (per-quantity independent
+    sampling would decorrelate e.g. w(d+) from the g+ edge it must
+    weight).
     """
     idx_h = torch.nonzero(mask_h.reshape(-1)).flatten()
     idx_v = torch.nonzero(mask_v.reshape(-1)).flatten()
@@ -96,6 +99,17 @@ def _sample_pool(
         sel = torch.arange(n, device=mask_h.device)
     else:
         sel, _ = torch.sort(torch.randperm(n, device=mask_h.device)[:k])
+    return sel, idx_h, idx_v
+
+
+def _gather_edges(
+    sel: torch.Tensor,
+    idx_h: torch.Tensor,
+    idx_v: torch.Tensor,
+    vals_h: torch.Tensor,
+    vals_v: torch.Tensor,
+) -> torch.Tensor:
+    """Gather per-edge values at the pooled positions sel (see _edge_index_pool)."""
     fh = vals_h.reshape(-1)
     fv = vals_v.reshape(-1)
     h_sel = sel[sel < idx_h.numel()]
@@ -137,17 +151,24 @@ def seam_rank_loss(
     for b in range(z.shape[0]):
         ph = seam_h[b, :, :-1] > 0
         pv = seam_v[b, :-1, :] > 0
+        nh = neg_h[b, :, :-1] > 0
+        nv = neg_v[b, :-1, :] > 0
         n_pos = int(ph.sum()) + int(pv.sum())
-        n_neg = int((neg_h[b, :, :-1] > 0).sum()) + int((neg_v[b, :-1, :] > 0).sum())
+        n_neg = int(nh.sum()) + int(nv.sum())
         if n_pos == 0 or n_neg == 0:
             continue
         k = min(max_pairs, n_pos, n_neg)
-        gp_l.append(_sample_pool(ph, pv, k, gh[b], gv[b]))
-        dp_l.append(_sample_pool(ph, pv, k, dh[b], dv[b]))
-        mp_l.append(_sample_pool(ph, pv, k, zh_min[b], zv_min[b]))
-        gn_l.append(
-            _sample_pool(neg_h[b, :, :-1] > 0, neg_v[b, :-1, :] > 0, k, gh[b], gv[b])
-        )
+        # positive edges: draw the pooled indices ONCE, then gather every
+        # per-edge quantity with the same sel so g+/d+/z_min[i] all
+        # describe edge i (independent per-quantity sampling decorrelates
+        # the depth-flat weight from the edge it must weight)
+        sel, idx_h, idx_v = _edge_index_pool(ph, pv, k)
+        gp_l.append(_gather_edges(sel, idx_h, idx_v, gh[b], gv[b]))
+        dp_l.append(_gather_edges(sel, idx_h, idx_v, dh[b], dv[b]))
+        mp_l.append(_gather_edges(sel, idx_h, idx_v, zh_min[b], zv_min[b]))
+        # negative pool: independent unbiased Monte Carlo, own sampling
+        nsel, nidx_h, nidx_v = _edge_index_pool(nh, nv, k)
+        gn_l.append(_gather_edges(nsel, nidx_h, nidx_v, gh[b], gv[b]))
 
     if not gp_l:
         zero = sem_logits.sum() * 0.0
