@@ -4,14 +4,27 @@ Instance segmentation for electronic components in dense clutter. The dataset is
 
 ## Canonical Result
 
-E20 (band-weighted BCE x8 + EMA), full 3276-image val:
+Canonical recipe: **E20 + stride-4 grid-center markers + SEM_THR 0.9**
+(E20 = band-weighted BCE x8 + EMA), full 3276-image val:
 
-- segm AP **0.84880**, CI95 [0.8368, 0.8636] (scene bootstrap, point estimate 0.84892)
+- segm AP **0.84880**, CI95 [0.8322, 0.8645] (multiplicity-aware scene bootstrap,
+  210 scenes x 2000 draws, mean 0.84872; pre-08-27 scene CIs are retracted, see
+  `experiments/ugnn/LEDGER.md`)
 - AP50 0.88405, AP75 0.85941, 51.31 predictions/image
 - guardrails: seed offset median 1.74 px (< 8 px), semantic mIoU 0.9983
-- checkpoint: `experiments/ugnn/exp20_band8/runs/best.pth`; decode `SEM_THR = 0.9` (sweep winner, now the default in `eval_centernet.py`)
+- checkpoint: `experiments/ugnn/exp20_band8/runs/best.pth`; markers land on
+  stride-4 grid-cell centers at `SEM_THR = 0.9` (`--decode legacy` is kept only as
+  a bitwise-reproduction alias, `grid` is bit-identical; the zero-training
+  offset-decode ablation put `fixed` at delta -0.00187, CI excluding 0)
 
 Oracle GT centers score 0.84436, below the CenterNet front end (0.84880): the seeds are no longer the ceiling.
+
+Convergence scope: within <=17M parameters, 20 epochs / 64K iterations, 1024
+single-scale, and this U-Net--CenterNet--watershed family, band dose (E21 x16),
+band-weighted Dice (E22), and seam-rank (E23) all showed no positive gain, so E20
+is frozen. This is a verdict scoped to the recipe above, not a falsification of
+contact-seam supervision in general (E23 carries a 0.27% sampling footnote;
+sampling aligned in `2b456d3`, not retrained).
 
 ## Equal-budget Baselines
 

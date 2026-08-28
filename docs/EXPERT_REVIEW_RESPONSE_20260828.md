@@ -40,3 +40,24 @@
 2. seam-v2（tau_fg≥3.5 强 floor、λ 0.1-0.25、margin 0.5）是否值得最后一发？我们的机理读法是该损失与前景覆盖天然拔河（E23 排序梯度唯一的免费来源就是把一侧压低），倾向不跑，但想听你的判断。
 3. 收尾前是否值得补 A.5 / A.6 两项零训练诊断（论文叙事价值 vs 工作量）？
 4. 基线重训队列有无需要增删的对照臂（现：mrcnn16fix、m2f16fix-v2、m2f16catfix、mrcnn16d，全部同预算 20ep + --calibrate 阈值校准）？
+
+## 6. 二轮修复落地与更正（2026-08-28 追记，上文原文不改）
+
+1. 你二轮指出的问题已全部修复并落 master：E23 正边采样对齐（g⁺/d⁺/z_min
+   改为正边索引单次采样、同一份索引 gather 全部逐边量，`2b456d3`，含对齐
+   回归测试）；multiplicity-aware bootstrap 接入主管线（eval_centernet
+   `--profile full` 的 bootstrap_CI 改跑 lib/scene_boot，2000 draws，与
+   canonical CI 同估计器同种子，`981a524`）；基线侧严格 <17M + 干净臂
+   m2f16v2/m2f16catfix + 校准协议 v2 队列（train → 冻结 500 图
+   scene-disjoint (epoch, score_thr, mask_thr) 校准 → 全量 +
+   multiplicity-aware 配对 CI，`b84a189`）。
+2. 一处更正：你指出的深度加权采样错位，经逐图回放量化仅影响 train
+   2/25654 图（8518/3150012 = 0.27% 缝边）、val 0 图——错位只在正边被抽稀
+   （n_pos > min(max_pairs, n_neg)）时触发，其余图走全取路径天然对齐。E23
+   已完成训练的主体就是深度平加权 seam-rank（≥99.7% 缝边加权正确生效），
+   其负结果比预判更强（带 0.27% 注脚，代码已修 `2b456d3` 未重训）；
+   LEDGER / E23 RESULT / README / exp20 RESULT / PHASE_REVIEW 措辞已按此
+   口径修正，统一表述为「深度平加权版在本配方下判负」，且不写「所有
+   接触缝监督已被证伪」。
+3. A.5（mask 内约束质心探针）/ A.6（oracle 四分解）诊断与基线重训队列均
+   在途，终版 PHASE_REVIEW 时一并汇报。

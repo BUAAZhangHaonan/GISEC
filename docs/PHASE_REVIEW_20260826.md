@@ -1,6 +1,8 @@
 # 阶段收尾评审（2026-08-26）
 
-E1-E21 + baselines16m 链条收官，canonical = E20 best.pth + SEM_THR 0.9，segm AP 0.84880（CI95 [0.8368, 0.8636]），16.851M / 20ep / 64K iter。本文数字全部来自 experiments/ugnn/LEDGER.md 与各 RESULT.md。
+E1-E21 + baselines16m 链条收官，canonical = **E20 + stride-4 grid-center markers + SEM_THR 0.9**（ckpt exp20 best.pth；`--decode legacy` 只作逐位复现别名、`grid`≡legacy 恒等），segm AP 0.84880（multiplicity-aware scene bootstrap CI95 [0.83217, 0.86454]，210 scene×2000 draws），16.851M / 20ep / 64K iter。本文数字全部来自 experiments/ugnn/LEDGER.md 与各 RESULT.md。
+
+2026-08-28 补记（口径）：① 08-27 前所有 scene CI 系 flawed estimator 一律作废（见 LEDGER「scene CI 修复」行），本文出现的旧 CI 以此为准；② 收敛边界——在 ≤17M、20ep/64K、1024 单尺度与本 U-Net—CenterNet—watershed 家族内，band 剂量（E21 ×16）、Dice 加权（E22）、seam-rank（E23）均无正收益，故冻结 E20；此为配方内判决，不构成「所有接触缝监督已被证伪」。
 
 ## A. 实验总表
 
@@ -31,9 +33,9 @@ E1-E21 + baselines16m 链条收官，canonical = E20 best.pth + SEM_THR 0.9，se
 | E17 band_ema | REVIVED | 初判 −1.17 为阈值假阴性；重扫 thr0.97 → 0.83808，+1.67pt，切 canonical；fullboot [0.82488,0.85084] |
 | E18 depth_only | PARTIAL | 全量 0.83205（−0.60pt），RGB 值 +0.6pt |
 | E19 hflip_aug | 判负 | +0.42 CI [−0.03,+0.78] 含 0；顺带抓出 CI 上界判据 bug |
-| E20 band8 | PASS 切 canonical | thr0.9 AP 0.84880，+1.07pt，CI [+0.85,+1.69]；fullboot [0.8368,0.8636] |
+| E20 band8 | PASS 切 canonical | thr0.9 AP 0.84880，+1.07pt，CI [+0.85,+1.69]（旧估计器，作废）；canonical 新 CI [0.8322,0.8645] |
 | E21 band16 | 判负 | −0.25 CI [−0.54,+0.07]，band 链 x8 封顶 |
-| baselines16m | done | mrcnn16 0.6082 / m2f16 0.4339 / m2f16cat 0.2244 vs GISEC 0.84880，领先 +24~+62pt |
+| baselines16m | done | mrcnn16 0.6082 / m2f16 0.4339 / m2f16cat 0.2244 vs GISEC 0.84880，领先 +24~+62pt（2026-08-28 勘误：首轮数字系监督路径 bug 产物只进历史勘误，干净重训臂 mrcnn16fix/mrcnn16d/m2f16v2/m2f16catfix 队列在途） |
 
 ## B. 代码审计（2026-08-26，三 agent 逐行）
 
@@ -64,7 +66,9 @@ m2f16/m2f16cat 存在三条压低方向的实现折损（详见 baselines16m/RES
 - (b) use_auxiliary_loss=False（官方 True）。
 - (c) train_num_points=512 / oversample 1.0（官方 12544 / 3.0）。
 
-乐观修正估 +5~15pt → m2f16 约 0.50-0.58。修正后 GISEC（0.84880）仍领先 27-35pt；最保守下界证据 = 干净无折损的 mrcnn16（+24pt）。后续可选：修配置重跑 m2f16（~13h）得到无折损数字。
+乐观修正估 +5~15pt → m2f16 约 0.50-0.58。
+
+**2026-08-28 更正**：上述乐观修正已被 m2f16fix 证伪——修齐 (a)(b)(c) 三条后 segm AP 0.23449，反降 19.9pt（bbox 0.3746→0.0552、AP75 0.5256→0.2251），根因是 query 范式等预算欠拟合而非实现折损（见 baselines16m/RESULT.md 勘误）。且首轮基线数字（含 mrcnn16 0.6082）经查带监督路径 bug（packed-mask 位序、M2F 单类配置），一律转历史；干净重训臂 mrcnn16fix / mrcnn16d / m2f16v2 / m2f16catfix + 可选 m2f16fix-v2 附录已按协议 v2 进 6401 队列（--calibrate 阈值校准 + multiplicity-aware 配对 scene bootstrap vs E20）。
 
 ## D. 通用洞察
 
@@ -75,7 +79,7 @@ m2f16/m2f16cat 存在三条压低方向的实现折损（详见 baselines16m/RES
 5. **模态结构**：深度承载任务（depth-only 仅 −0.6pt），RGB 值 +0.6pt；与 6401 d2m2f 的 depth_only>concat 互证——本域"深度为主、RGB 为辅"跨架构成立。
 6. **对称性增广无效、翻转平均有害**：val 场景近翻转对称使 hflip 增广无新信息（+0.42 CI 触 0）；推理期翻转平均糊掉 watershed 刀口与热图峰（−5.3pt）。证据锐度与不变性在此任务里是对立的。
 7. **FINAL 反超 oracle（+0.44pt）**：当 oracle 探针的种子来自 GT 质心而打分/刀口来自学习管线，oracle 不再是上界——探针结论要按环节解读，不能当整体天花板。
-8. **等预算参数效率**：GISEC 0.8488 @16.85M vs MRCNN 0.6082（干净）/ M2F-slim 修正估 0.50-0.58——两阶段 > query 范式 @64K iter/16M；query 范式要长日程+强 init 才发力（47M concat 265K iter+全 COCO init 才到 0.906）。
+8. **等预算参数效率**：GISEC 0.8488 @16.85M vs MRCNN 0.6082 / M2F-slim 0.4339（首轮数字，监督路径 bug 勘误后转历史；M2F「修正估 0.50-0.58」已被 m2f16fix 0.2345 证伪）——两阶段 > query 范式 @64K iter/16M 的方向性结论保留、幅度待重训臂落定；query 范式要长日程+强 init 才发力（47M concat 265K iter+全 COCO init 才到 0.906）。
 9. **统计纪律的复利**：预注册判据 + 500 图选择/3276 图确认 + 配对 scene CI 下界>0——三天 10 个实验全部可复盘，两次抓住假阳性/假阴性（E17 阈值假阴性、E19 增广假阳性）。500↔全量漂移实测 ±0.55pt 内。
 10. **单变量链条让归因免费**：每代 fork 只动一个旋钮（BAND_GAIN/输入通道/增广），赢了直接叠进 canonical，输了精确知道是哪个旋钮——比捆绑实验的信息效率高。
 
@@ -86,3 +90,5 @@ m2f16/m2f16cat 存在三条压低方向的实现折损（详见 baselines16m/RES
 - EMA 档位
 - m2f16 修正重跑（~13h，消基线折损）
 - magformer-16M（6401 排队中）
+
+2026-08-28 注：E22 已判负（−0.37pt CI 全负）、E23 seam-rank 已判负（带 0.27% 采样注脚）；m2f16 修正重跑已做（m2f16fix 0.2345，证伪乐观估）；offset detach / EMA 档位未动；magformer-16M 在 6401（~28%）。基线重训队列与 A.5/A.6 诊断在途，终版 PHASE_REVIEW 一并汇报。

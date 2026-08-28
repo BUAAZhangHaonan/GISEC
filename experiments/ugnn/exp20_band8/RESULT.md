@@ -34,8 +34,10 @@
   高置信区（0.95–0.995）像素占比反而更少（0.224% vs E17 0.264%），
   logit 整体更极化，低一点的阈值已能切干净；thr 曲线 0.9–0.95 平坦
   （0.84713/0.84704），0.99 以上衰减。
-- canonical：ckpt=runs/best.pth + SEM_THR 0.9（eval_centernet.py 默认已改），
-  full-profile bootstrap 由 gisec-e20-fullboot 跑（见 STATUS.md）。
+- canonical：**E20 + stride-4 grid-center markers + SEM_THR 0.9**
+  （ckpt=runs/best.pth；`--decode legacy` 只作逐位复现别名保留，`grid`≡legacy
+  解码恒等，eval_centernet.py 默认即此口径），full-profile bootstrap 由
+  gisec-e20-fullboot 跑（见 STATUS.md）。
 
 ## full-profile CI 落定（2026-08-26，gisec-e20-fullboot）
 
@@ -47,3 +49,15 @@
   反超 oracle +0.44pt，种子框足够准，不再有 center 上限空间。
 - 种子精度（full-profile）：median 1.76px（p90 3.56px，<8px 率 96.04%），
   与 sweep 阶段 1.74px 一阶。
+- 更正（2026-08-27，multiplicity 修复 23d3854/29bca1c）：本节两条 CI 出自
+  flawed estimator（有放回抽样的重复场景被 COCOeval 入口 np.unique 去重，
+  见 LEDGER「scene CI 修复」行），一律作废；canonical 新 CI =
+  segm 0.84872 CI95 [0.83217, 0.86454] / bbox 0.75972 [0.73614, 0.78409]
+  （210 scene×2000 draws，decode_fix/boot_canonical.json）。
+
+## 收敛边界（2026-08-28 补记）
+
+在 ≤17M、20ep/64K、1024 单尺度与本 U-Net—CenterNet—watershed 家族内，
+band 剂量（E21 ×16）、Dice 加权（E22）、seam-rank（E23）均无正收益，
+故冻结 E20。这是配方内判决，不外推为「所有接触缝监督已被证伪」
+（E23 的措辞限定见其 RESULT.md 实现复查注记）。
