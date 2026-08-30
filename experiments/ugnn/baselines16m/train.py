@@ -174,10 +174,11 @@ def main() -> None:
                 pixel_values, pixel_mask, packed_masks, class_labels = batch
                 pixel_values = pixel_values.cuda(non_blocking=True)
                 pixel_mask = pixel_mask.cuda(non_blocking=True)
-                # M2F_BOOL_MASKS=1: feed binary GT masks as bool (1B/elem vs
-                # fp32 4B) to fit 24GB cards. Values {0,1} exact in any dtype;
+                # M2F_BF16_MASKS=1: feed binary GT masks as bf16 (2B/elem vs
+                # fp32 4B) to fit 24GB cards. Values {0,1} exact in bf16;
                 # changes only loss-accumulation precision, not supervision.
-                _mt = torch.bool if os.environ.get("M2F_BOOL_MASKS") == "1" else torch.float32
+                # (bool was tried first but grid_sample rejects it.)
+                _mt = torch.bfloat16 if os.environ.get("M2F_BF16_MASKS") == "1" else torch.float32
                 mask_labels = [
                     unpack_masks(p.cuda(non_blocking=True)).to(_mt)
                     for p in packed_masks
