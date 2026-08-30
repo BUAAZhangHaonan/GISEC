@@ -18,7 +18,7 @@
 |---|---|---|---|---|---|
 | mrcnn16fix | mrcnn16 | R18-FPN, box head 191, bit-order 修复 | 16,987,347 | pending | 6401 排队 |
 | mrcnn16d | mrcnn16d | + 4ch depth, RGB 路径与 mrcnn16 一致 | 16,990,483 | dropped | 用户 08-30 裁决: 不做深度魔改版 |
-| m2f16v2 | m2f16v2 | m2f16 配方 (512 pts/no aux) + 单类/bit-order/RGB ImageNet 归一化 | 16,536,770 | pending | 6401 排队 |
+| m2f16v2 | m2f16v2 | m2f16 配方 (512 pts/no aux) + 单类/bit-order/RGB ImageNet 归一化 | 16,536,770 | pending | **改 k100 跑**（08-30：6401 24GB 卡 OOM 放不下 batch8@1024，unit gisec-m2f16v2-train） |
 | m2f16catfix | m2f16catfix | m2f16cat + RGB ImageNet 归一化, depth 维持全局标定 | 16,539,906 | dropped | 用户 08-30 裁决: 不做深度魔改版 |
 | m2f16fix-v2 (可选) | m2f16fix | 官方配置重训, 附录臂, 默认关 | 16,536,770 | pending | WITH_M2F16FIX_V2=1 |
 | magformer-16M | - | 外部基线 | 17.45M | 0.7088 | done 08-30, fullval 3276 val (6401, best.pt) |
