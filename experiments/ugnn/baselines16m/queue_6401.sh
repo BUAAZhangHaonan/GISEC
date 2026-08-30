@@ -16,11 +16,11 @@
 #                     2000 draws, lib/scene_boot) -> RESULT.md row
 #
 # Arms (params strictly < 17,000,000; MRCNN box-head width 191):
-#   GPU0: mrcnn16d    4ch RGB-D MRCNN, same-modality control   ~4 h
-#         mrcnn16fix  mrcnn16 retrain (width 191, bit-order fix) ~4 h
-#   GPU1: m2f16catfix m2f16cat recipe + RGB ImageNet norm (depth
-#                     keeps the global calibration)              ~13 h
-#         m2f16v2     m2f16 recipe (512 pts / no aux) + bit-order
+#   2026-08-30 user decision: RGB-only baselines. Depth arms
+#   mrcnn16d (4ch RGB-D MRCNN) and m2f16catfix (4ch concat M2F)
+#   DROPPED - no depth-modified retraining for MRCNN/M2F families.
+#   GPU0: mrcnn16fix  mrcnn16 retrain (width 191, bit-order fix) ~4 h
+#   GPU1: m2f16v2     m2f16 recipe (512 pts / no aux) + bit-order
 #                     + single-class + RGB ImageNet norm         ~13 h
 #   optional appendix arm (default OFF), set WITH_M2F16FIX_V2=1:
 #         m2f16fix-v2 official-config retrain on GPU1            ~16 h
@@ -139,15 +139,13 @@ print(w['epoch'], w['score_thr'], w['mask_thr'])")
 }
 
 echo "[$(date '+%F %T')] queue start:"
-echo "  GPU$GPU0: mrcnn16d -> mrcnn16fix"
-echo "  GPU$GPU1: m2f16catfix -> m2f16v2"
+echo "  GPU$GPU0: mrcnn16fix (RGB only)"
+echo "  GPU$GPU1: m2f16v2 (RGB only)"
 (
-  run_arm "$GPU0" mrcnn16d mrcnn16d
   run_arm "$GPU0" mrcnn16 mrcnn16fix
 ) &
 pid0=$!
 (
-  run_arm "$GPU1" m2f16catfix m2f16catfix
   run_arm "$GPU1" m2f16v2 m2f16v2
   if [ "$WITH_M2F16FIX_V2" = "1" ]; then
     run_arm "$GPU1" m2f16fix m2f16fix-v2
