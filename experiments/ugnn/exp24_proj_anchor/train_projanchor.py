@@ -419,6 +419,16 @@ def main() -> None:
                 if torch.is_tensor(vv):
                     state[kk] = vv.cuda()
         sched.load_state_dict(ckpt["sched"])
+        # load_state_dict restores the checkpoint's T_max, silently overriding
+        # the new --epochs horizon: resuming with a larger --epochs would turn
+        # into a hidden cosine warm-restart. Same-horizon crash recovery only.
+        ckpt_tmax = int(ckpt["sched"]["T_max"])
+        if ckpt_tmax != args.epochs * len(dl):
+            raise SystemExit(
+                f"resume horizon mismatch: ckpt T_max={ckpt_tmax} but "
+                f"--epochs {args.epochs} x len(dl)={len(dl)} = "
+                f"{args.epochs * len(dl)}; use identical --epochs or start fresh"
+            )
         start_epoch = int(ckpt["epoch"]) + 1
         done = int(ckpt["step"])
         best = float(ckpt.get("best", -1.0))
