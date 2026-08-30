@@ -92,7 +92,10 @@ def main() -> None:
     is_mrcnn = args.family.startswith("mrcnn16")
     include_depth, imagenet_norm = family_data_flags(args.family)
     model = build_model(args.family).cuda()
-    optimizer, groups = make_optimizer(args.family, model)
+    # torch>=2.10 optimizer.load_state_dict REPLACES the param-group
+    # dicts, so nothing captured here survives a resume: read lr
+    # through the live optimizer when logging.
+    optimizer, _ = make_optimizer(args.family, model)
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
     total_params = num_params(model)
     assert total_params <= PARAM_BUDGET, (
@@ -191,7 +194,7 @@ def main() -> None:
                         "epoch": epoch,
                         "step": global_step,
                         "loss": round(float(loss.detach()), 4),
-                        "lr": groups[0]["lr"],
+                        "lr": optimizer.param_groups[0]["lr"],
                         "sec_per_step": round(time.time() - step_t0, 3),
                         "peak_mem_gb": round(
                             torch.cuda.max_memory_allocated() / 2**30, 1
