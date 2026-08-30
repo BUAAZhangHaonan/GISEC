@@ -97,8 +97,14 @@ run_arm() {  # run_arm <gpu> <family> <run-name>
     local resume=""
     if [ -f "$runs/resume_last.pth" ]; then resume="--resume"; fi
     echo "[$(date '+%F %T')] train $name (family $family) on GPU $gpu"
+    # workers default 4 (not the train.py default 8): the 8-worker pool
+    # measured ~4.5 GB private anon each (~47 GB cgroup total), more than
+    # a 64 GB MemoryMax holds for the remaining ~11 h once the file cache
+    # is squeezed out. 4 workers still decode ~18.8 img/s vs the
+    # ~12.3 img/s the 0.65-0.79 s/step GPU bound needs - no slowdown.
     CUDA_VISIBLE_DEVICES="$gpu" "$PY" "$HERE/train.py" --family "$family" \
-      --out-dir "$runs" $resume >> "$runs/train.log" 2>&1
+      --out-dir "$runs" $resume --workers "${BASELINE_WORKERS:-4}" \
+      >> "$runs/train.log" 2>&1
   fi
 
   # 2. calibrate (frozen 500-image set, scene-disjoint cross-fit)
