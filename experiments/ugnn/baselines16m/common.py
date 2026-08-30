@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import pickle
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +21,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from gisec.datasets.coco_utils import LiteCOCO, ann_to_mask, load_depth_array
+from gisec.datasets.coco_utils import ann_to_mask, load_depth_array
 
 REPO = Path(__file__).resolve().parents[3]
 DATA = Path(
@@ -74,6 +75,71 @@ def num_params(model: torch.nn.Module) -> int:
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
+class _CompactCOCO:
+    """LiteCOCO drop-in that keeps each image's annotations as one pickle
+    blob instead of a live Python-object graph.
+
+    The 10.6 GB train annotation JSON parses to ~22 GB of live Python
+    objects, and every forked DataLoader worker copy-on-write-amplifies
+    the annotations it touches (refcounts dirty every visited page) by
+    roughly one payload per epoch across the pool. That grew past the
+    training unit's 64 GB MemoryMax into swap thrash and a
+    systemd-oomd kill (2026-08-30 16:49). Bytes blobs carry no
+    per-object refcount surface: blob pages stay shared read-only
+    across workers, and unpickling per access returns annotation dicts
+    identical to LiteCOCO's (pickle round-trips the original objects;
+    verified exhaustively against LiteCOCO on this dataset).
+    """
+
+    def __init__(self, ann_path: str | Path) -> None:
+        payload = json.loads(Path(ann_path).read_text(encoding="utf-8"))
+        self.categories = list(payload.get("categories", []))
+        self._images = {int(item["id"]): item for item in payload.get("images", [])}
+        anns_by_image: dict[int, list[dict[str, Any]]] = {}
+        self._image_of_ann: dict[int, int] = {}
+        for ann in payload.get("annotations", []):
+            anns_by_image.setdefault(int(ann["image_id"]), []).append(ann)
+            self._image_of_ann[int(ann["id"])] = int(ann["image_id"])
+        self._blobs = {
+            image_id: pickle.dumps(anns, protocol=pickle.HIGHEST_PROTOCOL)
+            for image_id, anns in anns_by_image.items()
+        }
+        self._unpickled: dict[int, list[dict[str, Any]]] = {}
+
+    def _anns(self, image_id: int) -> list[dict[str, Any]]:
+        anns = self._unpickled.get(image_id)
+        if anns is None:
+            anns = pickle.loads(self._blobs[image_id])
+            if len(self._unpickled) >= 4:  # keep the unpickled garbage
+                self._unpickled.clear()  # transient so workers never
+            self._unpickled[image_id] = anns  # rebuild a live graph
+        return anns
+
+    def getImgIds(self) -> list[int]:
+        return sorted(self._images)
+
+    def loadImgs(self, image_ids: list[int]) -> list[dict[str, Any]]:
+        return [self._images[int(image_id)] for image_id in image_ids]
+
+    def getAnnIds(self, imgIds: list[int], iscrowd=None) -> list[int]:
+        ann_ids: list[int] = []
+        for image_id in imgIds:
+            for ann in self._anns(int(image_id)):
+                if iscrowd is not None and int(ann["iscrowd"]) != int(iscrowd):
+                    continue
+                ann_ids.append(int(ann["id"]))
+        return ann_ids
+
+    def loadAnns(self, ann_ids: list[int]) -> list[dict[str, Any]]:
+        anns: list[dict[str, Any]] = []
+        for ann_id in ann_ids:
+            image_id = self._image_of_ann[int(ann_id)]
+            anns.extend(
+                ann for ann in self._anns(image_id) if int(ann["id"]) == int(ann_id)
+            )
+        return anns
+
+
 class Baseline16mDataset(Dataset):
     """Returns RGB (+ optionally calibrated depth) and packed instances."""
 
@@ -91,7 +157,7 @@ class Baseline16mDataset(Dataset):
         self.imagenet_norm = bool(imagenet_norm)
         self.include_annotations = bool(include_annotations)
         root = Path(data_root) if data_root is not None else DATA
-        self.coco = LiteCOCO(root / "annotations" / f"instances_{self.split}.json")
+        self.coco = _CompactCOCO(root / "annotations" / f"instances_{self.split}.json")
         self.img_dir = root / "images" / self.split
         self.depth_dir = root / "depth" / "depth_npy" / self.split
         self.image_ids = sorted(self.coco.getImgIds())
