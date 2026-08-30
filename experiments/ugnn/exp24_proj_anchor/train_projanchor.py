@@ -346,7 +346,7 @@ def deploy_eval(model_eval, runs_dir, eval_imgs, viz_imgs, tag):
     return out
 
 
-
+def miou(inter_total: float, union_total: float) -> float:
     return float(inter_total / max(union_total, 1))
 
 
