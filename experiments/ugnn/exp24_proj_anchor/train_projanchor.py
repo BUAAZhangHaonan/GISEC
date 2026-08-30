@@ -254,7 +254,99 @@ def iou_pair(logits: torch.Tensor, targets: torch.Tensor):
     return inter.sum(), union.sum()
 
 
-def miou(inter_total: float, union_total: float) -> float:
+_EVAL_STATE: dict = {}
+_VIZ_PALETTE = [
+    (255, 60, 60), (60, 220, 60), (60, 120, 255), (255, 220, 40),
+    (255, 60, 220), (40, 220, 220), (200, 130, 40), (130, 60, 200),
+] * 8
+
+
+def deploy_eval(model_eval, runs_dir, eval_imgs, viz_imgs, tag):
+    """Deployment-metric monitor inside training.
+
+    Same call contract as the canonical eval chain (eval_centernet
+    forward + legacy-decode markers + postproc_fast.process with the
+    shared exp09 rank/RGB caches), EMA weights, frozen first-N val
+    images, segm AP at SEM_THR 0.90/0.95 via evaluate_json(img_ids),
+    plus overlay PNGs (predictions colored, GT contours in white).
+    Read-only w.r.t. caches; ~5 min for N=500 every 8K steps.
+    """
+    st = _EVAL_STATE
+    if "ec" not in st:
+        import eval_centernet as ec
+        import postproc_fast as ppf
+        from eval_scale import load_split
+        from gisec.datasets.coco_utils import ann_to_mask
+        from gisec.eval.coco_eval import evaluate_json
+        from pycocotools.coco import COCO
+
+        ec.load_rgb_index()
+        ec._gpu_divisors()
+        metas_all, _ = load_split("val")
+        st.update(
+            ec=ec, ppf=ppf, metas_all=metas_all, ej=evaluate_json,
+            ann=ec.DATA / "annotations" / "instances_val.json",
+            ann_to_mask=ann_to_mask, COCO=COCO,
+        )
+    ec, ppf, ej = st["ec"], st["ppf"], st["ej"]
+    metas = st["metas_all"][:eval_imgs]
+    thrs = (0.90, 0.95)
+    results = {t: [] for t in thrs}
+    viz_store = {}
+    t0 = time.time()
+    model_eval.eval()
+    with torch.no_grad():
+        for meta in metas:
+            img = ec.load_rgb_cached(meta)
+            depth = ec.ep.load_depth_array(Path(meta["dpath"]))
+            sem_logit, hm, off = ec._forward(model_eval, img, depth)
+            coords, cells = ec._cn_markers_with_cells(hm, off)
+            peaks = ec._marker_peaks(hm, coords, cells)
+            for t in thrs:
+                sem = (1.0 / (1.0 + np.exp(-sem_logit)) > t).astype(np.uint8)
+                _, coco = ppf.process(
+                    meta["image_id"], coords, sem, depth, sem_logit, peaks
+                )
+                results[t].extend(coco)
+            if len(viz_store) < viz_imgs:
+                viz_store[meta["image_id"]] = (img, depth, sem_logit, coords, meta)
+    ids = [mm["image_id"] for mm in metas]
+    out = {"event": "deploy_eval", "tag": tag, "n": len(ids),
+           "sec": round(time.time() - t0, 1)}
+    for t in thrs:
+        r = ej(st["ann"], results[t], img_ids=ids)
+        out[f"segm_AP@{t:.2f}"] = round(float(r.get("segm/AP", 0.0)), 5)
+
+    vdir = runs_dir / "visualizations"
+    vdir.mkdir(exist_ok=True)
+    if st.get("_coco_val") is None:
+        st["_coco_val"] = st["COCO"](str(st["ann"]))
+    coco = st["_coco_val"]
+    for iid, (img, depth, sem_logit, coords, meta) in viz_store.items():
+        sem = (1.0 / (1.0 + np.exp(-sem_logit)) > 0.95).astype(np.uint8)
+        # insts (uncapped instance masks) is peak-independent; the discarded
+        # COCO dicts from this call are not used for scoring.
+        insts, _ = ppf.process(iid, coords, sem, depth, sem_logit, np.zeros(max(len(coords), 1)))
+        canvas = img.astype(np.float32)
+        for k, (mask, _a) in enumerate(insts):
+            c = np.array(_VIZ_PALETTE[k % len(_VIZ_PALETTE)], dtype=np.float32)
+            canvas[mask] = 0.45 * canvas[mask] + 0.55 * c
+        H, W = img.shape[:2]
+        ann_ids = coco.getAnnIds(imgIds=[iid])
+        for a in coco.loadAnns(ann_ids):
+            gtm = st["ann_to_mask"](a, H, W).astype(np.uint8)
+            cnts, _ = cv2.findContours(
+                gtm, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE
+            )
+            cv2.drawContours(canvas, cnts, -1, (255, 255, 255), 1)
+        cv2.imwrite(
+            str(vdir / f"{tag}_id{iid}.png"),
+            cv2.cvtColor(np.clip(canvas, 0, 255).astype(np.uint8), cv2.COLOR_RGB2BGR),
+        )
+    return out
+
+
+
     return float(inter_total / max(union_total, 1))
 
 
@@ -353,6 +445,28 @@ def main() -> None:
         default="",
         help="priority lock removed on exit (formal runs only)",
     )
+    ap.add_argument(
+        "--warmup",
+        type=int,
+        default=0,
+        help="linear lr warmup steps; 0 = exact legacy cosine (no warmup)",
+    )
+    ap.add_argument(
+        "--eval-every-steps",
+        type=int,
+        default=0,
+        help=">0: deployment eval (segm AP on first-N val, EMA weights) "
+        "every N global steps + overlay visualizations + EMA snapshot",
+    )
+    ap.add_argument("--eval-imgs", type=int, default=500)
+    ap.add_argument("--viz-imgs", type=int, default=4)
+    ap.add_argument(
+        "--eval-ckpt",
+        type=str,
+        default="",
+        help="one-shot: run the deployment eval on this ckpt and exit "
+        "(validation gate; expects {'model': state_dict} EMA format)",
+    )
     args = ap.parse_args()
 
     lock = Path(args.lock_file) if args.lock_file else None
@@ -363,6 +477,15 @@ def main() -> None:
     torch.manual_seed(0)
     runs = HERE / args.out_dir
     runs.mkdir(parents=True, exist_ok=True)
+
+    if args.eval_ckpt:
+        ck = torch.load(args.eval_ckpt, map_location="cpu", weights_only=False)
+        m = SeedNet().cuda().eval()
+        m.load_state_dict(ck["model"])
+        row = deploy_eval(m, runs, args.eval_imgs, args.viz_imgs, "evalgate")
+        print("EVALGATE " + json.dumps(row), flush=True)
+        return
+
     anchor_hits = multiprocessing.Value("L", 0) if args.anchor == "projected" else None
     train_ds = CNDataset("train", anchor=args.anchor, hit_counter=anchor_hits)
     val_ds = CNDataset("val", anchor=args.anchor)
@@ -404,7 +527,19 @@ def main() -> None:
     report_params(model)
     ema = EMA(model)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr)
-    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.epochs * len(dl))
+    _total = args.epochs * len(dl)
+    if args.warmup > 0:
+        # warmup + cosine (Goyal-style pairing for batch-scaled lr):
+        # lr(s) = min(1, s/warmup) * 0.5*(1+cos(pi*s/T)) * base_lr.
+        # warmup=0 keeps CosineAnnealingLR (bitwise legacy schedule).
+        sched = torch.optim.lr_scheduler.LambdaLR(
+            opt,
+            lambda s: min(1.0, s / args.warmup)
+            * 0.5
+            * (1.0 + math.cos(math.pi * min(s, _total) / _total)),
+        )
+    else:
+        sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=_total)
     start_epoch, done, best = 0, 0, -1.0
     if args.resume_checkpoint:
         ckpt = torch.load(
@@ -422,13 +557,14 @@ def main() -> None:
         # load_state_dict restores the checkpoint's T_max, silently overriding
         # the new --epochs horizon: resuming with a larger --epochs would turn
         # into a hidden cosine warm-restart. Same-horizon crash recovery only.
-        ckpt_tmax = int(ckpt["sched"]["T_max"])
-        if ckpt_tmax != args.epochs * len(dl):
-            raise SystemExit(
-                f"resume horizon mismatch: ckpt T_max={ckpt_tmax} but "
-                f"--epochs {args.epochs} x len(dl)={len(dl)} = "
-                f"{args.epochs * len(dl)}; use identical --epochs or start fresh"
-            )
+        if args.warmup == 0:
+            ckpt_tmax = int(ckpt["sched"]["T_max"])
+            if ckpt_tmax != args.epochs * len(dl):
+                raise SystemExit(
+                    f"resume horizon mismatch: ckpt T_max={ckpt_tmax} but "
+                    f"--epochs {args.epochs} x len(dl)={len(dl)} = "
+                    f"{args.epochs * len(dl)}; use identical --epochs or start fresh"
+                )
         start_epoch = int(ckpt["epoch"]) + 1
         done = int(ckpt["step"])
         best = float(ckpt.get("best", -1.0))
@@ -488,6 +624,28 @@ def main() -> None:
                         f"({time.time() - t0:.0f}s)" + moved_txt,
                         flush=True,
                     )
+                if args.eval_every_steps and done % args.eval_every_steps == 0:
+                    ema.swap(model)
+                    model.eval()
+                    torch.save(
+                        {
+                            "model": {
+                                k: v.detach().cpu()
+                                for k, v in model.state_dict().items()
+                            },
+                            "step": done,
+                        },
+                        runs / f"snap_{done:07d}.pth",
+                    )
+                    row = deploy_eval(
+                        model, runs, args.eval_imgs, args.viz_imgs,
+                        f"step{done:07d}",
+                    )
+                    print("DEPLOY_EVAL " + json.dumps(row), flush=True)
+                    with open(runs / "deploy_eval.jsonl", "a") as f:
+                        f.write(json.dumps(row) + "\n")
+                    ema.swap(model)
+                    model.train()
                 if args.max_steps and done >= args.max_steps:
                     m_raw = val_miou(model, vdl, args.smoke_val)
                     ema.swap(model)
