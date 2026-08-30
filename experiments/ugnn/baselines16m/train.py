@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
 import time
 from pathlib import Path
 
@@ -92,6 +93,11 @@ def main() -> None:
     is_mrcnn = args.family.startswith("mrcnn16")
     include_depth, imagenet_norm = family_data_flags(args.family)
     model = build_model(args.family).cuda()
+    # M2F_GRAD_CKPT=1: activation checkpointing for <24GB cards. Same math
+    # (recompute-only), ~25% slower; k100 runs keep it off.
+    if not is_mrcnn and os.environ.get("M2F_GRAD_CKPT") == "1":
+        model.gradient_checkpointing_enable()
+        print("[train] M2F gradient checkpointing ENABLED (24GB fit)", flush=True)
     # torch>=2.10 optimizer.load_state_dict REPLACES the param-group
     # dicts, so nothing captured here survives a resume: read lr
     # through the live optimizer when logging.
