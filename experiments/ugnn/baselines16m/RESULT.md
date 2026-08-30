@@ -21,7 +21,7 @@
 | m2f16v2 | m2f16v2 | m2f16 配方 (512 pts/no aux) + 单类/bit-order/RGB ImageNet 归一化 | 16,536,770 | pending | 6401 排队 |
 | m2f16catfix | m2f16catfix | m2f16cat + RGB ImageNet 归一化, depth 维持全局标定 | 16,539,906 | pending | 6401 排队 |
 | m2f16fix-v2 (可选) | m2f16fix | 官方配置重训, 附录臂, 默认关 | 16,536,770 | pending | WITH_M2F16FIX_V2=1 |
-| magformer-16M | - | 外部基线 | ~16M | pending | 6401 另排队 |
+| magformer-16M | - | 外部基线 | 17.45M | 0.7088 | done 08-30, fullval 3276 val (6401, best.pt) |
 
 每臂完成后由 queue_6401.sh 第 4 步 (calibrate_and_report.py report) 产出
 如下模板行 (含对 E20 的配对 scene bootstrap CI), 手动誊入本节:
@@ -74,9 +74,9 @@
 | m2f16 (RGB) | 16.54M | 同 | 0.4339 | 0.6284 | 0.5256 | APs≈0 |
 | m2f16cat (4ch) | 16.54M | 同 | 0.2244 | 0.3931 | 0.2436 | bbox AP 0.049 |
 | m2f16fix (无折损) | 16.54M | 同 | 0.2345 | 0.4621 | 0.2250 | 修折损反降 19.9pt, 折损假设证伪 |
-| magformer-16M | ~16M | 同 | pending | | | 6401 排队中 |
+| magformer-16M | 17.45M | 同 | 0.7088 | 0.8871 | 0.7932 | fullval 08-30 (6401) |
 
-结论: 同参数同预算下 GISEC 领先 +24~+62pt, 优势压倒性。两阶段检测器好于 query 范式; m2f16fix 修折损反降 19.9pt (0.2345), "折损压低 m2f" 假设证伪, query 范式等预算欠拟合是主因。magformer-16M 基线在 6401 排队中, 数字出来后回填。
+结论: 同参数同预算下 GISEC 领先 +14~+62pt, 优势压倒性。两阶段检测器好于 query 范式; m2f16fix 修折损反降 19.9pt (0.2345), "折损压低 m2f" 假设证伪, query 范式等预算欠拟合是主因。magformer-16M=0.7088, GISEC 对它 +14.0pt。
 
 ### 公平性注记（2026-08-26）：m2f16/m2f16cat 三条实现折损
 
