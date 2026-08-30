@@ -78,6 +78,10 @@
 
 结论: 同参数同预算下 GISEC 领先 +14~+62pt, 优势压倒性。两阶段检测器好于 query 范式; m2f16fix 修折损反降 19.9pt (0.2345), "折损压低 m2f" 假设证伪, query 范式等预算欠拟合是主因。magformer-16M=0.7088, GISEC 对它 +14.0pt。
 
+### magformer-16M 配置注记（2026-08-30, 6401 fullval）
+
+MBV3-L 双塔 + DCCG, 实测 17.45M 参数 — 超出本协议严格 <17.0M 上限约 2.6%, 如实注明 (非严格等参, 系外部基线而非 protocol v2 臂); 从头训练, 无 COCO init; CE 修复版重训。训练 attempt rc=0 于 08-30 12:13 完成, fullval 14:06 落盘 (3276 val, best.pt, 6401 ~/magformer/output/experiments/B16M-mbv3l-dccg-baseline-20260824/)。完整指标: segm AP 0.7088 / AP50 0.8871 / AP75 0.7932 / APs 0.0535 / APm 0.6799 / APl 0.8852 | bbox AP 0.6645 | AR100 0.7744。
+
 ### 公平性注记（2026-08-26）：m2f16/m2f16cat 三条实现折损
 
 如实记录，m2f16 系数字存在三处压低方向的折损：
