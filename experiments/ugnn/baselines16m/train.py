@@ -133,6 +133,7 @@ def main() -> None:
 
     start_epoch = 0
     global_step = 0
+    oom_skipped = 0
     if args.resume:
         last = out_dir / "resume_last.pth"
         if last.exists():
@@ -154,52 +155,62 @@ def main() -> None:
         epoch_t0 = time.time()
         for batch in loader:
             step_t0 = time.time()
-            if is_mrcnn:
-                images, targets = batch
-                images = [img.cuda(non_blocking=True) for img in images]
-                targets = [
-                    {
-                        "boxes": t["boxes"].cuda(non_blocking=True),
-                        "labels": t["labels"].cuda(non_blocking=True),
-                        "masks": unpack_masks(
-                            t["packed_masks"].cuda(non_blocking=True)
-                        ),
-                    }
-                    for t in targets
-                ]
-                with torch.autocast("cuda", dtype=amp_dtype):
-                    losses = model(images, targets)
-                    loss = sum(losses.values())
-            else:
-                pixel_values, pixel_mask, packed_masks, class_labels = batch
-                pixel_values = pixel_values.cuda(non_blocking=True)
-                pixel_mask = pixel_mask.cuda(non_blocking=True)
-                # M2F_BF16_MASKS=1: feed binary GT masks as bf16 (2B/elem vs
-                # fp32 4B) to fit 24GB cards. Values {0,1} exact in bf16;
-                # changes only loss-accumulation precision, not supervision.
-                # (bool was tried first but grid_sample rejects it.)
-                _mt = torch.bfloat16 if os.environ.get("M2F_BF16_MASKS") == "1" else torch.float32
-                mask_labels = [
-                    unpack_masks(p.cuda(non_blocking=True)).to(_mt)
-                    for p in packed_masks
-                ]
-                class_labels = [c.cuda(non_blocking=True) for c in class_labels]
-                with torch.autocast("cuda", dtype=amp_dtype):
-                    # output_hidden_states dropped: nothing consumes
-                    # outputs.hidden_states in training; retaining the full
-                    # backbone hidden stack at 1024^2 cost ~3GB for nothing
-                    # (the 24GB-card OOM margin we needed).
-                    outputs = model(
-                        pixel_values=pixel_values,
-                        pixel_mask=pixel_mask,
-                        mask_labels=mask_labels,
-                        class_labels=class_labels,
-                    )
-                    loss = outputs.loss
-            optimizer.zero_grad(set_to_none=True)
-            loss.backward()
-            optimizer.step()
-            scheduler.step()
+            try:
+                if is_mrcnn:
+                    images, targets = batch
+                    images = [img.cuda(non_blocking=True) for img in images]
+                    targets = [
+                        {
+                            "boxes": t["boxes"].cuda(non_blocking=True),
+                            "labels": t["labels"].cuda(non_blocking=True),
+                            "masks": unpack_masks(
+                                t["packed_masks"].cuda(non_blocking=True)
+                            ),
+                        }
+                        for t in targets
+                    ]
+                    with torch.autocast("cuda", dtype=amp_dtype):
+                        losses = model(images, targets)
+                        loss = sum(losses.values())
+                else:
+                    pixel_values, pixel_mask, packed_masks, class_labels = batch
+                    pixel_values = pixel_values.cuda(non_blocking=True)
+                    pixel_mask = pixel_mask.cuda(non_blocking=True)
+                    # M2F_BF16_MASKS=1: feed binary GT masks as bf16 (2B/elem vs
+                    # fp32 4B) to fit 24GB cards. Values {0,1} exact in bf16;
+                    # changes only loss-accumulation precision, not supervision.
+                    # (bool was tried first but grid_sample rejects it.)
+                    _mt = torch.bfloat16 if os.environ.get("M2F_BF16_MASKS") == "1" else torch.float32
+                    mask_labels = [
+                        unpack_masks(p.cuda(non_blocking=True)).to(_mt)
+                        for p in packed_masks
+                    ]
+                    class_labels = [c.cuda(non_blocking=True) for c in class_labels]
+                    with torch.autocast("cuda", dtype=amp_dtype):
+                        # output_hidden_states dropped: nothing consumes
+                        # outputs.hidden_states in training; retaining the full
+                        # backbone hidden stack at 1024^2 cost ~3GB for nothing
+                        # (the 24GB-card OOM margin we needed).
+                        outputs = model(
+                            pixel_values=pixel_values,
+                            pixel_mask=pixel_mask,
+                            mask_labels=mask_labels,
+                            class_labels=class_labels,
+                        )
+                        loss = outputs.loss
+                optimizer.zero_grad(set_to_none=True)
+                loss.backward()
+                optimizer.step()
+                scheduler.step()
+            except torch.OutOfMemoryError:
+                if os.environ.get("M2F_OOM_SKIP") != "1":
+                    raise
+                optimizer.zero_grad(set_to_none=True)
+                torch.cuda.empty_cache()
+                oom_skipped += 1
+                print(f"[oom-skip] batch dropped at step {global_step} "
+                      f"(total {oom_skipped})", flush=True)
+                continue
             global_step += 1
             if global_step % LOG_EVERY == 0 or global_step <= 5 or smoke_limit:
                 logger.write(
