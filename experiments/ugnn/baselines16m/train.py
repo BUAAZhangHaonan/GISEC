@@ -187,15 +187,12 @@ def main() -> None:
                     ]
                     class_labels = [c.cuda(non_blocking=True) for c in class_labels]
                     with torch.autocast("cuda", dtype=amp_dtype):
-                        # output_hidden_states dropped: nothing consumes
-                        # outputs.hidden_states in training; retaining the full
-                        # backbone hidden stack at 1024^2 cost ~3GB for nothing
-                        # (the 24GB-card OOM margin we needed).
                         outputs = model(
                             pixel_values=pixel_values,
                             pixel_mask=pixel_mask,
                             mask_labels=mask_labels,
                             class_labels=class_labels,
+                            output_hidden_states=True,
                         )
                         loss = outputs.loss
                 optimizer.zero_grad(set_to_none=True)
