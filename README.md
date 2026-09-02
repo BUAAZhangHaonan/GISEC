@@ -4,7 +4,7 @@ Instance segmentation for electronic components in dense clutter. The dataset is
 
 ## Canonical Result
 
-Canonical recipe: **E20 + stride-4 grid-center markers + SEM_THR 0.9**
+Canonical recipe: **E25 = projected-anchor (E24 recipe) long-trained 128K iter / batch 16 / lr 6e-4 + warmup 1K; ckpt exp24_proj_anchor/runs_128k_b16/ema_ep77.pth + SEM_THR 0.95 + legacy decode** (switched 2026-09-02, +1.37pt over E24 with paired CI [+1.05,+1.70]pt)
 (E20 = band-weighted BCE x8 + EMA), full 3276-image val:
 
 - segm AP **0.84880**, CI95 [0.8322, 0.8645] (multiplicity-aware scene bootstrap,
@@ -34,7 +34,7 @@ Same <=17M params (strict), same 20-epoch / 64K-iteration budget, same data. Pro
 
 | Arm | params | segm AP | status |
 | --- | ---: | ---: | --- |
-| GISEC E20 (canonical) | 16.851M | **0.84880** | reference |
+| GISEC E25 (canonical) | 16.851M | **0.87350** | current (E24 0.86113, E20 0.84880 lineage) |
 | mrcnn16fix (Mask R-CNN R18, box head 191) | 16,987,347 | pending | 6401 queued |
 | mrcnn16d (RGB-D 4ch, same-modality control) | 16,990,483 | pending | 6401 queued |
 | m2f16v2 (Mask2Former R18, clean input pipeline) | 16,536,770 | pending | 6401 queued |
