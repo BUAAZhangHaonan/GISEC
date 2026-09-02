@@ -1,14 +1,14 @@
-"""Pre-decode the val RGB PNGs into a u8 npy cache for evaluation.
+"""Pre-decode a split's RGB PNGs into a u8 npy cache for evaluation.
 
-One file per image under ``<rgb cache>/val/``, keyed image_id
+One file per image under ``<rgb cache>/<split>/``, keyed image_id
 (~3 MB each, ~10 GB for 3276 images). index.json records the source
-PNG path + md5; the loader (gisec.inference.load_rgb_cached)
+PNG name + md5; the loader (gisec.inference.load_rgb_cached)
 verifies md5 and falls back to live decode on mismatch
 (data-integrity check, not a compatibility shim).
 
 Cache root: GISEC_RGB_CACHE (see gisec.paths).
 
-Run: ``python -m gisec.datasets.build_rgb_cache``
+Run: ``python -m gisec.datasets.build_rgb_cache [--split val]``
 """
 
 from __future__ import annotations
@@ -25,8 +25,6 @@ import numpy as np
 from gisec.datasets.split import DATA, load_split
 from gisec.paths import RGB_CACHE
 
-CACHE = RGB_CACHE / "val"
-
 
 def _md5(path: Path) -> str:
     h = hashlib.md5()
@@ -36,16 +34,13 @@ def _md5(path: Path) -> str:
     return h.hexdigest()
 
 
-OLD_INDEX = {}
-
-
-def _build_one(item):
-    image_id, file_name = item
-    src = DATA / "images" / "val" / file_name
-    npy = CACHE / f"{image_id}.npy"
+def _build_one(job):
+    split, cache, image_id, file_name = job
+    src = DATA / "images" / split / file_name
+    npy = cache / f"{image_id}.npy"
     digest = _md5(src)
     entry = {"file": file_name, "md5": digest}
-    if npy.exists() and OLD_INDEX.get(str(image_id)) == entry:
+    if npy.exists() and _OLD_INDEX.get(str(image_id)) == entry:
         return image_id, entry, True
     img = cv2.imread(str(src))
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -53,22 +48,23 @@ def _build_one(item):
     return image_id, entry, False
 
 
-def main() -> None:
-    metas, _ = load_split("val")
-    CACHE.mkdir(parents=True, exist_ok=True)
-    idx_file = CACHE / "index.json"
+_OLD_INDEX: dict = {}
+
+
+def build(split: str = "val") -> None:
+    metas, _ = load_split(split)
+    cache = RGB_CACHE / split
+    cache.mkdir(parents=True, exist_ok=True)
+    idx_file = cache / "index.json"
     if idx_file.exists():
-        OLD_INDEX.update(json.loads(idx_file.read_text()))
+        _OLD_INDEX.update(json.loads(idx_file.read_text()))
     t0 = time.perf_counter()
     index = {}
     n_cached = 0
+    jobs = [(split, cache, m["image_id"], m["file_name"]) for m in metas]
     with mp.get_context("fork").Pool(16) as pool:
         for i, (image_id, entry, cached) in enumerate(
-            pool.imap_unordered(
-                _build_one,
-                [(m["image_id"], m["file_name"]) for m in metas],
-                chunksize=8,
-            )
+            pool.imap_unordered(_build_one, jobs, chunksize=8)
         ):
             index[str(image_id)] = entry
             n_cached += cached
@@ -77,11 +73,20 @@ def main() -> None:
                     f"  {i + 1}/{len(metas)} ({(time.perf_counter() - t0):.0f}s)",
                     flush=True,
                 )
-    (CACHE / "index.json").write_text(json.dumps(index))
+    (cache / "index.json").write_text(json.dumps(index))
     print(
-        f"done: {len(index)} entries ({n_cached} already cached) "
-        f"in {time.perf_counter() - t0:.0f}s -> {CACHE / 'index.json'}"
+        f"done [{split}]: {len(index)} entries ({n_cached} already cached) "
+        f"in {time.perf_counter() - t0:.0f}s -> {cache / 'index.json'}"
     )
+
+
+def main() -> None:
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--split", default="val", help="split to cache (default val)")
+    args = ap.parse_args()
+    build(args.split)
 
 
 if __name__ == "__main__":

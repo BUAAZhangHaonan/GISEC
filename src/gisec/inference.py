@@ -17,12 +17,12 @@ import numpy as np
 import torch
 
 from gisec.datasets.records import DEPTH_HI, DEPTH_LO
-from gisec.datasets.split import DATA, rgb_u8
+from gisec.datasets.split import DATA, rgb_u8, split_of
 from gisec.paths import RGB_CACHE
 
 _F255 = _FLO = _FRANGE = None
 
-_RGB_INDEX: dict = {}
+_RGB_INDEX: dict[str, dict] = {}  # split -> {image_id: {"file", "md5"}}
 _RGB_HITS = {"hit": 0, "miss": 0}
 
 
@@ -41,22 +41,28 @@ def _md5(path: Path) -> str:
     return h.hexdigest()
 
 
-def load_rgb_index() -> None:
-    meta_file = RGB_CACHE / "val" / "index.json"
+def load_rgb_index(split: str = "val") -> None:
+    """Load the pre-decode index for one split into the per-split
+    index table (cache key = (split, image_id, source md5))."""
+    meta_file = RGB_CACHE / split / "index.json"
     if meta_file.exists():
         raw = json.loads(meta_file.read_text())
-        _RGB_INDEX.update({int(k): v for k, v in raw.items()})
+        _RGB_INDEX.setdefault(split, {}).update({int(k): v for k, v in raw.items()})
 
 
 def load_rgb_cached(meta):
     """u8 RGB (H,W,3) from the pre-decode cache; md5 of the source
-    PNG is verified so a changed image falls back to live decode."""
-    cdir = RGB_CACHE / "val"
+    PNG is verified so a changed image falls back to live decode.
+
+    The cache directory and source image both follow the item's
+    split (default val for pre-2026-09 metadata)."""
+    split = split_of(meta)
+    cdir = RGB_CACHE / split
     npy = cdir / f"{meta['image_id']}.npy"
     if npy.exists():
-        entry = _RGB_INDEX.get(meta["image_id"])
+        entry = _RGB_INDEX.get(split, {}).get(meta["image_id"])
         if entry is not None:
-            src = DATA / "images" / "val" / meta["file_name"]
+            src = DATA / "images" / split / meta["file_name"]
             if _md5(src) == entry["md5"]:
                 _RGB_HITS["hit"] += 1
                 return np.load(npy)

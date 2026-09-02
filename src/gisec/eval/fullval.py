@@ -1,8 +1,9 @@
-"""CenterNet-seed evaluation on the full 32254 val (3276 imgs).
+"""CenterNet-seed evaluation on a full split (val = 3276 imgs).
 
 Provenance: exp09 eval_centernet.py (the canonical evaluator behind
-every E9 -> E25 number), relocated into the package unchanged in
-behavior.
+every E9 -> E25 number), relocated into the package; since 2026-09-02
+split-aware end to end (``--split val|test``, metadata-carried split,
+split-keyed RGB/rank caches).
 
 Two profiles (scheduling layer only; algorithms untouched):
   full (default) — FINAL + oracle configs, seed precision, GT split
@@ -16,7 +17,7 @@ and the postproc rank cache (``python -m gisec.postproc_fast``).
 
 Run:
   python -m gisec.eval.fullval --ckpt <ema ckpt> --arch e10 \
-      --profile full --out eval_report.json
+      --profile full --split val --out eval_report.json
 """
 
 from __future__ import annotations
@@ -52,12 +53,12 @@ W_PROFILE = "full"
 W_COCO = None
 
 
-def _worker_init(profile):
+def _worker_init(profile, split):
     global W_PROFILE
     W_PROFILE = profile
     if profile == "full":
         global W_COCO
-        W_COCO = LiteCOCO(DATA / "annotations" / "instances_val.json")
+        W_COCO = LiteCOCO(DATA / "annotations" / f"instances_{split}.json")
 
 
 def _worker_one(payload):
@@ -71,7 +72,13 @@ def _worker_one(payload):
     if W_PROFILE == "fast":
         peaks = decode._marker_peaks(hm, coords, cells)
         insts, coco = postproc_fast.process(
-            meta["image_id"], coords, sem, depth, sem_logit, peaks
+            meta["image_id"],
+            coords,
+            sem,
+            depth,
+            sem_logit,
+            peaks,
+            split=meta.get("split", "val"),
         )
         return {
             "results": {"centernet": coco},
@@ -97,7 +104,13 @@ def _worker_one(payload):
     for tag in ("oracle_gt_centers", "centernet"):
         peaks = decode._marker_peaks(hm, coords_by_tag[tag], cells_by_tag.get(tag))
         insts, coco = postproc_fast.process(
-            meta["image_id"], coords_by_tag[tag], sem, depth, sem_logit, peaks
+            meta["image_id"],
+            coords_by_tag[tag],
+            sem,
+            depth,
+            sem_logit,
+            peaks,
+            split=meta.get("split", "val"),
         )
         st = SplitStats()
         st.add(gt_insts, insts)
@@ -115,8 +128,10 @@ def _worker_one(payload):
 
 def scene_bootstrap_ci_report(metas, results, n_boot=2000, seed=0):
     """Multiplicity-aware scene bootstrap CI on the FINAL config
-    (gisec.eval.scene_boot), segm + bbox, 2000 draws by default."""
-    coco_gt = COCO(str(DATA / "annotations" / "instances_val.json"))
+    (gisec.eval.scene_boot), segm + bbox, 2000 draws by default.
+    The annotation file follows the first meta's split."""
+    split = metas[0].get("split", "val") if metas else "val"
+    coco_gt = COCO(str(DATA / "annotations" / f"instances_{split}.json"))
     return scene_bootstrap_report(
         coco_gt,
         results,
@@ -154,6 +169,12 @@ def main() -> None:
         "caliber; see gisec.decode)",
     )
     ap.add_argument(
+        "--split",
+        default="val",
+        help="evaluation split (default val; caches and annotation "
+        "file follow it -- see gisec.datasets.split)",
+    )
+    ap.add_argument(
         "--sem-thr",
         type=float,
         default=None,
@@ -168,9 +189,9 @@ def main() -> None:
         ("oracle_gt_centers", "centernet") if args.profile == "full" else ("centernet",)
     )
 
-    inference.load_rgb_index()
+    inference.load_rgb_index(args.split)
     pool = mp.get_context("fork").Pool(
-        N_WORKERS, initializer=_worker_init, initargs=(args.profile,)
+        N_WORKERS, initializer=_worker_init, initargs=(args.profile, args.split)
     )
     ckpt = torch.load(args.ckpt, map_location="cpu")
     model_cls = SeedNet if args.arch == "e10" else SeedNetE9
@@ -179,11 +200,11 @@ def main() -> None:
     model.cuda().eval()
     inference._gpu_divisors()
 
-    metas, _ = load_split("val")
+    metas, _ = load_split(args.split)
     if args.max_images:
         metas = metas[: args.max_images]
-    ann_file = DATA / "annotations" / "instances_val.json"
-    report = {"profile": args.profile, "grid": []}
+    ann_file = DATA / "annotations" / f"instances_{args.split}.json"
+    report = {"profile": args.profile, "split": args.split, "grid": []}
 
     results = {t: [] for t in tags}
     if args.profile == "full":

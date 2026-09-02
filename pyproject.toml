@@ -46,6 +46,10 @@ include = ["gisec*"]
 [tool.ruff]
 target-version = "py313"
 line-length = 88
+extend-exclude = [
+  # recovered archive of foreign runner code (kept verbatim, 2026-09-02)
+  "experiments/ugnn/baselines16m/official_1566",
+]
 
 [tool.ruff.lint]
 select = [

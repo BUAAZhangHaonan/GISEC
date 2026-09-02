@@ -144,13 +144,14 @@ def _depth_md5(depth):
     return hashlib.md5(a.tobytes()).hexdigest()
 
 
-def load_or_compute_rank(image_id, depth):
-    """Cache keyed image_id, validated by md5(depth); miss -> inline.
+def load_or_compute_rank(image_id, depth, split="val"):
+    """Cache keyed (split, image_id), validated by md5(depth); miss
+    -> inline.
 
     The md5 sidecar is the commit marker: _pre_one replaces the two
     payload files first and the md5 last, so a crash mid-write leaves
     a miss (inline fallback), never a torn or partial hit."""
-    base = CACHE_DIR / "val" / f"{image_id}"
+    base = CACHE_DIR / split / f"{image_id}"
     f = base.with_suffix(".rank.npy")
     m = base.with_suffix(".rank.md5")
     nr = base.with_suffix(".rank.nrank.npy")
@@ -374,14 +375,15 @@ def dedup_markers(coords, peaks):
     return [coords[i] for i in keep], peaks[keep]
 
 
-def process(image_id, coords, sem, depth, sem_logit, peaks):
+def process(image_id, coords, sem, depth, sem_logit, peaks, split="val"):
     """Full pipeline from caller-supplied markers.
 
     sem is the binary mask (uint8); sem_logit is the raw semantic
     logit map (f32) used for the mix elevation; peaks is the
     per-marker heatmap peak array (len(coords), marker k -> index
     k-1), used as the instance score (E11) and top-100 sort key
-    (peak desc, area asc tiebreak, stable).
+    (peak desc, area asc tiebreak, stable). ``split`` keys the rank
+    cache (default val = the historical caliber).
 
     Returns (insts, results): insts = uncapped [(mask, area)] for
     SplitStats; results = top-100-by-peak COCO dicts with the same
@@ -391,7 +393,7 @@ def process(image_id, coords, sem, depth, sem_logit, peaks):
         return [], []
     peaks = np.asarray(peaks, dtype=np.float64)
     coords, peaks = dedup_markers(coords, peaks)
-    rank_d, _ = load_or_compute_rank(image_id, depth)
+    rank_d, _ = load_or_compute_rank(image_id, depth, split)
     rank_s, _ = sem_logit_rank(sem_logit)
     rank, nrank = mix_elevation_rank(rank_d, rank_s)
     markers = np.zeros(sem.shape, dtype=np.int32)
@@ -446,10 +448,10 @@ def process(image_id, coords, sem, depth, sem_logit, peaks):
 def _pre_one(args):
     from gisec.datasets.coco_utils import load_depth_array
 
-    image_id, dpath = args
+    image_id, dpath, split = args
     depth = load_depth_array(Path(dpath))
     rank, nrank = compute_elevation_rank(depth)
-    out = CACHE_DIR / "val"
+    out = CACHE_DIR / split
     out.mkdir(parents=True, exist_ok=True)
     base = out / f"{image_id}"
     # atomic commit: payloads land via tmp + os.replace, the md5
@@ -469,12 +471,16 @@ def _pre_one(args):
 
 
 def precompute_main() -> None:
+    import argparse
     import multiprocessing as mp
 
     from gisec.datasets.split import load_split
 
-    metas, _ = load_split("val")
-    jobs = [(m["image_id"], m["dpath"]) for m in metas]
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--split", default="val", help="split to precompute (default val)")
+    args = ap.parse_args()
+    metas, _ = load_split(args.split)
+    jobs = [(m["image_id"], m["dpath"], args.split) for m in metas]
     done = 0
     with mp.get_context("fork").Pool(8) as pool:
         for image_id, nrank in pool.imap_unordered(_pre_one, jobs, chunksize=4):
