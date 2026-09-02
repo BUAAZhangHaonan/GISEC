@@ -18,7 +18,7 @@
 |---|---|---|---|---|---|
 | mrcnn16fix | mrcnn16 | R18-FPN, box head 191, bit-order 修复 | 16,987,347 | **0.6638** | done 08-31, ep19@score0.02/mask0.5, 配对 CI 见下 |
 | mrcnn16d | mrcnn16d | + 4ch depth, RGB 路径与 mrcnn16 一致 | 16,990,483 | dropped | 用户 08-30 裁决: 不做深度魔改版 |
-| m2f16v2 | m2f16v2 | m2f16 配方 (512 pts/no aux) + 单类/bit-order/RGB ImageNet 归一化 | 16,536,770 | pending | 6401 GPU1（08-30 深夜：用户资源规划 m2f 归 6401；24GB 卡以 M2F_BF16_MASKS=1 放下 batch8@1024，GT mask 以 bf16 送损失——{0,1} 精确可表示，仅损失累加精度差异，注脚在案） |
+| m2f16v2 | m2f16v2 | m2f16 配方 (512 pts/no aux) + 单类/bit-order/RGB ImageNet 归一化 | 16,536,770 | **0.4305** | done 09-02, ep19@score0.02/mask0.6；E20−它 = +0.4174 [+0.3839,+0.4497]（6401 GPU1, bf16-GT-mask 注脚在案） |
 | m2f16catfix | m2f16catfix | m2f16cat + RGB ImageNet 归一化, depth 维持全局标定 | 16,539,906 | dropped | 用户 08-30 裁决: 不做深度魔改版 |
 | m2f16fix-v2 (可选) | m2f16fix | 官方配置重训, 附录臂, 默认关 | 16,536,770 | pending | WITH_M2F16FIX_V2=1 |
 | magformer-16M | - | 外部基线 | 17.45M | 0.7088 | done 08-30, fullval 3276 val (6401, best.pt) |
@@ -73,11 +73,12 @@
 | mrcnn16 | 17.00M | 同 | 0.6082 | 0.8649 | 0.6926 | 首轮数字（监督路径 bug），转历史 |
 | mrcnn16fix | 16.99M | 同 | **0.6638** | 0.8764 | 0.7411 | 干净重训（bit-order 修复+校准）；E20−它 = +0.1848 [+0.1737,+0.1960] |
 | m2f16 (RGB) | 16.54M | 同 | 0.4339 | 0.6284 | 0.5256 | APs≈0 |
+| m2f16v2 (干净重训) | 16.54M | 同 | **0.4305** | 0.5848 | 0.4883 | v2 配方干净版；E20−它 +0.4174 CI 全正；m2f16fix(COCO配置) 0.2345 证伪折损假设 |
 | m2f16cat (4ch) | 16.54M | 同 | 0.2244 | 0.3931 | 0.2436 | bbox AP 0.049 |
 | m2f16fix (无折损) | 16.54M | 同 | 0.2345 | 0.4621 | 0.2250 | 修折损反降 19.9pt, 折损假设证伪 |
 | magformer-16M | 17.45M | 同 | 0.7088 | 0.8871 | 0.7932 | fullval 08-30 (6401) |
 
-结论: 同参数同预算下 GISEC 领先 +14~+62pt（对最强干净基线 mrcnn16fix +18.5pt, CI 全正）, 优势压倒性。两阶段检测器好于 query 范式; m2f16fix 修折损反降 19.9pt (0.2345), "折损压低 m2f" 假设证伪, query 范式等预算欠拟合是主因。magformer-16M=0.7088, GISEC 对它 +14.0pt。
+结论: 同参数同预算下 GISEC 领先 +14~+62pt（干净基线幅度: mrcnn16fix +18.5、m2f16v2 +41.7, CI 全正; magformer-16M +14.0）, 优势压倒性。两阶段检测器好于 query 范式; m2f16fix 修折损反降 19.9pt (0.2345), "折损压低 m2f" 假设证伪, query 范式等预算欠拟合是主因。magformer-16M=0.7088, GISEC 对它 +14.0pt。
 
 ### magformer-16M 配置注记（2026-08-30, 6401 fullval）
 
