@@ -1,0 +1,71 @@
+{
+  "track": "20260429_repaired_unet_100ep_512_full19",
+  "register": "20260318_1K_1566",
+  "dataset_root": "/home/team/zhanghaonan/magformer/magformer_datasets/20260318_1K_1566",
+  "model_id": "cellpose",
+  "candidate_id": "C1",
+  "run_tag": "final",
+  "command": "bash run_0831_1k_20ep_1024_revisit_cellpose_inst.sh --register 20260318_1K_1566 --dataset-root /home/team/zhanghaonan/magformer/magformer_datasets/20260318_1K_1566 --output-root /home/team/zhanghaonan/magformer/output/experiments/20260429_repaired_unet_100ep_512_full19 --image-size 512 --batch 32 --eval-every 20 --num-workers 4 --inference-batch 8 --max-train-steps 0 --max-val-images 0 --run",
+  "git_hash": "9b6b75fd715842e407594243a113e39f34401d32",
+  "env": {
+    "python": {
+      "version": "3.11.15 (main, Mar 11 2026, 17:20:07) [GCC 14.3.0]",
+      "executable": "/home/team/zhanghaonan/miniconda3/envs/magformer/bin/python"
+    },
+    "platform": {
+      "system": "Linux",
+      "release": "6.8.0-107-generic",
+      "machine": "x86_64"
+    },
+    "packages": {
+      "torch": "2.5.1+cu124",
+      "detectron2": "0.6",
+      "ultralytics": "8.4.14",
+      "timm": "1.0.19"
+    }
+  },
+  "start_time_iso": "2026-04-29T03:41:08+08:00",
+  "end_time_iso": "2026-04-29T04:26:37+08:00",
+  "wall_time_sec": 2564.411510705948,
+  "budget": {
+    "iters_per_epoch": 40,
+    "max_iter": 4000,
+    "epochs": 100,
+    "ims_per_batch": 32
+  },
+  "model_name": "cellpose",
+  "image_size": 512,
+  "epochs": 100,
+  "requested_epochs": 100,
+  "batch": 32,
+  "lr": 0.001,
+  "num_workers": 4,
+  "min_area": 20,
+  "train_split": "train",
+  "val_split": "val",
+  "max_train_steps": 0,
+  "max_val_images": 0,
+  "target_cache_dir": "/home/team/zhanghaonan/magformer/output/experiments/20260429_repaired_unet_100ep_512_full19/cellpose/target_cache/512_official-cellpose-3.1.1.1-diffusion",
+  "log_every": 50,
+  "eval_every": 20,
+  "cellpose_version": "3.1.1.1",
+  "cellpose_backbone": "default",
+  "score_source": "official_cellprob_mean_sigmoid",
+  "official_code_used": true,
+  "implementation_fidelity": {
+    "model_id": "cellpose",
+    "implementation_kind": "official-library",
+    "official_code_used": true,
+    "paper_faithful": true,
+    "academic_claim": "Official pre-SAM Cellpose v3 U-Net flow-field baseline.",
+    "source_method": "Cellpose flow-field instance segmentation",
+    "sources": [
+      "https://github.com/MouseLand/cellpose",
+      "https://cellpose.readthedocs.io/en/latest/_modules/cellpose/dynamics.html"
+    ],
+    "known_limitations": [
+      "Uses the official Cellpose training and inference code from scratch on RGB images, without Cellpose-SAM.",
+      "Confidence scores are adapter-level mean sigmoid cellprob values because official Cellpose exports labeled masks rather than COCO detection scores."
+    ]
+  }
+}

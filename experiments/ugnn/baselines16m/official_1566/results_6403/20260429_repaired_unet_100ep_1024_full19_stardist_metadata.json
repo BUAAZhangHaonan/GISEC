@@ -1,0 +1,88 @@
+{
+  "track": "20260429_repaired_unet_100ep_1024_full19",
+  "register": "20260318_1K_1566",
+  "dataset_root": "/home/team/zhanghaonan/magformer/magformer_datasets/20260318_1K_1566",
+  "model_id": "stardist",
+  "candidate_id": "C1",
+  "run_tag": "final",
+  "command": "bash run_0831_1k_20ep_1024_revisit_stardist_inst.sh --register 20260318_1K_1566 --dataset-root /home/team/zhanghaonan/magformer/magformer_datasets/20260318_1K_1566 --output-root /home/team/zhanghaonan/magformer/output/experiments/20260429_repaired_unet_100ep_1024_full19 --image-size 1024 --epochs 100 --batch 1 --num-workers 0 --ram-limit-pct 50 --max-train-images 0 --max-val-images 0 --train-n-val-patches 8 --run",
+  "git_hash": "b0bc39d58c5a42e7ec996ea2de9303fe6e80dcfb",
+  "env": {
+    "python": {
+      "version": "3.11.15 (main, Mar 11 2026, 17:20:07) [GCC 14.3.0]",
+      "executable": "/home/team/zhanghaonan/miniconda3/envs/magformer/bin/python"
+    },
+    "platform": {
+      "system": "Linux",
+      "release": "6.8.0-107-generic",
+      "machine": "x86_64"
+    },
+    "packages": {
+      "torch": "2.11.0+cu128",
+      "detectron2": "0.6",
+      "ultralytics": "8.4.14",
+      "timm": "1.0.19"
+    }
+  },
+  "start_time_iso": "2026-05-02T19:06:30+08:00",
+  "end_time_iso": "2026-05-03T07:37:02+08:00",
+  "wall_time_sec": 44730.0,
+  "budget": {
+    "iters_per_epoch": 1261,
+    "max_iter": 126100,
+    "epochs": 100,
+    "ims_per_batch": 1
+  },
+  "backend": "stardist",
+  "image_size": 1024,
+  "train_split": "train",
+  "eval_split": "val",
+  "epochs": 100,
+  "batch": 1,
+  "num_workers": 0,
+  "train_n_val_patches": 8,
+  "num_train_images": 1261,
+  "num_val_images": 149,
+  "prob_thresh": 0.5,
+  "nms_thresh": 0.3,
+  "checkpoint": "/home/team/zhanghaonan/magformer/output/experiments/20260429_repaired_unet_100ep_1024_full19/stardist/stardist_model/model_final.weights.h5",
+  "tensorflow": {
+    "version": "2.21.0",
+    "cuda_built": true,
+    "gpu_visible": true,
+    "physical_gpu_count": 1,
+    "physical_gpus": [
+      "/physical_device:GPU:0"
+    ],
+    "memory_growth": [
+      {
+        "name": "/physical_device:GPU:0",
+        "enabled": true,
+        "set_ok": true,
+        "error": ""
+      }
+    ],
+    "allow_cpu": false,
+    "require_gpu": true,
+    "visible_devices_env": "1"
+  },
+  "ram_limit_pct": 50.0,
+  "ram_used_pct": {
+    "before_tensorflow": 11.994392954842588,
+    "before_data_load": 12.323487723115065,
+    "after_data_load": 27.36217672982039,
+    "after_training": 32.001228516724105
+  },
+  "implementation_fidelity": {
+    "model_id": "stardist",
+    "implementation_kind": "official-library",
+    "official_code_used": true,
+    "paper_faithful": true,
+    "academic_claim": "Official StarDist library baseline.",
+    "source_method": "StarDist star-convex instance segmentation",
+    "sources": [
+      "https://github.com/stardist/stardist"
+    ],
+    "known_limitations": []
+  }
+}

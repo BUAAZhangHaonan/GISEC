@@ -1,0 +1,55 @@
+{
+  "model_id": "stardist",
+  "backend": "stardist",
+  "image_size": 512,
+  "train_split": "train",
+  "eval_split": "val",
+  "epochs": 32,
+  "batch": 4,
+  "num_workers": 0,
+  "train_n_val_patches": 8,
+  "num_train_images": 1261,
+  "num_val_images": 149,
+  "prob_thresh": 0.5,
+  "nms_thresh": 0.3,
+  "checkpoint": "/home/hdd3/zhanghaonan/magformer/output/experiments/20260511_baselines_10k/stardist_512/stardist_model/model_final.weights.h5",
+  "tensorflow": {
+    "version": "2.21.0",
+    "cuda_built": true,
+    "gpu_visible": true,
+    "physical_gpu_count": 1,
+    "physical_gpus": [
+      "/physical_device:GPU:0"
+    ],
+    "memory_growth": [
+      {
+        "name": "/physical_device:GPU:0",
+        "enabled": true,
+        "set_ok": true,
+        "error": ""
+      }
+    ],
+    "allow_cpu": false,
+    "require_gpu": true,
+    "visible_devices_env": "6"
+  },
+  "ram_limit_pct": 0.0,
+  "ram_used_pct": {
+    "before_tensorflow": 2.996591731880785,
+    "before_data_load": 3.1326934644644697,
+    "after_data_load": 5.151268673573385,
+    "after_training": 6.346011892580221
+  },
+  "implementation_fidelity": {
+    "model_id": "stardist",
+    "implementation_kind": "official-library",
+    "official_code_used": true,
+    "paper_faithful": true,
+    "academic_claim": "Official StarDist library baseline.",
+    "source_method": "StarDist star-convex instance segmentation",
+    "sources": [
+      "https://github.com/stardist/stardist"
+    ],
+    "known_limitations": []
+  }
+}

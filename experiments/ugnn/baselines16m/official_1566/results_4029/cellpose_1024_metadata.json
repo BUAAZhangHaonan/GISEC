@@ -1,0 +1,38 @@
+{
+  "model_id": "cellpose",
+  "model_name": "cellpose",
+  "image_size": 1024,
+  "epochs": 127,
+  "requested_epochs": 127,
+  "batch": 16,
+  "lr": 0.001,
+  "num_workers": 4,
+  "min_area": 20,
+  "train_split": "train",
+  "val_split": "val",
+  "max_train_steps": 0,
+  "max_val_images": 0,
+  "target_cache_dir": "",
+  "log_every": 50,
+  "eval_every": 0,
+  "cellpose_version": "3.1.1.1",
+  "cellpose_backbone": "default",
+  "score_source": "official_cellprob_mean_sigmoid",
+  "official_code_used": true,
+  "implementation_fidelity": {
+    "model_id": "cellpose",
+    "implementation_kind": "official-library",
+    "official_code_used": true,
+    "paper_faithful": true,
+    "academic_claim": "Official pre-SAM Cellpose v3 U-Net flow-field baseline.",
+    "source_method": "Cellpose flow-field instance segmentation",
+    "sources": [
+      "https://github.com/MouseLand/cellpose",
+      "https://cellpose.readthedocs.io/en/latest/_modules/cellpose/dynamics.html"
+    ],
+    "known_limitations": [
+      "Uses the official Cellpose training and inference code from scratch on RGB images, without Cellpose-SAM.",
+      "Confidence scores are adapter-level mean sigmoid cellprob values because official Cellpose exports labeled masks rather than COCO detection scores."
+    ]
+  }
+}
