@@ -1,0 +1,16 @@
+{"event": "deploy_eval", "tag": "step0008000", "n": 500, "sec": 462.2, "segm_AP@0.90": 0.82966, "segm_AP@0.95": 0.82499}
+{"event": "deploy_eval", "tag": "step0016000", "n": 500, "sec": 450.0, "segm_AP@0.90": 0.85843, "segm_AP@0.95": 0.85516}
+{"event": "deploy_eval", "tag": "step0024000", "n": 500, "sec": 441.9, "segm_AP@0.90": 0.8671, "segm_AP@0.95": 0.86818}
+{"event": "deploy_eval", "tag": "step0032000", "n": 500, "sec": 451.6, "segm_AP@0.90": 0.86515, "segm_AP@0.95": 0.86619}
+{"event": "deploy_eval", "tag": "step0040000", "n": 500, "sec": 450.7, "segm_AP@0.90": 0.86682, "segm_AP@0.95": 0.86722}
+{"event": "deploy_eval", "tag": "step0048000", "n": 500, "sec": 453.1, "segm_AP@0.90": 0.86645, "segm_AP@0.95": 0.86677}
+{"event": "deploy_eval", "tag": "step0056000", "n": 500, "sec": 452.9, "segm_AP@0.90": 0.86681, "segm_AP@0.95": 0.8673}
+{"event": "deploy_eval", "tag": "step0064000", "n": 500, "sec": 455.7, "segm_AP@0.90": 0.86637, "segm_AP@0.95": 0.86596}
+{"event": "deploy_eval", "tag": "step0072000", "n": 500, "sec": 450.7, "segm_AP@0.90": 0.86782, "segm_AP@0.95": 0.86747}
+{"event": "deploy_eval", "tag": "step0080000", "n": 500, "sec": 454.5, "segm_AP@0.90": 0.86947, "segm_AP@0.95": 0.86919}
+{"event": "deploy_eval", "tag": "step0088000", "n": 500, "sec": 451.7, "segm_AP@0.90": 0.87152, "segm_AP@0.95": 0.86998}
+{"event": "deploy_eval", "tag": "step0096000", "n": 500, "sec": 455.4, "segm_AP@0.90": 0.87288, "segm_AP@0.95": 0.8715}
+{"event": "deploy_eval", "tag": "step0104000", "n": 500, "sec": 454.6, "segm_AP@0.90": 0.87316, "segm_AP@0.95": 0.87282}
+{"event": "deploy_eval", "tag": "step0112000", "n": 500, "sec": 452.6, "segm_AP@0.90": 0.87264, "segm_AP@0.95": 0.87342}
+{"event": "deploy_eval", "tag": "step0120000", "n": 500, "sec": 451.4, "segm_AP@0.90": 0.87285, "segm_AP@0.95": 0.87367}
+{"event": "deploy_eval", "tag": "step0128000", "n": 500, "sec": 452.7, "segm_AP@0.90": 0.87316, "segm_AP@0.95": 0.87402}

@@ -35,6 +35,18 @@ _cache_fwd128k/
 e20_fullval_results.json
 e25_fullval_results.json
 
+# training-run artifacts: checkpoints/smoke dirs stay local; the formal E25
+# run keeps its deploy-eval trace, train log and step visualizations tracked
+experiments/ugnn/exp23_seam_rank/runs_smoke/
+experiments/ugnn/exp24_proj_anchor/runs_evalgate/
+experiments/ugnn/exp24_proj_anchor/runs_smoke/
+experiments/ugnn/exp24_proj_anchor/runs_smoke128k/
+experiments/ugnn/exp24_proj_anchor/runs_smoke_centroid/
+experiments/ugnn/exp24_proj_anchor/runs_128k_b16/*
+!experiments/ugnn/exp24_proj_anchor/runs_128k_b16/deploy_eval.jsonl
+!experiments/ugnn/exp24_proj_anchor/runs_128k_b16/train_log.json
+!experiments/ugnn/exp24_proj_anchor/runs_128k_b16/visualizations/
+
 # package-level inference caches (regenerable via gisec-build-rgb-cache /
 # gisec-postproc-cache; roots overridable via GISEC_RGB_CACHE /
 # GISEC_POSTPROC_CACHE)
