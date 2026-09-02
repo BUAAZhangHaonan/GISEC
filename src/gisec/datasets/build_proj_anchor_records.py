@@ -5,66 +5,54 @@ mask for 9.24% of val GT instances (small: 48.6%) and that swapping
 the GT-centroid control's centroid for the in-mask projection
 p* = argmin_{p in M} ||p - mu(M)|| lifts AP 0.84436 -> 0.88927
 (+4.49pt conditional upper bound). E24 retrains the E20 recipe with
-p* as the seed anchor; this script precomputes p* for every train and
-val instance so the training fork can swap the anchor source with a
-single flag.
+p* as the seed anchor; this builder precomputes p* for every train
+and val instance so training swaps the anchor source with a single
+flag.
 
-Per instance (row order == exp09 gt_records stats flat order, asserted
+Per instance (row order == GT records stats flat order, asserted
 per image against offsets): proj (py, px) is the in-mask projected
-anchor from diag_lib.instance_anchor -- the rounded centroid when that
-pixel is inside the mask, else the exact EDT-nearest in-mask pixel --
-i.e. the IDENTICAL implementation behind the A.6 projcent control;
-cent (fy, fx) is the arithmetic sub-pixel centroid (the E20 anchor);
-plus dist, inside, area, size. Training only consumes (proj, n); the
+anchor from gisec.anchors.instance_anchor -- the IDENTICAL
+implementation behind the A.6 projcent control; cent (fy, fx) is
+the arithmetic sub-pixel centroid (the E20 anchor); plus dist,
+inside, area, size. Training only consumes (proj, offsets); the
 rest is diagnosis/eval evidence.
 
 Masks are decoded from the annotation json through the same
 RLE-counts path as exp23 (bitwise-equal to the LiteCOCO ann_to_mask
 path per tests/test_exp23_seam_records.py). Alignment guards: the
-per-image instance count must equal the exp09 stats slice length (the
-empty-mask skip matches build_gt_records.py), every 500th image the
-instance union must reproduce the exp09 sem record bitwise, and the
-val aggregates must reproduce a5_stats.json.
+per-image instance count must equal the GT stats slice length (the
+empty-mask skip matches build_gt_records), every 500th image the
+instance union must reproduce the GT sem record bitwise, and the
+val aggregates must reproduce the A.5 diagnostics a5_stats.json.
 
-Writes gt_records/{split}_projanchor.pkl (gitignored) and
-proj_stats.json (tracked: aggregate summary + a5 comparison).
+Writes {split}_projanchor.pkl (gitignored records dir) and
+proj_stats.json (aggregate summary + a5 comparison) next to it.
 
-Run (CPU only):
-  systemd-run --user --unit=gisec-e24-build -p MemoryMax=32G \
-    -p CPUQuota=1600% --working-directory=<this dir> \
-    /home/k100/miniconda3/envs/gisec/bin/python build_proj_anchor_records.py
+Run (CPU only): ``python -m gisec.datasets.build_proj_anchor_records``
 """
 
 from __future__ import annotations
 
 import json
 import pickle
-import sys
 import time
 from multiprocessing import Pool
-from pathlib import Path
 
 import numpy as np
 from pycocotools import mask as mask_utils
 
-HERE = Path(__file__).resolve().parent
-UGNN = HERE.parent
-DIAG = UGNN / "diagnostics_20260828"
-E9 = UGNN / "exp09_centernet_seeds"
-E23 = UGNN / "exp23_seam_rank"
-DATA = UGNN.parents[1] / "datasets" / "20260318_1K_32254"
-OUT = HERE / "gt_records"
+from gisec.anchors import instance_anchor
+from gisec.datasets.coco_utils import iter_annotations
+from gisec.paths import DATA_ROOT, GT_RECORDS, PROJANCHOR_RECORDS, UGNN
+from gisec.targets import _ann_rle
+
 SIDE = 1024
 PACK = SIDE * SIDE // 8
 NPROC = 16
 
-for _p in (str(DIAG), str(E9), str(E23)):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
-from build_seam_records import _iter_annotations  # noqa: E402
-from centernet_gt import _ann_rle  # noqa: E402
-from diag_lib import instance_anchor  # noqa: E402
+OUT = PROJANCHOR_RECORDS
+E9_REC = GT_RECORDS
+DIAG = UGNN / "diagnostics_20260828"
 
 # set by build() before the Pool forks; workers inherit via fork
 _SPLIT = ""
@@ -78,7 +66,7 @@ def _one_image(job):
     pos, counts_list = job
     if "sem" not in _MM:
         _MM["sem"] = np.memmap(
-            E9 / "gt_records" / f"{_SPLIT}_sem.dat",
+            E9_REC / f"{_SPLIT}_sem.dat",
             dtype=np.uint8,
             mode="r",
             shape=(_N, PACK),
@@ -92,7 +80,7 @@ def _one_image(job):
         mb = m > 0
         n = int(mb.sum())
         if n == 0:
-            continue  # matches build_gt_records.py n==0 skip
+            continue  # matches build_gt_records n==0 skip
         out = instance_anchor(mb.astype(np.uint8))
         assert out is not None
         (_ry, _rx), (py, px), dist, inside = out
@@ -171,9 +159,9 @@ def build(split: str) -> None:
     global _SPLIT, _N
     _SPLIT = split
     t0 = time.time()
-    with open(E9 / "gt_records" / f"{split}_items.pkl", "rb") as f:
+    with open(E9_REC / f"{split}_items.pkl", "rb") as f:
         items = pickle.load(f)
-    with open(E9 / "gt_records" / f"{split}_stats.pkl", "rb") as f:
+    with open(E9_REC / f"{split}_stats.pkl", "rb") as f:
         ids, offsets, _flat = pickle.load(f)
     assert ids.tolist() == [i for i, _ in items], "stats/items id order mismatch"
     _N = len(items)
@@ -181,7 +169,7 @@ def build(split: str) -> None:
     item_ids = {i for i, _ in items}
     by_img: dict[int, list[bytes]] = {}
     n_seen = 0
-    for ann in _iter_annotations(DATA / "annotations" / f"instances_{split}.json"):
+    for ann in iter_annotations(DATA_ROOT / "annotations" / f"instances_{split}.json"):
         iid = int(ann["image_id"])
         if iid not in item_ids:
             continue
@@ -228,7 +216,7 @@ def build(split: str) -> None:
     cell_p = np.floor(proj / 4.0 + 0.5).astype(np.int64)
     cell_moved = (cell[:, 0] != cell_p[:, 0]) | (cell[:, 1] != cell_p[:, 1])
 
-    OUT.mkdir(exist_ok=True)
+    OUT.mkdir(parents=True, exist_ok=True)
     with open(OUT / f"{split}_projanchor.pkl", "wb") as f:
         pickle.dump(
             {
@@ -261,8 +249,8 @@ def build(split: str) -> None:
         else 0.0,
     }
     result: dict = {split: summary}
-    if split == "val":
-        comp = _compare_a5(summary)
+    if split == "val" and (DIAG / "a5_stats.json").exists():
+        comp = _compare_a5(summary)  # guard skipped when diagnostics moved away
         result["a5_comparison"] = comp
         ok = all(all(v.values()) for v in comp.values())
         result["a5_match"] = bool(ok)
@@ -273,7 +261,7 @@ def build(split: str) -> None:
         if not ok:
             print(json.dumps(comp, indent=1), flush=True)
             raise AssertionError("val aggregates do not reproduce a5_stats.json")
-    stats_path = HERE / "proj_stats.json"
+    stats_path = OUT / "proj_stats.json"
     all_stats = json.loads(stats_path.read_text()) if stats_path.exists() else {}
     all_stats.update(result)
     stats_path.write_text(json.dumps(all_stats, indent=1))
@@ -281,9 +269,13 @@ def build(split: str) -> None:
     print(f"[{split}] done in {time.time() - t0:.0f}s", flush=True)
 
 
-if __name__ == "__main__":
+def main() -> None:
     for split in ("val", "train"):
         if not (OUT / f"{split}_projanchor.pkl").exists():
             build(split)
         else:
             print(f"[{split}] projanchor.pkl exists, skip", flush=True)
+
+
+if __name__ == "__main__":
+    main()

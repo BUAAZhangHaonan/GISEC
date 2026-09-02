@@ -9,7 +9,6 @@ non-contact image split. Nothing outside this directory is written.
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -19,11 +18,13 @@ HERE = Path(__file__).resolve().parent
 UGNN = HERE.parent
 REPO = UGNN.parents[1]
 E9 = UGNN / "exp09_centernet_seeds"
-for _p in (str(E9), str(UGNN / "lib")):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
-import eval_pipeline as ep  # noqa: E402
+from gisec.datasets.coco_utils import (  # noqa: E402
+    LiteCOCO,
+    ann_to_mask,
+)
+from gisec.datasets.coco_utils import (  # noqa: E402
+    load_depth_array as _load_depth_array,
+)
 
 FWD = UGNN / "exp20_band8" / "decode_fix" / "_cache_fwd" / "val"
 ANN_FILE = (
@@ -40,12 +41,12 @@ def gt_coco():
     """Process-wide LiteCOCO over the val annotations (fork-shared)."""
     global _COCO
     if _COCO is None:
-        _COCO = ep.LiteCOCO(ANN_FILE)
+        _COCO = LiteCOCO(ANN_FILE)
     return _COCO
 
 
 def load_metas() -> list[dict]:
-    from eval_scale import load_split
+    from gisec.datasets.split import load_split
 
     metas, _ = load_split("val")
     return metas
@@ -67,7 +68,7 @@ def load_fwd(image_id: int) -> dict[str, np.ndarray]:
 
 
 def load_depth_array(dpath: str | Path) -> np.ndarray:
-    return ep.load_depth_array(Path(dpath))
+    return _load_depth_array(Path(dpath))
 
 
 def sem_binary(sem_logit: np.ndarray, thr: float = SEM_THR) -> np.ndarray:
@@ -125,7 +126,7 @@ def gt_payload(meta: dict) -> list[np.ndarray]:
     """Per-image GT instance masks (uint8 HxW), annotation order."""
     coco = gt_coco()
     return [
-        ep.ann_to_mask(a, meta["height"], meta["width"])
+        ann_to_mask(a, meta["height"], meta["width"])
         for a in coco.loadAnns(meta["ann_ids"])
     ]
 

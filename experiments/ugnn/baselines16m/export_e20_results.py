@@ -29,7 +29,6 @@ from __future__ import annotations
 import argparse
 import json
 import multiprocessing as mp
-import sys
 import time
 from pathlib import Path
 
@@ -37,15 +36,14 @@ HERE = Path(__file__).resolve().parent
 UGNN = HERE.parent
 REPO = UGNN.parents[1]
 E9 = UGNN / "exp09_centernet_seeds"
-for _p in (str(E9), str(UGNN / "lib"), str(REPO / "src")):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
-import eval_centernet as ec  # noqa: E402
 import torch  # noqa: E402
-from eval_scale import load_split  # noqa: E402
 
+from gisec import decode, inference  # noqa: E402
+from gisec.datasets.coco_utils import load_depth_array  # noqa: E402
+from gisec.datasets.split import load_split  # noqa: E402
 from gisec.eval.coco_eval import evaluate_json  # noqa: E402
+from gisec.eval.fullval import _worker_init, _worker_one  # noqa: E402
+from gisec.model import SeedNetE10  # noqa: E402
 
 CKPT = UGNN / "exp20_band8" / "runs" / "best.pth"
 ANN = REPO / "datasets" / "20260318_1K_32254" / "annotations" / "instances_val.json"
@@ -61,20 +59,20 @@ def main() -> None:
     parser.add_argument("--out", default=str(OUT))
     args = parser.parse_args()
 
-    assert ec.SEM_THR == 0.9 and ec.DECODE == "legacy", (
+    assert decode.SEM_THR == 0.9 and decode.DECODE == "legacy", (
         "the canonical configuration must be SEM_THR 0.9 / legacy decode"
     )
-    ec.load_rgb_index()
+    inference.load_rgb_index()
     # fork pool BEFORE any CUDA context in this process (same order as
     # eval_centernet.main); workers run _worker_one in fast mode
     pool = mp.get_context("fork").Pool(
-        N_WORKERS, initializer=ec._worker_init, initargs=("fast",)
+        N_WORKERS, initializer=_worker_init, initargs=("fast",)
     )
     ckpt = torch.load(CKPT, map_location="cpu", weights_only=True)
-    model = ec.SeedNetE10()
+    model = SeedNetE10()
     model.load_state_dict(ckpt["model"])  # strict: arch-parity check
     model.cuda().eval()
-    ec._gpu_divisors()
+    inference._gpu_divisors()
 
     metas, _ = load_split("val")
     if args.max_images:
@@ -84,16 +82,16 @@ def main() -> None:
 
     def payloads():
         for meta in metas:
-            img = ec.load_rgb_cached(meta)
-            depth = ec.ep.load_depth_array(Path(meta["dpath"]))
-            sem_logit, hm, off = ec._forward(model, img, depth)
+            img = inference.load_rgb_cached(meta)
+            depth = load_depth_array(Path(meta["dpath"]))
+            sem_logit, hm, off = inference._forward(model, img, depth)
             del img
             yield meta, sem_logit, hm, off, depth
 
     results = []
     with pool:
         for done, out in enumerate(
-            pool.imap_unordered(ec._worker_one, payloads(), chunksize=1), 1
+            pool.imap_unordered(_worker_one, payloads(), chunksize=1), 1
         ):
             results.extend(out["results"]["centernet"])
             if done % 250 == 0 or done == len(metas):

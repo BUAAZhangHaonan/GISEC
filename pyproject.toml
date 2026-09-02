@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gisec"
-version = "0.1.0"
-description = "GISEC: Graph-based Instance Segmentation for Electronic Components"
+version = "0.2.0"
+description = "GISEC: Instance Segmentation for Electronic Components in Dense Clutter"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -26,6 +26,15 @@ dependencies = [
 dev = [
   "pytest",
 ]
+
+[project.scripts]
+gisec-train = "gisec.train:main"
+gisec-eval = "gisec.eval.fullval:main"
+gisec-build-gt = "gisec.datasets.build_gt_records:main"
+gisec-build-band = "gisec.datasets.build_band_records:main"
+gisec-build-projanchor = "gisec.datasets.build_proj_anchor_records:main"
+gisec-build-rgb-cache = "gisec.datasets.build_rgb_cache:main"
+gisec-postproc-cache = "gisec.postproc_fast:precompute_main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

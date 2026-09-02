@@ -1,5 +1,5 @@
-"""E9 production postprocess: numba CPU route (colosseum round-2
-champion, team_b, integrated verbatim in algorithm).
+"""Production postprocess: numba CPU watershed route (colosseum
+round-2 champion, team_b, integrated verbatim in algorithm).
 
 Pipeline (E13 integrated default: peak scoring + mix elevation):
   markers : caller-supplied (CenterNet decode or GT centers);
@@ -9,7 +9,7 @@ Pipeline (E13 integrated default: peak scoring + mix elevation):
             top-100 cutoff by this score, area ascending tiebreak.
   elev/rank: mix elevation (E12 winner, lambda=2): depth rank
             (numba separable sobel3 + hypot + order-preserving
-            integer rank, cached under runs/postproc_cache/val
+            integer rank, cached under the postproc rank cache
             keyed (image_id)+md5(depth), miss falls back to inline
             compute) + 2 * inline rank(sobel3(sem logit gradient)),
             then a full-image re-rank of the sum.
@@ -26,20 +26,26 @@ Pipeline (E13 integrated default: peak scoring + mix elevation):
 COCO dicts scored by marker peak (bbox convention as
 masks_to_coco_results).
 
-CLI: `python postproc_fast.py` precomputes the full-val rank cache
-(8 workers; GISEC_POSTPROC_CACHE overrides the cache root).
+The module name ``postproc_fast`` is frozen: numba cache=True
+pickles compiled kernels by module name, and the whole eval chain
+imports this name (kept from the exp09 era).
+
+CLI: ``python -m gisec.postproc_fast`` precomputes the full-val rank
+cache (8 workers; cache root from GISEC_POSTPROC_CACHE, see
+gisec.paths).
 """
 
 from __future__ import annotations
 
 import hashlib
 import os
-import sys
 from pathlib import Path
 
 import numpy as np
 import pycocotools.mask as M
 from numba import njit
+
+from gisec.paths import POSTPROC_CACHE
 
 MIN_AREA = 16
 SMALL_AREA = 32
@@ -49,10 +55,7 @@ MIX_LAMBDA = 2.0  # E12 winner: rank(depth grad) + 2*rank(sem-logit grad)
 # truncates a non-integral value; fail fast on any future retune.
 assert int(MIX_LAMBDA) == MIX_LAMBDA, f"MIX_LAMBDA must be integral: {MIX_LAMBDA}"
 
-HERE = Path(__file__).resolve().parent
-CACHE_DIR = Path(
-    os.environ.get("GISEC_POSTPROC_CACHE", str(HERE / "runs" / "postproc_cache"))
-)
+CACHE_DIR = POSTPROC_CACHE
 
 
 # ---------------------------------------------------------------- elevation
@@ -441,11 +444,10 @@ def process(image_id, coords, sem, depth, sem_logit, peaks):
 
 # ---------------------------------------------------------------- precompute
 def _pre_one(args):
-    image_id, dpath = args
-    sys.path.insert(0, str(HERE.parent / "lib"))
-    import eval_pipeline as ep
+    from gisec.datasets.coco_utils import load_depth_array
 
-    depth = ep.load_depth_array(Path(dpath))
+    image_id, dpath = args
+    depth = load_depth_array(Path(dpath))
     rank, nrank = compute_elevation_rank(depth)
     out = CACHE_DIR / "val"
     out.mkdir(parents=True, exist_ok=True)
@@ -469,8 +471,7 @@ def _pre_one(args):
 def precompute_main() -> None:
     import multiprocessing as mp
 
-    sys.path.insert(0, str(HERE.parent / "lib"))
-    from eval_scale import load_split
+    from gisec.datasets.split import load_split
 
     metas, _ = load_split("val")
     jobs = [(m["image_id"], m["dpath"]) for m in metas]

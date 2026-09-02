@@ -49,10 +49,13 @@ from gisec.datasets.coco_utils import ann_to_mask  # noqa: F401  (env import che
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-sys.path.insert(0, str(HERE.parent / "exp09_centernet_seeds"))
 
-from centernet_gt import _ann_rle  # noqa: E402
 from seam_loss import seam_edges_from_idmap  # noqa: E402
+
+from gisec.datasets.coco_utils import (  # noqa: E402
+    iter_annotations as _iter_annotations,
+)
+from gisec.targets import _ann_rle  # noqa: E402
 
 DATA = HERE.parents[2] / "datasets" / "20260318_1K_32254"
 E9 = HERE.parent / "exp09_centernet_seeds"
@@ -61,64 +64,6 @@ OUT = HERE / "gt_records"
 SIDE = 1024
 PACK = SIDE * SIDE // 8
 NPROC = 16
-CHUNK = 1 << 22  # 4 MiB streaming buffer
-
-# set by build() before the Pool forks; workers inherit via fork
-_SPLIT = ""
-_N = 0
-
-
-def _iter_annotations(path: Path):
-    """Yield annotation dicts from a COCO json without json.loads(file).
-
-    Scans to the "annotations" array (the images array in front of it
-    can exceed one chunk on the 10.6G train file), then decodes one
-    object at a time with JSONDecoder.raw_decode over a sliding text
-    buffer. Peak memory is O(buffer + one ann), not O(file).
-    """
-    dec = json.JSONDecoder()
-    with open(path, encoding="utf-8") as f:
-        buf = ""
-        while '"annotations"' not in buf:
-            more = f.read(CHUNK)
-            if not more:
-                raise AssertionError(f"{path}: 'annotations' key not found")
-            buf = more if not buf else buf[-16:] + more
-        i = buf.find('"annotations"')
-        buf = buf[i:]
-        j = buf.find("[")
-        while j == -1:
-            more = f.read(CHUNK)
-            if not more:
-                raise AssertionError(f"{path}: annotations array start not found")
-            buf = buf[-16:] + more
-            j = buf.find("[")
-        buf = buf[j + 1 :]
-        while True:
-            buf = buf.lstrip(" \t\r\n")
-            while not buf:
-                more = f.read(CHUNK)
-                if not more:
-                    return
-                buf = more.lstrip(" \t\r\n")
-            if buf[0] == "]":
-                return
-            if buf[0] == ",":
-                buf = buf[1:]
-                continue
-            while True:
-                try:
-                    obj, n = dec.raw_decode(buf)
-                    break
-                except json.JSONDecodeError:
-                    more = f.read(CHUNK)
-                    if not more:
-                        raise
-                    buf += more
-            buf = buf[n:]
-            yield obj
-
-
 _MM: dict[str, np.memmap] = {}  # per-worker lazily opened read-only memmaps
 
 

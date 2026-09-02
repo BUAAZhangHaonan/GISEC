@@ -34,7 +34,6 @@ import contextlib
 import io
 import json
 import multiprocessing as mp
-import sys
 import time
 from pathlib import Path
 
@@ -49,14 +48,11 @@ UGNN = HERE.parent
 E20 = UGNN / "exp20_band8"
 DECODE_FIX = E20 / "decode_fix"
 E9 = UGNN / "exp09_centernet_seeds"
-sys.path.insert(0, str(E9))
-sys.path.insert(0, str(UGNN / "lib"))
-sys.path.insert(0, str(HERE))
-
-import eval_centernet as ec  # noqa: E402
-import eval_pipeline as ep  # noqa: E402
-import postproc_fast as pf  # noqa: E402
-from eval_scale import gt_centers, seed_precision  # noqa: E402
+from gisec import decode, inference  # noqa: E402
+from gisec import postproc_fast as pf  # noqa: E402
+from gisec.datasets.coco_utils import load_depth_array  # noqa: E402
+from gisec.datasets.split import DATA  # noqa: E402
+from gisec.eval.diagnostics import gt_centers, seed_precision  # noqa: E402
 
 FWD_META = DECODE_FIX / "_cache_fwd" / "metas.json"
 ANN = (
@@ -70,17 +66,47 @@ THRS = [0.8, 0.9, 0.95, 0.97, 0.98, 0.99, 0.995]
 N_IMG = 500
 HIST_SWEEP = DECODE_FIX / "sweep_decode.json"
 ALIGN_TOL = 5e-6
-SNAP_TAGS = ['k08', 'k16', 'k24', 'k32', 'k40', 'k48', 'k56', 'k64', 'k72', 'k80', 'k88', 'k96', 'k104', 'k112', 'k120', 'k128']
-EMA_TAGS = ['ep70', 'ep71', 'ep72', 'ep73', 'ep74', 'ep75', 'ep76', 'ep77', 'ep78', 'ep79']
+SNAP_TAGS = [
+    "k08",
+    "k16",
+    "k24",
+    "k32",
+    "k40",
+    "k48",
+    "k56",
+    "k64",
+    "k72",
+    "k80",
+    "k88",
+    "k96",
+    "k104",
+    "k112",
+    "k120",
+    "k128",
+]
+EMA_TAGS = [
+    "ep70",
+    "ep71",
+    "ep72",
+    "ep73",
+    "ep74",
+    "ep75",
+    "ep76",
+    "ep77",
+    "ep78",
+    "ep79",
+]
 CAND_TAGS = [*SNAP_TAGS, *EMA_TAGS]
 TAGS = ["e24", *CAND_TAGS]
 RUNS128K = HERE / "runs_128k_b16"
+
 
 def _ckpt_path(t):
     if t.startswith("k"):
         step = int(t[1:]) * 1000
         return RUNS128K / f"snap_{step:07d}.pth"
     return RUNS128K / f"ema_{t}.pth"
+
 
 CKPT = {t: _ckpt_path(t) for t in CAND_TAGS}
 FWD = {
@@ -92,10 +118,10 @@ FWD = {
 # ---------------------------------------------------------------- stage A
 @torch.no_grad()
 def stage_a(tags: list[str]) -> None:
-    ec.load_rgb_index()
-    ec._gpu_divisors()
-    from eval_scale import load_split
-    from train_projanchor import SeedNet
+    inference.load_rgb_index()
+    inference._gpu_divisors()
+    from gisec.datasets.split import load_split
+    from gisec.model import SeedNet
 
     metas_all, _ = load_split("val")
     metas = metas_all[:N_IMG]
@@ -118,9 +144,9 @@ def stage_a(tags: list[str]) -> None:
             npz = FWD[tag] / f"{meta['image_id']}.npz"
             if npz.exists():
                 continue
-            img = ec.load_rgb_cached(meta)
-            depth = ep.load_depth_array(Path(meta["dpath"]))
-            sem_logit, hm, off = ec._forward(model, img, depth)
+            img = inference.load_rgb_cached(meta)
+            depth = load_depth_array(Path(meta["dpath"]))
+            sem_logit, hm, off = inference._forward(model, img, depth)
             np.savez_compressed(
                 npz,
                 sem_logit=sem_logit,
@@ -137,8 +163,8 @@ def stage_a(tags: list[str]) -> None:
 def _one_image(payload):
     tag, image_id, thr = payload
     z = np.load(FWD[tag] / f"{image_id}.npz")
-    coords, cells = ec._cn_markers_with_cells(z["hm"], z["off"], decode="legacy")
-    peaks = ec._marker_peaks(z["hm"], coords, cells)
+    coords, cells = decode._cn_markers_with_cells(z["hm"], z["off"], decode="legacy")
+    peaks = decode._marker_peaks(z["hm"], coords, cells)
     sem = (1.0 / (1.0 + np.exp(-z["sem_logit"])) > thr).astype(np.uint8)
     _, results = pf.process(image_id, coords, sem, z["depth"], z["sem_logit"], peaks)
     return tag, thr, results
@@ -161,17 +187,17 @@ def _score(coco_gt, coco_dt, img_ids):
 
 
 def _seed_pairs(metas, tag):
-    from eval_pipeline import LiteCOCO, ann_to_mask
-    from eval_scale import load_split
+    from gisec.datasets.coco_utils import LiteCOCO, ann_to_mask
+    from gisec.datasets.split import load_split
 
-    coco = LiteCOCO(ep.DATA / "annotations" / "instances_val.json")
+    coco = LiteCOCO(DATA / "annotations" / "instances_val.json")
     full, _ = load_split("val")
     by_id = {m["image_id"]: m for m in full[: len(metas)]}
     pairs = []
     for meta in metas:
         f = by_id[meta["image_id"]]
         z = np.load(FWD[tag] / f"{meta['image_id']}.npz")
-        coords = ec._cn_markers(z["hm"], z["off"], decode="legacy")
+        coords = decode._cn_markers(z["hm"], z["off"], decode="legacy")
         gt_insts = [
             ann_to_mask(a, f["height"], f["width"]) for a in coco.loadAnns(f["ann_ids"])
         ]

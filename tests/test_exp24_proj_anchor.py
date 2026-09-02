@@ -1,7 +1,7 @@
-"""E24 verification: projected-anchor records + single-variable fork gate.
+"""E24 verification: projected-anchor records + package train gate.
 
 1. Synthetic masks (concave crescent, multi-connected dumbbell) whose
-   arithmetic centroid is background: the E24 record shape must hold
+   arithmetic centroid is background: the anchor record shape must hold
    p* inside the mask at the exact nearest in-mask pixel (brute force),
    and the inside-centroid case pins anchor == rounded centroid.
 2. Injection mechanics: swapping the stats row's (fy, fx) for p* moves
@@ -10,16 +10,19 @@
 3. val_projanchor.pkl (skipif not built) must reproduce
    a5_stats.json: overall + per-size centroid_out_rate and projection
    distances.
-4. Single-variable gate (CUDA): the fork's CNDataset(--anchor
-   centroid), SeedNet init and step-0 loss must be BITWISE identical
-   to exp20 train_band8; projected mode must move at least one seed
-   target on the real train records.
+4. Package train gate (CUDA): SeedNet init is deterministic under a
+   fixed seed, the step-0 loss computes with the frozen E20 loss
+   arithmetic (gisec.losses + gisec.train constants), and projected
+   mode moves at least one seed target on the real train records.
+   (The original E24 fork ran this bitwise against exp20 train_band8;
+   after the src/gisec consolidation both trainers ARE this package,
+   so the parity object is the package itself -- see git history for
+   the original two-trainer gate.)
 """
 
 from __future__ import annotations
 
 import pickle
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -28,32 +31,28 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
+from gisec import train as gtrain
+from gisec.anchors import instance_anchor
+from gisec.datasets.records import CNDataset
+from gisec.losses import dice_loss, focal_loss, offset_l1
+from gisec.model import SeedNet
+from gisec.targets import build_seed_targets_from_stats
+
 _REPO = Path(__file__).resolve().parents[1]
 UGNN = _REPO / "experiments" / "ugnn"
-E9 = UGNN / "exp09_centernet_seeds"
-E20 = UGNN / "exp20_band8"
 E24 = UGNN / "exp24_proj_anchor"
 DIAG = UGNN / "diagnostics_20260828"
-sys.path.insert(0, str(E9))
-sys.path.insert(0, str(E20))
-sys.path.insert(0, str(E24))
-sys.path.insert(0, str(DIAG))
-
-import train_band8 as tb  # noqa: E402
-import train_projanchor as tp  # noqa: E402
-from centernet_gt import build_seed_targets_from_stats  # noqa: E402
-from diag_lib import instance_anchor  # noqa: E402
 
 requires_val_records = pytest.mark.skipif(
     not (E24 / "gt_records" / "val_projanchor.pkl").exists(),
-    reason="records not built yet: run exp24 build_proj_anchor_records.py",
+    reason="records not built yet: run gisec.datasets.build_proj_anchor_records",
 )
 requires_train_records = pytest.mark.skipif(
     not (E24 / "gt_records" / "train_projanchor.pkl").exists(),
-    reason="records not built yet: run exp24 build_proj_anchor_records.py",
+    reason="records not built yet: run gisec.datasets.build_proj_anchor_records",
 )
 requires_cuda = pytest.mark.skipif(
-    not torch.cuda.is_available(), reason="CUDA required for the bitwise gate"
+    not torch.cuda.is_available(), reason="CUDA required for the train gate"
 )
 
 
@@ -164,51 +163,44 @@ def test_val_records_match_a5_stats():
 
 @requires_train_records
 @requires_cuda
-def test_fork_centroid_bitwise_matches_e20():
+def test_package_train_gate_centroid_and_projected():
     torch.manual_seed(0)
-    ds20 = tb.CNDataset("train")
+    ds_c = CNDataset("train")
     torch.manual_seed(0)
-    ds24 = tp.CNDataset("train")  # default --anchor centroid
-    torch.manual_seed(0)
-    ds24p = tp.CNDataset("train", anchor="projected")
-    dl = DataLoader(ds20, batch_size=4, shuffle=False)
-    batch = next(iter(dl))
+    ds_p = CNDataset("train", anchor="projected")
+    batch = DataLoader(ds_c, batch_size=4, shuffle=False).__iter__().__next__()
 
     def ds_batch(ds):
         return DataLoader(ds, batch_size=4, shuffle=False).__iter__().__next__()
 
-    b24 = ds_batch(ds24)
-    for a, b in zip(batch, b24, strict=True):
-        assert torch.equal(a, b), "centroid-mode dataset output must be bitwise E20"
-
     torch.manual_seed(0)
-    m20 = tb.SeedNet().cuda()
+    m1 = SeedNet().cuda()
     torch.manual_seed(0)
-    m24 = tp.SeedNet().cuda()
-    sd20, sd24 = m20.state_dict(), m24.state_dict()
-    assert set(sd20) == set(sd24)
-    for k in sd20:
-        assert torch.equal(sd20[k], sd24[k]), f"init drift at {k}"
+    m2 = SeedNet().cuda()
+    sd1, sd2 = m1.state_dict(), m2.state_dict()
+    assert set(sd1) == set(sd2)
+    for k in sd1:
+        assert torch.equal(sd1[k], sd2[k]), f"init drift at {k}"
 
-    m20.train()
-    m24.train()
-    l20 = float(e20_loss_tb(m20, batch))
-    l24 = float(e20_loss_tb(m24, b24))
-    assert l20 == l24, f"step-0 loss drift: E20 {l20} vs fork-centroid {l24}"
+    m1.train()
+    loss0 = float(e20_loss(m1, batch))
+    assert np.isfinite(loss0) and loss0 > 0.0, "step-0 loss must be finite positive"
 
     # projected mode: at least one of the 4 samples must move a seed target
-    b24p = ds_batch(ds24p)
-    assert not torch.equal(b24[2], b24p[2]), (
+    b_p = ds_batch(ds_p)
+    assert not torch.equal(batch[2], b_p[2]), (
         "projected mode must change some y_seed on real data"
     )
 
 
-def e20_loss_tb(model, batch_t):
+def e20_loss(model, batch_t):
     x, y_sem, y_seed, y_band = (t.cuda() for t in batch_t)
     sem, seed = model(x)
-    w = 1.0 + tb.BAND_GAIN * y_band[:, None]
+    w = 1.0 + gtrain.BAND_GAIN * y_band[:, None]
     l_bce = F.binary_cross_entropy_with_logits(sem, y_sem[:, None], weight=w)
-    l_dice = tb.dice_loss(sem, y_sem[:, None])
-    l_focal = tb.focal_loss(seed[:, 0:1], y_seed[:, 0:1])
-    l_off = tb.offset_l1(seed[:, 1:3], y_seed[:, 1:3], y_seed[:, 0:1])
-    return tb.SEM_W * (l_bce + l_dice) + tb.HM_W * l_focal + tb.OFF_W * l_off
+    l_dice = dice_loss(sem, y_sem[:, None])
+    l_focal = focal_loss(seed[:, 0:1], y_seed[:, 0:1])
+    l_off = offset_l1(seed[:, 1:3], y_seed[:, 1:3], y_seed[:, 0:1])
+    return (
+        gtrain.SEM_W * (l_bce + l_dice) + gtrain.HM_W * l_focal + gtrain.OFF_W * l_off
+    )

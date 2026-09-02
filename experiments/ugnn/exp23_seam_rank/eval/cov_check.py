@@ -8,18 +8,13 @@ from __future__ import annotations
 
 import json
 import multiprocessing as mp
-import sys
 from pathlib import Path
 
 import numpy as np
 
 HERE = Path(__file__).resolve().parents[1]
 UGNN = HERE.parent
-sys.path.insert(0, str(UGNN / "exp09_centernet_seeds"))
-sys.path.insert(0, str(UGNN / "lib"))
-
-import eval_pipeline as ep  # noqa: E402
-from eval_scale import load_split  # noqa: E402
+from gisec.datasets.split import DATA, load_split  # noqa: E402
 
 FWD = UGNN / "exp20_band8" / "decode_fix" / "_cache_fwd" / "val"
 THR = 0.95
@@ -30,7 +25,7 @@ G_COCO = None
 
 
 def _cov_one(image_id):
-    from eval_pipeline import ann_to_mask
+    from gisec.datasets.coco_utils import ann_to_mask
 
     f = G_BY_ID[image_id]
     z = np.load(FWD / f"{image_id}.npz")
@@ -46,11 +41,11 @@ def _cov_one(image_id):
 
 
 if __name__ == "__main__":
-    from eval_pipeline import LiteCOCO
+    from gisec.datasets.coco_utils import LiteCOCO
 
     metas, _ = load_split("val")
     G_BY_ID.update({m["image_id"]: m for m in metas})
-    globals()["G_COCO"] = LiteCOCO(ep.DATA / "annotations" / "instances_val.json")
+    globals()["G_COCO"] = LiteCOCO(DATA / "annotations" / "instances_val.json")
     seam = json.loads(SEAM_STATS.read_text())["per_image"]
     contact_set = {r["img_id"] for r in seam if r["seam_h"] + r["seam_v"] > 0}
     cov, cov_c = [], []

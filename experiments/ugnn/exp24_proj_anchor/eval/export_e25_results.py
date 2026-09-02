@@ -7,9 +7,15 @@ the canonical 0.87350 +- 5e-4; on mismatch the output is NOT written.
 
 Output: exp24_proj_anchor/eval/e25_fullval_results.json
 """
+
 from __future__ import annotations
-import contextlib, io, json, multiprocessing as mp, sys
+
+import contextlib
+import io
+import json
+import multiprocessing as mp
 from pathlib import Path
+
 import numpy as np
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
@@ -17,13 +23,17 @@ from pycocotools.cocoeval import COCOeval
 HERE = Path(__file__).resolve().parents[1]
 EVAL = HERE / "eval"
 UGNN = HERE.parent
-sys.path.insert(0, str(UGNN / "exp09_centernet_seeds"))
-sys.path.insert(0, str(UGNN / "lib"))
-import eval_centernet as ec  # noqa: E402
-import postproc_fast as pf  # noqa: E402
-from eval_scale import load_split  # noqa: E402
+from gisec import decode  # noqa: E402
+from gisec import postproc_fast as pf  # noqa: E402
+from gisec.datasets.split import load_split  # noqa: E402
 
-ANN = UGNN.parents[1] / "datasets" / "20260318_1K_32254" / "annotations" / "instances_val.json"
+ANN = (
+    UGNN.parents[1]
+    / "datasets"
+    / "20260318_1K_32254"
+    / "annotations"
+    / "instances_val.json"
+)
 FWD = HERE / "_cache_fwd128k" / "ep77"
 THR = 0.95
 CANONICAL_AP = 0.87350
@@ -34,8 +44,8 @@ OUT = EVAL / "e25_fullval_results.json"
 def _one(meta):
     image_id = meta["image_id"]
     z = np.load(FWD / f"{image_id}.npz")
-    coords, cells = ec._cn_markers_with_cells(z["hm"], z["off"], decode="legacy")
-    peaks = ec._marker_peaks(z["hm"], coords, cells)
+    coords, cells = decode._cn_markers_with_cells(z["hm"], z["off"], decode="legacy")
+    peaks = decode._marker_peaks(z["hm"], coords, cells)
     sem = (1.0 / (1.0 + np.exp(-z["sem_logit"])) > THR).astype(np.uint8)
     _, results = pf.process(image_id, coords, sem, z["depth"], z["sem_logit"], peaks)
     return results
@@ -53,7 +63,9 @@ def main() -> None:
     ev.params.imgIds = img_ids
     ev.params.maxDets = [1, 10, 100]
     with contextlib.redirect_stdout(io.StringIO()):
-        ev.evaluate(); ev.accumulate(); ev.summarize()
+        ev.evaluate()
+        ev.accumulate()
+        ev.summarize()
     ap = float(ev.stats[0])
     print(f"reproduced segm AP {ap:.7f} vs canonical {CANONICAL_AP}")
     if abs(ap - CANONICAL_AP) > GATE_TOL:

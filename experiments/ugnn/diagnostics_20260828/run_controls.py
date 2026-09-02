@@ -38,8 +38,8 @@ import numpy as np
 
 HERE = Path(__file__).resolve().parent
 
-import eval_centernet as ec  # noqa: E402
-import postproc_fast as pf  # noqa: E402
+from gisec import decode  # noqa: E402
+from gisec import postproc_fast as pf  # noqa: E402
 
 REPRO_AP = 0.84880
 REPRO_TOL = 0.0005  # decode_fix preregistered reproduction tolerance
@@ -49,7 +49,7 @@ TAGS = ("centernet", "gtcent", "projcent", "valid_anchor", "gt_support")
 def _peaks_at(hm: np.ndarray, coords: list[tuple[int, int]]) -> np.ndarray:
     """Learned heatmap score at each marker's cell (y//4, x//4) — the
     same fallback rule the full profile uses for GT-center markers."""
-    return ec._marker_peaks(hm, coords)
+    return decode._marker_peaks(hm, coords)
 
 
 def _one(meta: dict) -> dict:
@@ -65,7 +65,7 @@ def _one(meta: dict) -> dict:
     n_collisions = len(anchors) - len(set(anchors))
     ones = np.ones(len(anchors), dtype=np.float64)
 
-    cn_coords, cn_cells = ec._cn_markers_with_cells(hm, off)  # legacy decode
+    cn_coords, cn_cells = decode._cn_markers_with_cells(hm, off)  # legacy decode
 
     insts, results = {}, {}
     insts["centernet"], results["centernet"] = pf.process(
@@ -74,7 +74,7 @@ def _one(meta: dict) -> dict:
         sem,
         depth,
         sem_logit,
-        ec._marker_peaks(hm, cn_coords, cn_cells),
+        decode._marker_peaks(hm, cn_coords, cn_cells),
     )
     insts["gtcent"], results["gtcent"] = pf.process(
         image_id, centroids, sem, depth, sem_logit, _peaks_at(hm, centroids)

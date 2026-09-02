@@ -77,3 +77,60 @@ class LiteCOCO:
 
     def loadAnns(self, ann_ids: list[int]) -> list[dict[str, Any]]:
         return [self._annotations[int(ann_id)] for ann_id in ann_ids]
+
+
+_ITER_CHUNK = 1 << 22  # 4 MiB streaming buffer
+
+
+def iter_annotations(path: Path, chunk: int = _ITER_CHUNK):
+    """Yield annotation dicts from a COCO json without json.loads(file).
+
+    Scans to the "annotations" array (the images array in front of it
+    can exceed one chunk on the 10.6G train file), then decodes one
+    object at a time with JSONDecoder.raw_decode over a sliding text
+    buffer. Peak memory is O(buffer + one ann), not O(file).
+
+    Verbatim from exp23 build_seam_records._iter_annotations
+    (proven on the 10.6G train annotation file).
+    """
+    dec = json.JSONDecoder()
+    with open(path, encoding="utf-8") as f:
+        buf = ""
+        while '"annotations"' not in buf:
+            more = f.read(chunk)
+            if not more:
+                raise AssertionError(f"{path}: 'annotations' key not found")
+            buf = more if not buf else buf[-16:] + more
+        i = buf.find('"annotations"')
+        buf = buf[i:]
+        j = buf.find("[")
+        while j == -1:
+            more = f.read(chunk)
+            if not more:
+                raise AssertionError(f"{path}: annotations array start not found")
+            buf = buf[-16:] + more
+            j = buf.find("[")
+        buf = buf[j + 1 :]
+        while True:
+            buf = buf.lstrip(" \t\r\n")
+            while not buf:
+                more = f.read(chunk)
+                if not more:
+                    return
+                buf = more.lstrip(" \t\r\n")
+            if buf[0] == "]":
+                return
+            if buf[0] == ",":
+                buf = buf[1:]
+                continue
+            while True:
+                try:
+                    obj, n = dec.raw_decode(buf)
+                    break
+                except json.JSONDecodeError:
+                    more = f.read(chunk)
+                    if not more:
+                        raise
+                    buf += more
+            buf = buf[n:]
+            yield obj

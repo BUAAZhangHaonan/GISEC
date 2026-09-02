@@ -1,32 +1,35 @@
-"""E9 GT builder: sub-pixel centroids -> size-adaptive-sigma
-CenterNet heatmap (stride 4) + offset targets.
+"""CenterNet seed targets: sub-pixel anchors -> size-adaptive-sigma
+heatmap (stride 4) + offset maps.
 
-Adapted from heatmap_colosseum/team_c/solution.py (the judge's
-winning impl, ARENA.md integration rec). One functional change: the
+Provenance: E9 builder adapted from heatmap_colosseum/team_c
+(the judge's winning impl). One functional change vs team_c: the
 fused numba kernel returns the raw integer sums (sy, sx, n) instead
 of rounding to an integer centroid, so the caller gets the exact
-sub-pixel centroid (sy/n, sx/n) AND the mask area n. Stamping moves
-to a separate pass over a bucketed-kernel bank because sigma now
-varies per instance (E8 diagnosis: fixed sigma=4 at 1024 gives a
-median seed error of 46 px / 6.7% <8 px).
+sub-pixel centroid (sy/n, sx/n) AND the mask area n. Stamping moved
+to a separate pass over a bucketed-kernel bank because sigma varies
+per instance (E8 diagnosis: fixed sigma=4 at 1024 gives a median
+seed error of 46 px / 6.7% <8 px).
 
-Kept as a top-level module with a stable name: numba cache=True
-pickles the defining module by name (judge caveat, ARENA.md sec 4).
+The E16 centroid-flow target builders (judged negative) were not
+carried into the package; they remain in git history under
+experiments/ugnn/exp09_centernet_seeds/centernet_gt.py.
 
 Sigma derivation (stride-4 coordinates):
   An instance with mask area A (in 1024-px units) occupies A/16
   stride-4 cells. Treating it as a disc of radius r in stride-4
   units, A/16 = pi*r^2 -> r = sqrt(A)/(4*sqrt(pi)). The CenterNet
-  recipe puts the Gaussian at ~r/3 (Objects as Points uses
-  R/3 for the display kernel; the standard adaptive choice for
-  training is sigma = sqrt(area)/3 in output-grid units), so in
-  stride-4 units:
+  recipe puts the Gaussian at ~r/3, so in stride-4 units:
 
       sigma_i = clamp(sqrt(A/16)/3, 2, 8) = clamp(sqrt(A)/12, 2, 8)
 
   Floor 2 (8 px at 1024) keeps tiny parts from collapsing to a
   single-cell plateau that 3x3 peak NMS cannot separate; cap 8
   (32 px at 1024) stops one huge part from swallowing neighbors.
+
+Numba kernels use cache=True: the compiled artifacts land in this
+module's __pycache__ and rebuild automatically after relocation;
+results are deterministic across recompiles (CRC-verified during
+the C1/C2 repair wave).
 """
 
 from __future__ import annotations
@@ -235,101 +238,3 @@ def build_seed_targets(anns, img_shape=(1024, 1024)):
             _BANK,
         )
     return hm, off
-
-
-# --- E16: Cellpose-style 2-channel centroid flow ground truth ---------------
-#
-# E15 forensics: missed parts are dense same-depth contacts welded into one
-# sem blob (self coverage 0.998, local precision 0.35). Union supervision has
-# no instance identity; a Cellpose centroid-flow field gives every pixel
-# inside (or 2 px around) an instance a unit vector pointing at that
-# instance's centroid, so flows on opposite sides of a seam point in opposite
-# directions — the separability signal watershed needs.
-#
-# Conventions (Cellpose): flow is (2, H, W) float32 = (dy, dx), unit length
-# inside the dilated instance support, exactly 0 in background. Two-pass
-# stamping: instance interiors first, then the 2 px dilation rings, both
-# first-come (the Cellpose approximation for overlapping dilations).
-
-from scipy.ndimage import binary_dilation  # noqa: E402
-
-_FLOW_DIL_ITERS = 2  # 3x3 dilation x2 ~= 2 px ring
-
-
-def build_instance_idmap(masks, side=1024):
-    """Per-pixel instance id map (uint16, 0 = background).
-
-    masks: list of (side, side) bool arrays, one per instance, in
-    annotation order. Pass 1 stamps every interior (own mask wins over
-    any earlier dilation ring), pass 2 stamps the 3x3-dilated support of
-    each instance into still-free pixels (first-come on ring overlaps).
-    """
-    id_map = np.zeros((side, side), dtype=np.uint16)
-    for i, m in enumerate(masks):
-        m = m.astype(bool)
-        id_map[m & (id_map == 0)] = i + 1
-    struct = np.ones((3, 3), dtype=bool)
-    for i, m in enumerate(masks):
-        m = m.astype(bool)
-        dil = binary_dilation(m, structure=struct, iterations=_FLOW_DIL_ITERS)
-        id_map[dil & (id_map == 0)] = i + 1
-    return id_map
-
-
-def downsample_idmap(id_map, side=1024):
-    """1024-res id map -> stride-4 id map (block majority vote).
-
-    Majority, not max: a block straddling a seam contains pixels of
-    both instances and max() would hand the cell to whichever instance
-    has the larger index — mislabeling the seam cells with the
-    neighbour's flow. Majority keeps each seam cell with its dominant
-    owner, so the two cells flanking a seam point at different
-    centroids (the separability signal). Ties go to the lower id.
-    """
-    s4 = side // STRIDE
-    blocks = id_map.reshape(s4, 4, s4, 4).transpose(0, 2, 1, 3).reshape(s4, s4, 16)
-    n_inst = int(id_map.max())
-    assert n_inst < 65535
-    out = np.zeros((s4, s4), dtype=np.uint16)
-    best_cnt = np.zeros((s4, s4), dtype=np.int32)
-    for i in range(1, n_inst + 1):
-        cnt = (blocks == i).sum(axis=2, dtype=np.int32)
-        upd = cnt > best_cnt
-        out[upd] = i
-        best_cnt[upd] = cnt[upd]
-    return out
-
-
-def flow_from_idmap4(ids4, stats):
-    """Unit centroid-flow at stride 4 from a stride-4 id map + stats.
-
-    ids4: (H4, W4) uint16 instance ids. stats: (M, 3) (fy, fx, n)
-    pixel-coordinate centroids, row i <-> id i+1. Returns
-    (2, H4, W4) float32 (dy, dx); unit vectors on covered cells, 0 else.
-    """
-    flow = np.zeros((2, ids4.shape[0], ids4.shape[1]), dtype=np.float32)
-    ys, xs = np.nonzero(ids4)
-    if ys.size == 0:
-        return flow
-    st = np.asarray(stats, dtype=np.float64).reshape(-1, 3)[ids4[ys, xs] - 1]
-    cy = st[:, 0] / STRIDE
-    cx = st[:, 1] / STRIDE
-    dy = cy - ys
-    dx = cx - xs
-    norm = np.sqrt(dy * dy + dx * dx)
-    norm[norm == 0] = 1.0  # centroid pixel itself: keep 0-length flow
-    flow[0, ys, xs] = (dy / norm).astype(np.float32)
-    flow[1, ys, xs] = (dx / norm).astype(np.float32)
-    return flow
-
-
-def flow_from_idmap(id_map, stats, side=1024):
-    """(2, side//4, side//4) flow from a 1024-res id map (downsamples)."""
-    return flow_from_idmap4(downsample_idmap(id_map, side), stats)
-
-
-def build_flow_targets(masks, stats, side=1024):
-    """E16 entry point: masks + stats -> (2, side//4, side//4) flow GT."""
-    return flow_from_idmap4(
-        downsample_idmap(build_instance_idmap(masks, side), side), stats
-    )

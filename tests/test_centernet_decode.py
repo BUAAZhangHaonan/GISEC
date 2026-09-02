@@ -12,18 +12,13 @@ the reproduction gate relies on.
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-_REPO = Path(__file__).resolve().parents[1]
-E9 = _REPO / "experiments" / "ugnn" / "exp09_centernet_seeds"
-sys.path.insert(0, str(E9))
-
-import eval_centernet as ec  # noqa: E402
-import postproc_fast as pf  # noqa: E402
+from gisec import decode as ec
+from gisec import postproc_fast as pf
 
 
 def _single_peak_maps(cy: int, cx: int, oy: float, ox: float):

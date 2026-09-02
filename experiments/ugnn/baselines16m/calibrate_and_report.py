@@ -63,7 +63,7 @@ import torch.nn.functional as F
 HERE = Path(__file__).resolve().parent
 UGNN = HERE.parent
 REPO = UGNN.parents[1]
-for _p in (HERE, UGNN / "lib", REPO / "src"):
+for _p in (HERE, REPO / "src"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
@@ -78,8 +78,13 @@ from common import (  # noqa: E402
 )
 from eval import foreground_keep, masks_to_rle  # noqa: E402
 from pycocotools.coco import COCO  # noqa: E402
-from scene_boot import ApWeighted, SceneResampler, paired_scene_bootstrap  # noqa: E402
 from torch.utils.data import DataLoader  # noqa: E402
+
+from gisec.eval.scene_boot import (  # noqa: E402
+    ApWeighted,
+    SceneResampler,
+    paired_scene_bootstrap,
+)
 
 FROZEN_METAS = UGNN / "exp20_band8" / "decode_fix" / "_cache_fwd" / "metas.json"
 DEFAULT_EPOCHS = tuple(range(10, 20))

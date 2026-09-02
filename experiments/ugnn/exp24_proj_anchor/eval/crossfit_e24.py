@@ -33,7 +33,6 @@ import contextlib
 import io
 import json
 import multiprocessing as mp
-import sys
 import time
 from pathlib import Path
 
@@ -47,13 +46,14 @@ UGNN = HERE.parent
 E20 = UGNN / "exp20_band8"
 DECODE_FIX = E20 / "decode_fix"
 E9 = UGNN / "exp09_centernet_seeds"
-sys.path.insert(0, str(E9))
-sys.path.insert(0, str(UGNN / "lib"))
-
-import eval_centernet as ec  # noqa: E402
-import postproc_fast as pf  # noqa: E402
-from eval_scale import scene_key  # noqa: E402
-from scene_boot import ApWeighted, SceneResampler, cross_fit_threshold  # noqa: E402
+from gisec import decode  # noqa: E402
+from gisec import postproc_fast as pf  # noqa: E402
+from gisec.eval.diagnostics import scene_key  # noqa: E402
+from gisec.eval.scene_boot import (  # noqa: E402
+    ApWeighted,
+    SceneResampler,
+    cross_fit_threshold,
+)
 
 FWD_META = DECODE_FIX / "_cache_fwd" / "metas.json"
 ANN = (
@@ -80,8 +80,8 @@ ALIGN_TOL = 5e-6
 def _one_image(payload):
     tag, image_id, thr = payload
     z = np.load(FWD[tag] / f"{image_id}.npz")
-    coords, cells = ec._cn_markers_with_cells(z["hm"], z["off"], decode="legacy")
-    peaks = ec._marker_peaks(z["hm"], coords, cells)
+    coords, cells = decode._cn_markers_with_cells(z["hm"], z["off"], decode="legacy")
+    peaks = decode._marker_peaks(z["hm"], coords, cells)
     sem = (1.0 / (1.0 + np.exp(-z["sem_logit"])) > thr).astype(np.uint8)
     _, results = pf.process(image_id, coords, sem, z["depth"], z["sem_logit"], peaks)
     return tag, thr, results

@@ -1,14 +1,14 @@
-"""E9b: one-shot precompute of compact per-image GT records.
+"""One-shot precompute of the compact per-image GT records (E9b).
 
 Root cause of the train2 memory growth: persistent workers touch the
 ~24G annotation dict on every sample (LiteCOCO.loadAnns refcount
 writes break COW -> each worker privatizes pages -> anon 47.5G at
-ep1 -> 130G at ep7, no plateau). This script replaces the in-worker
-LiteCOCO path with three compact per-split artifacts under
-gt_records/ (built once, before any fork):
+ep1 -> 130G at ep7, no plateau). This builder replaces the in-worker
+LiteCOCO path with three compact per-split artifacts under the GT
+records dir (built once, before any fork):
 
   {split}_items.pkl  list[(img_id, file_name)] depth-filtered,
-                     sorted by img_id (== old CNDataset.ids order)
+                     sorted by img_id (== CNDataset.ids order)
   {split}_stats.pkl  (ids (N,) i64, offsets (N+1,) i64, flat (M,3)
                      f64) where flat rows are exact (fy, fx, n)
                      sub-pixel centroid sums from the numba RLE
@@ -16,13 +16,13 @@ gt_records/ (built once, before any fork):
                      image ids[i]
   {split}_sem.dat    uint8 memmap (N, 1024*1024//8), packbits of
                      the union semantic mask (annotation
-                     rasterization done once here, never in a
-                     worker)
+                     rasterization done once here, never in a worker)
 
 Self-check: 20 random images per split, old LiteCOCO path vs the
 records, heatmap/offset/semantic GT bitwise identical.
 
-Run inside the repo env:  python build_gt_records.py
+Run: ``python -m gisec.datasets.build_gt_records`` (CPU-heavy, use
+the MemoryMax/CPUQuota systemd wrapper for the formal pass).
 """
 
 from __future__ import annotations
@@ -30,7 +30,6 @@ from __future__ import annotations
 import json
 import pickle
 import random
-import sys
 import time
 from pathlib import Path
 
@@ -38,17 +37,14 @@ import numpy as np
 from pycocotools import mask as mask_utils
 
 from gisec.datasets.coco_utils import ann_to_mask
-
-HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
-from centernet_gt import (  # noqa: E402
+from gisec.paths import DATA_ROOT, GT_RECORDS
+from gisec.targets import (
     _ann_rle,
     _rle_stats,
     build_seed_targets,
     build_seed_targets_from_stats,
 )
 
-DATA = HERE.parents[2] / "datasets" / "20260318_1K_32254"
 SIDE = 1024
 PACK = SIDE * SIDE // 8
 
@@ -69,13 +65,15 @@ def _old_path_gt(img_anns, h, w):
 def build(split: str, out: Path, n_check: int = 20) -> None:
     t0 = time.time()
     payload = json.loads(
-        (DATA / "annotations" / f"instances_{split}.json").read_text(encoding="utf-8")
+        (DATA_ROOT / "annotations" / f"instances_{split}.json").read_text(
+            encoding="utf-8"
+        )
     )
     print(f"[{split}] parsed json in {time.time() - t0:.0f}s", flush=True)
     by_img: dict[int, list] = {}
     for ann in payload["annotations"]:  # payload order == LiteCOCO
         by_img.setdefault(int(ann["image_id"]), []).append(ann)
-    depth_dir = DATA / "depth" / "depth_npy" / split
+    depth_dir = DATA_ROOT / "depth" / "depth_npy" / split
 
     images = sorted(payload["images"], key=lambda i: int(i["id"]))
     items: list[tuple[int, str]] = []
@@ -168,7 +166,9 @@ def verify(split: str, out: Path, n: int = 20) -> None:
     """Independent re-check: rebuild old-path GT from the raw json
     for n random images and compare against the saved records."""
     payload = json.loads(
-        (DATA / "annotations" / f"instances_{split}.json").read_text(encoding="utf-8")
+        (DATA_ROOT / "annotations" / f"instances_{split}.json").read_text(
+            encoding="utf-8"
+        )
     )
     by_img = {}
     for ann in payload["annotations"]:
@@ -190,10 +190,14 @@ def verify(split: str, out: Path, n: int = 20) -> None:
     print(f"[{split}] verify: {n} imgs bitwise-identical", flush=True)
 
 
-if __name__ == "__main__":
-    out = HERE / "gt_records"
-    out.mkdir(exist_ok=True)
+def main() -> None:
+    out = GT_RECORDS
+    out.mkdir(parents=True, exist_ok=True)
     for split in ("val", "train"):
         if not (out / f"{split}_items.pkl").exists():
             build(split, out)
         verify(split, out)
+
+
+if __name__ == "__main__":
+    main()

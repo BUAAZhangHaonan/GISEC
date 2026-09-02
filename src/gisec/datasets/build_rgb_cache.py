@@ -1,9 +1,14 @@
-"""Pre-decode the val RGB PNGs into a u8 npy cache for eval_centernet.
+"""Pre-decode the val RGB PNGs into a u8 npy cache for evaluation.
 
-One file per image under cache_rgb/val/, keyed image_id (~3 MB each,
-~10 GB for 3276 images). index.json records the source PNG path +
-md5; the loader verifies md5 and falls back to live decode on
-mismatch (data-integrity check, not a compatibility shim).
+One file per image under ``<rgb cache>/val/``, keyed image_id
+(~3 MB each, ~10 GB for 3276 images). index.json records the source
+PNG path + md5; the loader (gisec.inference.load_rgb_cached)
+verifies md5 and falls back to live decode on mismatch
+(data-integrity check, not a compatibility shim).
+
+Cache root: GISEC_RGB_CACHE (see gisec.paths).
+
+Run: ``python -m gisec.datasets.build_rgb_cache``
 """
 
 from __future__ import annotations
@@ -11,21 +16,16 @@ from __future__ import annotations
 import hashlib
 import json
 import multiprocessing as mp
-import sys
 import time
 from pathlib import Path
 
+import cv2
 import numpy as np
 
-HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent / "lib"))
-sys.path.insert(0, str(HERE))
+from gisec.datasets.split import DATA, load_split
+from gisec.paths import RGB_CACHE
 
-import eval_pipeline as ep  # noqa: E402
-from eval_scale import DATA  # noqa: E402
-
-ep.DATA = DATA
-CACHE = HERE / "cache_rgb" / "val"
+CACHE = RGB_CACHE / "val"
 
 
 def _md5(path: Path) -> str:
@@ -47,15 +47,13 @@ def _build_one(item):
     entry = {"file": file_name, "md5": digest}
     if npy.exists() and OLD_INDEX.get(str(image_id)) == entry:
         return image_id, entry, True
-    img = ep.cv2.imread(str(src))
-    img = ep.cv2.cvtColor(img, ep.cv2.COLOR_BGR2RGB)
+    img = cv2.imread(str(src))
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     np.save(npy, img)
     return image_id, entry, False
 
 
 def main() -> None:
-    from eval_scale import load_split
-
     metas, _ = load_split("val")
     CACHE.mkdir(parents=True, exist_ok=True)
     idx_file = CACHE / "index.json"

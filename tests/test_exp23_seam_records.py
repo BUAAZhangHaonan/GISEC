@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 import pickle
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -24,11 +23,10 @@ _REPO = Path(__file__).resolve().parents[1]
 E9 = _REPO / "experiments" / "ugnn" / "exp09_centernet_seeds"
 E17 = _REPO / "experiments" / "ugnn" / "exp17_band_ema"
 E23 = _REPO / "experiments" / "ugnn" / "exp23_seam_rank"
-sys.path.insert(0, str(E23))
-
-from build_seam_records import _iter_annotations  # noqa: E402
-
 from gisec.datasets.coco_utils import ann_to_mask  # noqa: E402
+from gisec.datasets.coco_utils import (  # noqa: E402
+    iter_annotations as _iter_annotations,
+)
 
 DATA = _REPO / "datasets" / "20260318_1K_32254"
 SIDE = 1024

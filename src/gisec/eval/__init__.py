@@ -1,1 +1,3 @@
-"""Evaluation and export helpers for the standalone GISEC package."""
+"""Evaluation helpers: COCO scoring/export, seed diagnostics,
+multiplicity-aware scene bootstrap, and the full-val evaluator CLI
+(``python -m gisec.eval.fullval``)."""

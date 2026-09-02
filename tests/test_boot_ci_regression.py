@@ -27,7 +27,6 @@ import itertools
 import json
 import multiprocessing as mp
 import os
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -36,11 +35,7 @@ from pycocotools.coco import COCO
 
 _REPO = Path(__file__).resolve().parents[1]
 UGNN = _REPO / "experiments" / "ugnn"
-LIB = UGNN / "lib"
-E9 = UGNN / "exp09_centernet_seeds"
 DEC = UGNN / "exp20_band8" / "decode_fix"
-sys.path.insert(0, str(LIB))
-sys.path.insert(0, str(E9))
 
 FWD = DEC / "_cache_fwd" / "val"
 CANON = DEC / "boot_canonical.json"
@@ -56,7 +51,7 @@ def _have_artifacts() -> bool:
 
 # ------------------------------------------------------------ fast wiring
 def test_old_imgids_bootstrap_estimator_removed():
-    import eval_centernet as ec
+    from gisec.eval import fullval as ec
 
     assert not hasattr(ec, "scene_bootstrap_fast")
     assert not hasattr(ec, "_boot_one")
@@ -65,7 +60,7 @@ def test_old_imgids_bootstrap_estimator_removed():
 
 
 def test_new_report_defaults_to_2000_draws():
-    import eval_centernet as ec
+    from gisec.eval import fullval as ec
 
     sig = inspect.signature(ec.scene_bootstrap_ci_report)
     assert sig.parameters["n_boot"].default == 2000
@@ -73,15 +68,16 @@ def test_new_report_defaults_to_2000_draws():
     assert "scene_bootstrap_report" in inspect.getsource(ec.scene_bootstrap_ci_report)
 
 
-def test_eval_scale_scene_bootstrap_delegates_to_scene_boot():
-    import eval_scale
+def test_old_scene_bootstrap_estimator_not_in_package():
+    from gisec.eval import diagnostics
 
-    src = inspect.getsource(eval_scale.scene_bootstrap)
-    assert "scene_bootstrap_report(" in src
+    # eval_scale (with its pre-repair scene_bootstrap) is retired; the
+    # package must not grow the old estimator back under any name
+    assert not hasattr(diagnostics, "scene_bootstrap")
 
 
 def test_scene_bootstrap_report_schema_and_determinism():
-    from scene_boot import scene_bootstrap_report
+    from gisec.eval.scene_boot import scene_bootstrap_report
 
     rng = np.random.default_rng(0)
     images, gt, dt = [], [], []
@@ -147,8 +143,8 @@ def test_scene_bootstrap_report_schema_and_determinism():
 def _decode_one(meta):
     """Exact --profile full worker semantics at legacy decode, thr 0.9
     (module level: pool.map pickles the callable)."""
-    import eval_centernet as ec
-    import postproc_fast as pf
+    from gisec import decode as ec
+    from gisec import postproc_fast as pf
 
     z = np.load(FWD / f"{meta['image_id']}.npz")
     coords, cells = ec._cn_markers_with_cells(z["hm"], z["off"], decode="legacy")
@@ -166,8 +162,8 @@ def _decode_one(meta):
 )
 @pytest.mark.skipif(not _have_artifacts(), reason="decode_fix cache/canonical missing")
 def test_profile_full_ci_reproduces_boot_canonical():
-    import eval_centernet as ec
-    from eval_scale import load_split
+    from gisec.datasets.split import load_split
+    from gisec.eval import fullval as ec
 
     ref = json.loads(CANON.read_text())
     metas, _ = load_split("val")

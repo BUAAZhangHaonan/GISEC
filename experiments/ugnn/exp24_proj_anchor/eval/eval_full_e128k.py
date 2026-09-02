@@ -32,7 +32,6 @@ import io
 import json
 import multiprocessing as mp
 import pickle
-import sys
 import time
 from pathlib import Path
 
@@ -47,15 +46,16 @@ UGNN = HERE.parent
 E20 = UGNN / "exp20_band8"
 DECODE_FIX = E20 / "decode_fix"
 E9 = UGNN / "exp09_centernet_seeds"
-sys.path.insert(0, str(E9))
-sys.path.insert(0, str(UGNN / "lib"))
-sys.path.insert(0, str(HERE))
-
-import eval_centernet as ec  # noqa: E402
-import eval_pipeline as ep  # noqa: E402
-import postproc_fast as pf  # noqa: E402
-from eval_scale import gt_centers, load_split, scene_key, seed_precision  # noqa: E402
-from scene_boot import ApWeighted, SceneResampler, paired_scene_bootstrap  # noqa: E402
+from gisec import decode, inference  # noqa: E402
+from gisec import postproc_fast as pf  # noqa: E402
+from gisec.datasets.coco_utils import load_depth_array  # noqa: E402
+from gisec.datasets.split import DATA, load_split  # noqa: E402
+from gisec.eval.diagnostics import gt_centers, scene_key, seed_precision  # noqa: E402
+from gisec.eval.scene_boot import (  # noqa: E402
+    ApWeighted,
+    SceneResampler,
+    paired_scene_bootstrap,
+)
 
 ANN = (
     UGNN.parents[1]
@@ -86,10 +86,10 @@ G_PROJ: dict = {}  # image_id -> [(y, x), ...] p* centers
 # ---------------------------------------------------------------- stage A
 @torch.no_grad()
 def stage_a(tag: str) -> list[dict]:
-    from train_projanchor import SeedNet
+    from gisec.model import SeedNet
 
-    ec.load_rgb_index()
-    ec._gpu_divisors()
+    inference.load_rgb_index()
+    inference._gpu_divisors()
     FWD["e128k"] = HERE / "_cache_fwd128k" / tag
     metas, _ = load_split("val")
     RUNS128K = HERE / "runs_128k_b16"
@@ -109,9 +109,9 @@ def stage_a(tag: str) -> list[dict]:
         npz = FWD["e128k"] / f"{meta['image_id']}.npz"
         if npz.exists():
             continue
-        img = ec.load_rgb_cached(meta)
-        depth = ep.load_depth_array(Path(meta["dpath"]))
-        sem_logit, hm, off = ec._forward(model, img, depth)
+        img = inference.load_rgb_cached(meta)
+        depth = load_depth_array(Path(meta["dpath"]))
+        sem_logit, hm, off = inference._forward(model, img, depth)
         np.savez_compressed(
             npz,
             sem_logit=sem_logit,
@@ -133,8 +133,8 @@ def stage_a(tag: str) -> list[dict]:
 def _one_image(payload):
     model, image_id, thr = payload
     z = np.load(FWD[model] / f"{image_id}.npz")
-    coords, cells = ec._cn_markers_with_cells(z["hm"], z["off"], decode="legacy")
-    peaks = ec._marker_peaks(z["hm"], coords, cells)
+    coords, cells = decode._cn_markers_with_cells(z["hm"], z["off"], decode="legacy")
+    peaks = decode._marker_peaks(z["hm"], coords, cells)
     sem = (1.0 / (1.0 + np.exp(-z["sem_logit"])) > thr).astype(np.uint8)
     _, results = pf.process(image_id, coords, sem, z["depth"], z["sem_logit"], peaks)
     return model, results
@@ -201,7 +201,7 @@ def _subset_stats(coco_gt, rs, img_ids):
 
 def _cov_one(payload):
     model, image_id = payload
-    from eval_pipeline import ann_to_mask
+    from gisec.datasets.coco_utils import ann_to_mask
 
     f = G_BY_ID[image_id]
     z = np.load(FWD[model] / f"{image_id}.npz")
@@ -220,13 +220,13 @@ def _cov_one(payload):
 
 
 def _seed_one(meta):
-    from eval_pipeline import ann_to_mask
+    from gisec.datasets.coco_utils import ann_to_mask
 
     f = G_BY_ID[meta["image_id"]]
     pair = {}
     for model in ("e128k", "e24"):
         z = np.load(FWD[model] / f"{meta['image_id']}.npz")
-        pair[model] = ec._cn_markers(z["hm"], z["off"], decode="legacy")
+        pair[model] = decode._cn_markers(z["hm"], z["off"], decode="legacy")
     gt_insts = [
         ann_to_mask(a, f["height"], f["width"]) for a in G_COCO.loadAnns(f["ann_ids"])
     ]
@@ -237,7 +237,7 @@ def _seed_one(meta):
 
 def stage_c(buckets: dict, metas: list[dict], tag: str, thr: float) -> dict:
     global G_BY_ID, G_COCO, G_PROJ
-    from eval_pipeline import LiteCOCO
+    from gisec.datasets.coco_utils import LiteCOCO
 
     coco_gt = COCO(str(ANN))
     img_ids = sorted(m["image_id"] for m in metas)
@@ -344,7 +344,7 @@ def stage_c(buckets: dict, metas: list[dict], tag: str, thr: float) -> dict:
 
     # guardrail 1: cov = |gt ∩ sem| / |gt| per GT instance
     G_BY_ID = {m["image_id"]: m for m in metas}
-    G_COCO = LiteCOCO(ep.DATA / "annotations" / "instances_val.json")
+    G_COCO = LiteCOCO(DATA / "annotations" / "instances_val.json")
     cov = {m: [] for m in ("e128k", "e24")}
     cov_small = {m: [] for m in ("e128k", "e24")}
     jobs = [(m, i) for m in ("e128k", "e24") for i in img_ids]
@@ -403,7 +403,10 @@ if __name__ == "__main__":
     ap.add_argument("--thr", required=True, type=float, help="winner SEM_THR")
     ap.add_argument("--skip-fwd", action="store_true")
     args = ap.parse_args()
-    FWD["e128k"] = HERE / "_cache_fwd" / args.tag
+    # (was HERE/_cache_fwd — a copy leftover from eval_full_e24 that
+    # pointed --skip-fwd at the E24 cache; the e128k forwards live
+    # under _cache_fwd128k, matching stage_a)
+    FWD["e128k"] = HERE / "_cache_fwd128k" / args.tag
     _THR["e128k"] = args.thr
     metas = stage_a(args.tag) if not args.skip_fwd else load_split("val")[0]
     img_ids = sorted(m["image_id"] for m in metas)

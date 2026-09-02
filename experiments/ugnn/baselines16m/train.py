@@ -180,7 +180,11 @@ def main() -> None:
                     # fp32 4B) to fit 24GB cards. Values {0,1} exact in bf16;
                     # changes only loss-accumulation precision, not supervision.
                     # (bool was tried first but grid_sample rejects it.)
-                    _mt = torch.bfloat16 if os.environ.get("M2F_BF16_MASKS") == "1" else torch.float32
+                    _mt = (
+                        torch.bfloat16
+                        if os.environ.get("M2F_BF16_MASKS") == "1"
+                        else torch.float32
+                    )
                     mask_labels = [
                         unpack_masks(p.cuda(non_blocking=True)).to(_mt)
                         for p in packed_masks
@@ -205,8 +209,11 @@ def main() -> None:
                 optimizer.zero_grad(set_to_none=True)
                 torch.cuda.empty_cache()
                 oom_skipped += 1
-                print(f"[oom-skip] batch dropped at step {global_step} "
-                      f"(total {oom_skipped})", flush=True)
+                print(
+                    f"[oom-skip] batch dropped at step {global_step} "
+                    f"(total {oom_skipped})",
+                    flush=True,
+                )
                 continue
             global_step += 1
             if global_step % LOG_EVERY == 0 or global_step <= 5 or smoke_limit:

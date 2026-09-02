@@ -16,11 +16,27 @@ docs/method/
 output/
 .worktree/
 
-# exp09 gt_records (7.2G generated pickles, regenerable via build_gt_records.py)
+# exp09 gt_records (7.2G generated pickles, regenerable via gisec.datasets.build_gt_records)
 experiments/ugnn/exp09_centernet_seeds/gt_records/
 
-# exp17 band records (canonical band overlay, regenerable via build_band_records.py)
+# exp17 band records (canonical band overlay, regenerable via gisec.datasets.build_band_records)
 experiments/ugnn/exp17_band_ema/gt_records/
+
+# exp23/exp24 generated records (regenerable via the builders)
+experiments/ugnn/exp23_seam_rank/gt_records/
+experiments/ugnn/exp24_proj_anchor/gt_records/
 
 # forward caches (regenerable via sweep scripts)
 _cache_fwd/
+_cache_fwd128k/
+
+# per-image fullval prediction exports (110M; the reproduction-gate point
+# estimates are recorded in the eval jsons / LEDGER instead)
+e20_fullval_results.json
+e25_fullval_results.json
+
+# package-level inference caches (regenerable via gisec-build-rgb-cache /
+# gisec-postproc-cache; roots overridable via GISEC_RGB_CACHE /
+# GISEC_POSTPROC_CACHE)
+/cache_rgb/
+/cache_postproc/

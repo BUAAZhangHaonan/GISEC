@@ -24,12 +24,12 @@ SEED = 20260828
 
 @torch.no_grad()
 def main() -> None:
-    import eval_centernet as ec
-    from eval_scale import load_split
-    from train_capacity import SeedNet as SeedNetE10
+    from gisec import inference
+    from gisec.datasets.split import load_split
+    from gisec.model import SeedNet as SeedNetE10
 
-    ec.load_rgb_index()
-    ec._gpu_divisors()
+    inference.load_rgb_index()
+    inference._gpu_divisors()
     metas, _ = load_split("val")
     rng = np.random.default_rng(SEED)
     ids = sorted(
@@ -52,9 +52,9 @@ def main() -> None:
     for i in ids:
         meta = metas[i]
         z = dl.load_fwd(meta["image_id"])
-        img = ec.load_rgb_cached(meta)
+        img = inference.load_rgb_cached(meta)
         depth = dl.load_depth_array(meta["dpath"])
-        sem_logit, hm, off = ec._forward(model, img, depth)
+        sem_logit, hm, off = inference._forward(model, img, depth)
         entry = {
             "image_id": meta["image_id"],
             "depth_bitwise": bool(np.array_equal(depth.astype(np.float32), z["depth"])),

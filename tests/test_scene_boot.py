@@ -17,18 +17,13 @@ from __future__ import annotations
 
 import contextlib
 import io
-import sys
-from pathlib import Path
 
 import numpy as np
 import pytest
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 
-LIB = Path(__file__).resolve().parents[1] / "experiments" / "ugnn" / "lib"
-sys.path.insert(0, str(LIB))
-
-from scene_boot import (  # noqa: E402
+from gisec.eval.scene_boot import (
     ApWeighted,
     SceneResampler,
     paired_scene_bootstrap,

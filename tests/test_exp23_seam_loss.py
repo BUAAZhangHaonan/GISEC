@@ -29,7 +29,6 @@ E9 = _REPO / "experiments" / "ugnn" / "exp09_centernet_seeds"
 E17 = _REPO / "experiments" / "ugnn" / "exp17_band_ema"
 E23 = _REPO / "experiments" / "ugnn" / "exp23_seam_rank"
 sys.path.insert(0, str(E23))
-sys.path.insert(0, str(_REPO / "experiments" / "ugnn" / "lib"))
 
 from seam_loss import (  # noqa: E402
     _edge_index_pool,
@@ -37,7 +36,8 @@ from seam_loss import (  # noqa: E402
     seam_edges_from_idmap,
     seam_rank_loss,
 )
-from train_unet import DEPTH_HI, DEPTH_LO  # noqa: E402
+
+from gisec.datasets.records import DEPTH_HI, DEPTH_LO  # noqa: E402
 
 DATA = _REPO / "datasets" / "20260318_1K_32254"
 SIDE = 1024

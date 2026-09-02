@@ -62,12 +62,11 @@ from gisec.datasets.coco_utils import load_depth_array
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-sys.path.insert(0, str(HERE.parent / "lib"))
-sys.path.insert(0, str(HERE.parent / "exp09_centernet_seeds"))
 
-from centernet_gt import build_seed_targets_from_stats  # noqa: E402
 from seam_loss import seam_rank_loss  # noqa: E402
-from train_unet import DEPTH_HI, DEPTH_LO, DenseDataset  # noqa: E402
+
+from gisec.datasets.records import DEPTH_HI, DEPTH_LO  # noqa: E402
+from gisec.targets import build_seed_targets_from_stats  # noqa: E402
 
 E9 = HERE.parent / "exp09_centernet_seeds"
 DATA = HERE.parents[2] / "datasets" / "20260318_1K_32254"
@@ -164,7 +163,7 @@ class EMA:
             self.shadow[k].copy_(tmp)
 
 
-class CNDataset(DenseDataset):
+class CNDataset:
     """E20 CNDataset + seam edge bitmaps from gt_records/{split}_seam.dat."""
 
     def __init__(self, split: str) -> None:

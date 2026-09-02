@@ -4,22 +4,21 @@ Band definition (per image, union over instances):
     band = union_i [ dilate(m_i, 3x3) & ~erode(m_i, 3x3) ]
 Each instance's own 1-px rim (outer contour + inner rim) plus, where two
 instances touch, both sides of the seam land in the union. Weight in the
-BCE term is 1 + 3*band (band interior x4), see train_band_ema.py.
+BCE term is 1 + 7*band (band interior x8), see gisec.train.
 
 Why precomputed instead of in-worker: items.pkl carries no per-instance
-1024 masks (only union sem + stride-4 inst4), and decoding raw annotations
-inside workers is the COW hazard exp09 build_gt_records.py removed. One
-16-proc pass here (~same cost profile as exp16 build_flow_records) makes
-the train loader cost literally zero.
+1024 masks (only union sem), and decoding raw annotations inside
+workers is the COW hazard gisec.datasets.build_gt_records removed.
+One 16-proc pass here makes the train loader cost literally zero.
 
-Writes gt_records/{split}_band.dat uint8 (N, 1024*1024//8), row i aligned
-with gt_records {split}_items.pkl entry i (id order verified at build).
-The .dat is built at a .tmp path and os.replace-d into place only after
-its spot checks pass; {split}_band.json (n_images x pack) is written
-last as the completion manifest, and a .dat without a matching
-manifest is treated as incomplete and rebuilt.
+Writes {split}_band.dat uint8 (N, 1024*1024//8), row i aligned with
+the GT records {split}_items.pkl entry i (id order verified at
+build). The .dat is built at a .tmp path and os.replace-d into place
+only after its spot checks pass; {split}_band.json (n_images x pack)
+is written last as the completion manifest, and a .dat without a
+matching manifest is treated as incomplete and rebuilt.
 
-Run: python build_band_records.py
+Run: ``python -m gisec.datasets.build_band_records``
 """
 
 from __future__ import annotations
@@ -27,7 +26,6 @@ from __future__ import annotations
 import json
 import os
 import pickle
-import sys
 import time
 from multiprocessing import Pool
 from pathlib import Path
@@ -35,20 +33,16 @@ from pathlib import Path
 import numpy as np
 from pycocotools import mask as mask_utils
 
-from gisec.datasets.coco_utils import ann_to_mask  # noqa: F401  (env import check)
+from gisec.paths import BAND_RECORDS, DATA_ROOT, GT_RECORDS
+from gisec.targets import _ann_rle, _rle_stats
 
-HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent / "exp09_centernet_seeds"))
-
-from centernet_gt import _ann_rle, _rle_stats  # noqa: E402
-
-DATA = HERE.parents[2] / "datasets" / "20260318_1K_32254"
-REC = HERE.parent / "exp09_centernet_seeds" / "gt_records"
-OUT = HERE / "gt_records"
 SIDE = 1024
 PACK = SIDE * SIDE // 8
 NPROC = 16
 STRUCT = np.ones((3, 3), dtype=bool)
+
+OUT = BAND_RECORDS
+REC = GT_RECORDS
 
 
 def _manifest_path(split: str) -> Path:
@@ -100,10 +94,12 @@ def build(split: str) -> None:
     assert ids_stats.tolist() == ids_ref, "stats.pkl / items.pkl id order mismatch"
 
     payload = json.loads(
-        (DATA / "annotations" / f"instances_{split}.json").read_text(encoding="utf-8")
+        (DATA_ROOT / "annotations" / f"instances_{split}.json").read_text(
+            encoding="utf-8"
+        )
     )
     print(f"[{split}] parsed json in {time.time() - t0:.0f}s", flush=True)
-    depth_dir = DATA / "depth" / "depth_npy" / split
+    depth_dir = DATA_ROOT / "depth" / "depth_npy" / split
     by_img: dict[int, list] = {}
     for ann in payload["annotations"]:
         by_img.setdefault(int(ann["image_id"]), []).append(ann)
@@ -157,10 +153,14 @@ def build(split: str) -> None:
     )
 
 
-if __name__ == "__main__":
-    OUT.mkdir(exist_ok=True)
+def main() -> None:
+    OUT.mkdir(parents=True, exist_ok=True)
     for split in ("val", "train"):
         if _is_done(split):
             print(f"[{split}] band.dat complete (manifest ok), skip", flush=True)
         else:
             build(split)
+
+
+if __name__ == "__main__":
+    main()
