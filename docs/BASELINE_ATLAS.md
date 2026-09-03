@@ -50,9 +50,20 @@ UOIS-Net (zero-shot above) and UCN (fine-tune queued).
 | CDTI W1 cdti_full | RGB-D | subset-1000 seed42 @40K | 0.8441 | magformer method audit, 53.3M |
 | CDTI W4 cdti_shallow | RGB-D | subset-1000 @40K | 0.8344 | |
 | CDTI W2 concat_ctrl | RGB-D | subset-1000 @40K | 0.8296 | |
-| CDTI W3 cdti_nodistill | RGB-D | subset-1000 @40K | in training (best 0.8377@~32.5K, 6401 GPU0) | |
-| E26a invproj (invalid-centroid-only projection anchor) | RGB-D | 64K/bs8 | training (k100) | GISEC anchor-ablation arm |
-| E26b offw0 (offset loss weight 0) | RGB-D | 64K/bs8 | queued after E26a | GISEC offset-ablation arm |
+| CDTI W3 cdti_nodistill | RGB-D | subset-1000 @40K | 0.8367 | final read; four arms closed W1>W3>W4>W2, distillation necessary (+0.74 vs W3) |
+| E26a invproj (in-mask float centroid + out-mask p*, off_w=1) | RGB-D | 64K/bs8, full val 3276 | 0.87433 (scene CI 0.87374 [0.87029,0.87776]) | winner ep17@0.9; paired vs E20 +2.52pt [+2.26,+2.74] |
+| E26b offw0 (projected anchor + offset loss weight 0) | RGB-D | 64K/bs8, full val 3276 | 0.87617 (scene CI 0.87586) | winner ep15@0.95; paired vs E20 +2.73pt [+2.45,+2.99]; highest GISEC number to date |
+
+**E26 ablation final read (2026-09-03; both arms 64K/bs8/20ep, same budget as E24; full val 3276,
+eval chain identical to E24 incl. G1 reproduction gate).** Anchor triplet: centroid 0.84880 <
+projected 0.86113 < invproj 0.87433 — the entire E24 gain over E20 comes from repairing invalid
+(out-of-mask) centroids (+2.52pt, CI [+2.26,+2.74]); discretizing valid in-mask centroids costs
+-1.32pt. Offset auxiliary loss judged harmful: projected + off_w=1 (E24, 0.86113) vs projected +
+off_w=0 (E26b, 0.87617) isolates -1.50pt of pure multi-task interference, consistent with the
+decode_fix finding that the offset head does not aid stride-4 decoding. E26a/E26b scene CIs overlap
+(no direct arm-vs-arm paired test run); both exceed the E25 canonical 0.87350. Implication for the
+265K long-run decision: the candidate recipe is invproj or offw0, not E24 as-is. Artifacts:
+`experiments/ugnn/exp24_proj_anchor/eval/eval_full_e26_{invproj,offw0}.json`.
 
 ## L3 — 1566 caliber (train 1,261 / val 149), historical, magformer-side
 

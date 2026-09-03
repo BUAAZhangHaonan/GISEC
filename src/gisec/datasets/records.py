@@ -34,15 +34,21 @@ PACK = SIDE * SIDE // 8
 class CNDataset(Dataset):
     """E20 CNDataset + optional projected-anchor stats injection.
 
-    --anchor centroid (default): the exp09 stats stream passes through
-    untouched (bitwise E20). --anchor projected: columns (fy, fx) of
-    the per-image stats slice are replaced with the precomputed
-    in-mask projections p* before build_seed_targets_from_stats
-    stamps heatmap + offset (sigma from the area column n).
+    anchor modes (E24 anchor-ablation ladder, 2026-09-02 review):
+      centroid (default) -- the exp09 stats stream passes through
+        untouched: the original float arithmetic centroid (bitwise E20).
+      projected -- columns (fy, fx) are replaced with the precomputed
+        discrete in-mask projections p* for EVERY instance (bitwise
+        E24/E25; support-domain-constrained discrete anchor).
+      invproj -- p* only for the instances whose rounded centroid
+        falls outside the mask; in-mask instances keep their float
+        centroid (isolates "fix invalid anchors" from "discretize all
+        anchors"; synthesized from the same projanchor.pkl, zero new
+        precompute).
     """
 
     def __init__(self, split: str, anchor: str = "centroid", hit_counter=None) -> None:
-        if anchor not in ("centroid", "projected"):
+        if anchor not in ("centroid", "projected", "invproj"):
             raise ValueError(f"unknown anchor mode: {anchor!r}")
         self.split = split
         self.anchor = anchor
@@ -78,7 +84,7 @@ class CNDataset(Dataset):
         self.proj = None
         self.inside = None
         self.cell_moved = None
-        if anchor == "projected":
+        if anchor in ("projected", "invproj"):
             paf = PROJANCHOR_RECORDS / f"{split}_projanchor.pkl"
             if not paf.exists():
                 raise FileNotFoundError(
@@ -90,13 +96,16 @@ class CNDataset(Dataset):
             assert np.array_equal(pa["offsets"], self.offsets), (
                 "proj/stats offsets mismatch"
             )
-            self.proj = pa["proj"]
             self.inside = pa["inside"]
-            cell = np.floor(pa["cent"] / STRIDE + 0.5).astype(np.int64)
-            cell_p = np.floor(pa["proj"] / STRIDE + 0.5).astype(np.int64)
-            self.cell_moved = (cell[:, 0] != cell_p[:, 0]) | (
-                cell[:, 1] != cell_p[:, 1]
-            )
+            if anchor == "projected":
+                self.proj = pa["proj"]
+                cell = np.floor(pa["cent"] / STRIDE + 0.5).astype(np.int64)
+                cell_p = np.floor(pa["proj"] / STRIDE + 0.5).astype(np.int64)
+                self.cell_moved = (cell[:, 0] != cell_p[:, 0]) | (
+                    cell[:, 1] != cell_p[:, 1]
+                )
+            else:  # invproj: keep the float centroid where it is valid
+                self.proj = np.where(pa["inside"][:, None], pa["cent"], pa["proj"])
 
     def __len__(self) -> int:
         return len(self.items)
@@ -114,7 +123,7 @@ class CNDataset(Dataset):
         gt = np.unpackbits(self.sem[idx]).astype(np.float32).reshape(SIDE, SIDE)
         bd = np.unpackbits(self.band[idx]).astype(np.float32).reshape(SIDE, SIDE)
         stats = self.flat[self.offsets[idx] : self.offsets[idx + 1]]
-        if self.anchor == "projected":
+        if self.anchor in ("projected", "invproj"):
             o0, o1 = int(self.offsets[idx]), int(self.offsets[idx + 1])
             stats = stats.copy()
             stats[:, 0] = self.proj[o0:o1, 0]

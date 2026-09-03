@@ -137,10 +137,20 @@ def main() -> None:
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument(
         "--anchor",
-        choices=["centroid", "projected"],
+        choices=["centroid", "projected", "invproj"],
         default="centroid",
-        help="seed GT anchor source: arithmetic centroid (E20) or in-mask "
-        "projection p* from the E24 anchor records (E24/E25)",
+        help="seed GT anchor source: float arithmetic centroid (E20), "
+        "discrete in-mask projection p* for every instance (E24/E25), "
+        "or p* only where the rounded centroid falls outside the mask "
+        "(invproj, the E26 anchor ablation)",
+    )
+    ap.add_argument(
+        "--off-w",
+        type=float,
+        default=1.0,
+        help="offset L1 loss weight (1.0 = historical recipe; 0 = the E26 "
+        "offset-ablation arm, offset stays a trained-on-nothing auxiliary "
+        "head)",
     )
     ap.add_argument(
         "--max_steps",
@@ -205,20 +215,29 @@ def main() -> None:
         print("EVALGATE " + json.dumps(row), flush=True)
         return
 
-    anchor_hits = multiprocessing.Value("L", 0) if args.anchor == "projected" else None
+    anchor_hits = (
+        multiprocessing.Value("L", 0)
+        if args.anchor in ("projected", "invproj")
+        else None
+    )
     train_ds = CNDataset("train", anchor=args.anchor, hit_counter=anchor_hits)
     val_ds = CNDataset("val", anchor=args.anchor)
     print(f"train {len(train_ds)} imgs, val {len(val_ds)} imgs")
     print(f"anchor mode: {args.anchor}", flush=True)
-    if args.anchor == "projected":
+    if args.anchor in ("projected", "invproj"):
         for name, ds in (("train", train_ds), ("val", val_ds)):
             m = int((~ds.inside).sum())
-            c = int(ds.cell_moved.sum())
             n = int(ds.inside.size)
+            moved_txt = (
+                f", stride-4 peak cell moved {int(ds.cell_moved.sum())} "
+                f"({int(ds.cell_moved.sum()) / n:.4%})"
+                if ds.cell_moved is not None
+                else ""
+            )
             print(
-                f"anchor=projected[{name}]: {n} instances, "
-                f"centroid outside mask (p* moved) {m} ({m / n:.4%}), "
-                f"stride-4 peak cell moved {c} ({c / n:.4%})",
+                f"anchor={args.anchor}[{name}]: {n} instances, "
+                f"centroid outside mask (p* moved) {m} ({m / n:.4%})"
+                f"{moved_txt}",
                 flush=True,
             )
 
@@ -317,7 +336,7 @@ def main() -> None:
                 l_dice = dice_loss(sem, y_sem[:, None])
                 l_focal = focal_loss(seed[:, 0:1], y_seed[:, 0:1])
                 l_off = offset_l1(seed[:, 1:3], y_seed[:, 1:3], y_seed[:, 0:1])
-                loss = SEM_W * (l_bce + l_dice) + HM_W * l_focal + OFF_W * l_off
+                loss = SEM_W * (l_bce + l_dice) + HM_W * l_focal + args.off_w * l_off
                 opt.zero_grad(set_to_none=True)
                 loss.backward()
                 opt.step()
