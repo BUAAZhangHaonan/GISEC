@@ -20,12 +20,21 @@ paired scene bootstrap vs the GISEC reference.
 | Mask R-CNN R18 (mrcnn16fix) | 16.99M | RGB | 64K / bs8 | **0.6638** | torchvision | 6401 GPU0 | done 08-31 |
 | Mask2Former R18 (m2f16v2) | 16.54M | RGB | 64K / bs8 | **0.4305** | HF transformers | 6401 GPU1 | done 09-02 |
 | MagFormer-16M (external family) | 17.45M (+2.6% over cap, noted) | RGB-D | 64K from scratch | **0.7088** | magformer repo | 6401 | done 08-30 |
-| YOLOv8s-seg (official, COCO-pretrained FT) | 11.79M | RGB | 20ep full / bs8 | pending | ultralytics 8.4 | 4029 GPU7 | running (09-03) |
+| YOLOv8s-seg (official, COCO-pretrained FT) | 11.79M | RGB | 20ep full / bs6 FP32 (bs8 hit epoch-2 CUDA OOM; restarted) | **0.6989** GISEC caliber (AP50 0.8737 / AP75 0.7695 / APs 0.0473 / AR100 0.7333; n_pred 975,294); ultralytics own val: mask mAP50-95 0.4119 / mAP50 0.5348 | ultralytics 8.4.14 | 4029 GPU7 | done 09-03 |
 | Panoptic-DeepLab R50 (official d2, AMP) | ~45M (TBC at print) | RGB | 64K / bs8 | pending | bowenc0221 tools_d2 | 6401 GPU1 | running (09-03) |
-| CellPose 3.1.1.1 (official lib) | 6.60M | RGB | 20ep full / bs16 | pending | official lib | 4029 GPU4 | queued (RAM guard) |
-| StarDist 0.9.2 (official lib) | 1.41M | RGB | 20ep full / bs4 | pending | official lib | 4029 GPU6 | running |
-| UCN (official NVlabs, OCID-pretrained FT) | ~14M | RGB-D | 20ep full | pending | UnseenObjectClustering | 4029 GPU5 | queued (weights en route) |
+| CellPose 3.1.1.1 (official lib) | 6.60M | RGB | 20ep full / bs16 | pending | official lib (RAM-diet: per-record polygon free + uint16 labels) | 4029 GPU4 | requeued 09-04 (two OOM kills 149/159G + watchdog kill >238G; diet smoke running) |
+| StarDist 0.9.2 (official lib) | 1.41M | RGB | 20ep full / bs4 | pending | official lib (RAM-diet runner: uint8 cache + augmenter float32/255 + per-record polygon free) | 4029 GPU6 | requeued 09-04 (first run watchdog-killed: eager float32 cache >220G; 12-img smoke validated diet path end-to-end) |
+| UCN (official NVlabs) | ~14M | RGB-D | 20ep full / bs4 (official OCID ckpt dead-link since 2023-12, from scratch; default batch CUDA-OOM'd at 1024) | pending | UnseenObjectClustering | 4029 GPU5 | queued 09-04 |
 | UOIS-Net zero-shot (official TOD weights) | ~81M | RGB-D | 0 (zero-shot) | **0.0003** (first 500 val) | chrisdxie/uois | 4029 GPU7 | done 09-03 |
+
+**YOLO caliber note (09-04)**: the two YOLO numbers measure different things.
+0.6989 is the GISEC caliber (pycocotools, full 3276 val, maxDets [1,10,100],
+stem-id remap of ultralytics predictions.json) — comparable with every other
+row in this table. 0.4119/0.5348 is ultralytics' own val-time mAP (its mask
+matching/NMS conventions, 1566-era tables used the same convention). APs
+0.047 confirms YOLO's small-object weakness on this dataset. Artifacts on
+4029 `~/gisec32254_baselines/yolov8s/` (predictions.json 448MB, train2/,
+gisec_cocoeval.json, mirrored to `baselines16m/official_32254/`).
 
 **Erratum**: earlier tables said GISEC leads MagFormer-16M by "+14.0pt" —
 that was the E20-era delta. On the E25 canonical it is **+16.47pt**; on the
