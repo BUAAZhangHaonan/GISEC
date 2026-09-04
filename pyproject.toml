@@ -30,6 +30,7 @@ dev = [
 [project.scripts]
 gisec-train = "gisec.train:main"
 gisec-eval = "gisec.eval.fullval:main"
+gisec-eval-gpu = "gisec.gpu_pipeline:main"
 gisec-build-gt = "gisec.datasets.build_gt_records:main"
 gisec-build-band = "gisec.datasets.build_band_records:main"
 gisec-build-projanchor = "gisec.datasets.build_proj_anchor_records:main"

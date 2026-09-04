@@ -28,7 +28,6 @@ import multiprocessing as mp
 import time
 from pathlib import Path
 
-import numpy as np
 import torch
 from pycocotools.coco import COCO
 
@@ -68,7 +67,7 @@ def _worker_one(payload):
     meta, sem_logit, hm, off, depth = payload
     t0 = time.perf_counter()
     coords, cells = decode._cn_markers_with_cells(hm, off)
-    sem = (1.0 / (1.0 + np.exp(-sem_logit)) > decode.SEM_THR).astype(np.uint8)
+    sem = decode.sem_binary(sem_logit)
     if W_PROFILE == "fast":
         peaks = decode._marker_peaks(hm, coords, cells)
         insts, coco = postproc_fast.process(
@@ -181,6 +180,16 @@ def main() -> None:
         help="semantic binarization threshold override (default = "
         "gisec.decode.SEM_THR, the E20 winner 0.9)",
     )
+    ap.add_argument(
+        "--engine",
+        choices=("auto", "cpu", "gpu"),
+        default="auto",
+        help="fast profile: gpu = the gpu_fast pipeline (bitwise-equal, "
+        "~2x the fork-pool wall), cpu = the canonical fork-pool chain, "
+        "auto = gpu when CUDA is available else cpu. The full profile "
+        "always runs the canonical chain (oracle + GT diagnostics are "
+        "CPU-side)",
+    )
     args = ap.parse_args()
     decode.DECODE = args.decode
     if args.sem_thr is not None:
@@ -189,10 +198,24 @@ def main() -> None:
         ("oracle_gt_centers", "centernet") if args.profile == "full" else ("centernet",)
     )
 
+    use_gpu = False
+    if args.profile == "fast" and args.engine in ("auto", "gpu"):
+        from gisec import gpu_pipeline as _gp
+
+        if _gp._backend() is not False:
+            use_gpu = True
+        elif args.engine == "gpu":
+            raise SystemExit("engine=gpu requested but CUDA is unavailable")
+    if use_gpu and args.arch != "e10":
+        use_gpu = False  # gpu_fast wraps SeedNet only; e9 stays canonical
+        print("engine: e9 arch -> canonical CPU chain", flush=True)
+
     inference.load_rgb_index(args.split)
-    pool = mp.get_context("fork").Pool(
-        N_WORKERS, initializer=_worker_init, initargs=(args.profile, args.split)
-    )
+    pool = None
+    if not use_gpu:
+        pool = mp.get_context("fork").Pool(
+            N_WORKERS, initializer=_worker_init, initargs=(args.profile, args.split)
+        )
     ckpt = torch.load(args.ckpt, map_location="cpu")
     model_cls = SeedNet if args.arch == "e10" else SeedNetE9
     model = model_cls()
@@ -215,62 +238,85 @@ def main() -> None:
     max_markers = 0
     t_fwd = t_rgb = t_depth = t_worker = 0.0
     t0 = time.perf_counter()
+    lat_gpu = None
 
-    with pool:
+    if use_gpu:
+        # fast profile on the gpu_fast pipeline: single process, CPU
+        # watershed overlapped with the next image's GPU stage
+        from gisec.gpu_pipeline import run_batch
 
-        def payloads():
-            nonlocal t_rgb, t_depth, t_fwd
-            for meta in metas:
-                tp = time.perf_counter()
-                img = inference.load_rgb_cached(meta)
-                t_rgb += time.perf_counter() - tp
-                tp = time.perf_counter()
-                depth = load_depth_array(Path(meta["dpath"]))
-                t_depth += time.perf_counter() - tp
-                tp = time.perf_counter()
-                sem_logit, hm, off = inference._forward(model, img, depth)
-                t_fwd += time.perf_counter() - tp
-                del img
-                yield (meta, sem_logit, hm, off, depth)
+        done_box = [0]
 
-        pending = []
-        it_ = iter(payloads())
-
-        def submit_more(n=8):
-            for _ in range(n):
-                try:
-                    payload = next(it_)
-                    pending.append(pool.apply_async(_worker_one, (payload,)))
-                except StopIteration:
-                    break
-
-        submit_more()
-        done = 0
-        while pending:
-            async_res = pending.pop(0)
-            out = async_res.get()
-            t_worker += out.pop("t_worker")
-            max_markers = max(max_markers, out.pop("n_markers"))
-            for t in tags:
-                results[t] += out["results"][t]
-                for k in counts[t]:
-                    counts[t][k] += out["counts"][t][k]
-            if args.profile == "full":
-                hm_seed.append(out["hm_seed"])
-            done += 1
-            del out
-            if done % 25 == 0 or done == len(metas):
-                import ctypes
-
-                ctypes.CDLL("libc.so.6").malloc_trim(0)
+        def _prog(_meta, _out):
+            done_box[0] += 1
+            if done_box[0] % 500 == 0 or done_box[0] == len(metas):
                 dt = time.perf_counter() - t0
                 print(
-                    f"  {done}/{len(metas)} "
-                    f"({dt / done:.2f} s/img, fwd {t_fwd / done:.3f} s)"
-                    f" rss={rss_gb():.2f} GB",
+                    f"  gpu {done_box[0]}/{len(metas)} "
+                    f"({dt / done_box[0] * 1000:.0f} ms/img) rss={rss_gb():.2f} GB",
                     flush=True,
                 )
+
+        results["centernet"], lat_gpu = run_batch(
+            model, metas, None, "threaded", on_result=_prog
+        )
+        counts["centernet"]["n_pred"] = len(results["centernet"])
+    else:
+        with pool:
+
+            def payloads():
+                nonlocal t_rgb, t_depth, t_fwd
+                for meta in metas:
+                    tp = time.perf_counter()
+                    img = inference.load_rgb_cached(meta)
+                    t_rgb += time.perf_counter() - tp
+                    tp = time.perf_counter()
+                    depth = load_depth_array(Path(meta["dpath"]))
+                    t_depth += time.perf_counter() - tp
+                    tp = time.perf_counter()
+                    sem_logit, hm, off = inference._forward(model, img, depth)
+                    t_fwd += time.perf_counter() - tp
+                    del img
+                    yield (meta, sem_logit, hm, off, depth)
+
+            pending = []
+            it_ = iter(payloads())
+
+            def submit_more(n=8):
+                for _ in range(n):
+                    try:
+                        payload = next(it_)
+                        pending.append(pool.apply_async(_worker_one, (payload,)))
+                    except StopIteration:
+                        break
+
             submit_more()
+            done = 0
+            while pending:
+                async_res = pending.pop(0)
+                out = async_res.get()
+                t_worker += out.pop("t_worker")
+                max_markers = max(max_markers, out.pop("n_markers"))
+                for t in tags:
+                    results[t] += out["results"][t]
+                    for k in counts[t]:
+                        counts[t][k] += out["counts"][t][k]
+                if args.profile == "full":
+                    hm_seed.append(out["hm_seed"])
+                done += 1
+                del out
+                if done % 25 == 0 or done == len(metas):
+                    import ctypes
+
+                    ctypes.CDLL("libc.so.6").malloc_trim(0)
+                    dt = time.perf_counter() - t0
+                    print(
+                        f"  {done}/{len(metas)} "
+                        f"({dt / done:.2f} s/img, fwd {t_fwd / done:.3f} s)"
+                        f" rss={rss_gb():.2f} GB",
+                        flush=True,
+                    )
+                submit_more()
 
     wall = (time.perf_counter() - t0) / len(metas)
     report["max_markers_per_img"] = max_markers
@@ -280,16 +326,26 @@ def main() -> None:
         f"miss={inference._RGB_HITS['miss']}",
         flush=True,
     )
-    report["latency_s_per_img"] = {
-        "forward": t_fwd / len(metas),
-        "rgb_load": t_rgb / len(metas),
-        "depth_load": t_depth / len(metas),
-        "worker_compute": t_worker / N_WORKERS / len(metas),
-        "wall_total": wall,
-        "dispatch_residual": wall
-        - (t_fwd + t_rgb + t_depth) / len(metas)
-        - t_worker / N_WORKERS / len(metas),
-    }
+    if lat_gpu is not None:
+        report["engine"] = "gpu_fast"
+        report["latency_s_per_img"] = {
+            "io": lat_gpu["io"],
+            "gpu_stage": lat_gpu["gpu_stage"],
+            "cpu_stage": lat_gpu["cpu_stage"],
+            "wall_total": wall,
+        }
+    else:
+        report["engine"] = "canonical_cpu"
+        report["latency_s_per_img"] = {
+            "forward": t_fwd / len(metas),
+            "rgb_load": t_rgb / len(metas),
+            "depth_load": t_depth / len(metas),
+            "worker_compute": t_worker / N_WORKERS / len(metas),
+            "wall_total": wall,
+            "dispatch_residual": wall
+            - (t_fwd + t_rgb + t_depth) / len(metas)
+            - t_worker / N_WORKERS / len(metas),
+        }
 
     final_results = None
     img_ids = [m["image_id"] for m in metas]

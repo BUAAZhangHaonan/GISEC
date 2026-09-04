@@ -196,6 +196,14 @@ def main() -> None:
         help="one-shot: run the deployment eval on this ckpt and exit "
         "(validation gate; expects {'model': state_dict} EMA format)",
     )
+    ap.add_argument(
+        "--deploy-engine",
+        choices=("auto", "cpu", "gpu"),
+        default="auto",
+        help="deployment-eval engine: gpu = the gpu_fast pipeline "
+        "(bitwise-equal, ~2x faster), cpu = the historical path, "
+        "auto (default) = gpu when CUDA is up else cpu",
+    )
     args = ap.parse_args()
 
     lock = Path(args.lock_file) if args.lock_file else None
@@ -211,7 +219,14 @@ def main() -> None:
         ck = torch.load(args.eval_ckpt, map_location="cpu", weights_only=False)
         m = SeedNet().cuda().eval()
         m.load_state_dict(ck["model"])
-        row = deploy_eval(m, runs, args.eval_imgs, args.viz_imgs, "evalgate")
+        row = deploy_eval(
+            m,
+            runs,
+            args.eval_imgs,
+            args.viz_imgs,
+            "evalgate",
+            engine=args.deploy_engine,
+        )
         print("EVALGATE " + json.dumps(row), flush=True)
         return
 
@@ -272,9 +287,11 @@ def main() -> None:
         # warmup=0 keeps CosineAnnealingLR (bitwise legacy schedule).
         sched = torch.optim.lr_scheduler.LambdaLR(
             opt,
-            lambda s: min(1.0, s / args.warmup)
-            * 0.5
-            * (1.0 + math.cos(math.pi * min(s, _total) / _total)),
+            lambda s: (
+                min(1.0, s / args.warmup)
+                * 0.5
+                * (1.0 + math.cos(math.pi * min(s, _total) / _total))
+            ),
         )
     else:
         sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=_total)
@@ -381,6 +398,7 @@ def main() -> None:
                         args.eval_imgs,
                         args.viz_imgs,
                         f"step{done:07d}",
+                        engine=args.deploy_engine,
                     )
                     print("DEPLOY_EVAL " + json.dumps(row), flush=True)
                     with open(runs / "deploy_eval.jsonl", "a") as f:

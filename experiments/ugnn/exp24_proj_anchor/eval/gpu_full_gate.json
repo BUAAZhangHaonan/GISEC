@@ -1,0 +1,29 @@
+{
+ "canonical_segm_AP": 0.8761723587148104,
+ "gpu_segm_AP": 0.8761723587148104,
+ "identical_prediction_images": 3276,
+ "n_images": 3276,
+ "latency_gpu": {
+  "io": 0.04793284977202034,
+  "gpu_stage": 0.023604765319977846,
+  "cpu_stage": 0.062495576522170346,
+  "wall_total": 0.07197944644693016
+ },
+ "bootstrap": {
+  "segm": {
+   "delta_mean": 0.0,
+   "delta_ci95": [
+    0.0,
+    0.0
+   ]
+  },
+  "bbox": {
+   "delta_mean": 0.0,
+   "delta_ci95": [
+    0.0,
+    0.0
+   ]
+  }
+ },
+ "gate": "PASS"
+}

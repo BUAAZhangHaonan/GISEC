@@ -29,8 +29,14 @@ _VIZ_PALETTE = [
 ] * 8
 
 
-def deploy_eval(model_eval, runs_dir, eval_imgs, viz_imgs, tag):
-    """One monitor pass; returns the jsonl row (dict)."""
+def deploy_eval(model_eval, runs_dir, eval_imgs, viz_imgs, tag, engine="auto"):
+    """One monitor pass; returns the jsonl row (dict).
+
+    engine="gpu" routes forward+decode+rank through the gpu_fast
+    pipeline (bitwise-equal by construction, ~2x faster per pass) —
+    valid in-process because training already holds the CUDA context;
+    engine="cpu" is the historical forkless path (identical outputs);
+    "auto" (default) picks gpu when CUDA is up, else cpu."""
     st = _EVAL_STATE
     if "dec" not in st:
         from pathlib import Path
@@ -60,6 +66,18 @@ def deploy_eval(model_eval, runs_dir, eval_imgs, viz_imgs, tag):
             Path=Path,
         )
     dec, inf, ppf = st["dec"], st["inf"], st["ppf"]
+    if engine == "auto":
+        from gisec import gpu_pipeline as _gpl
+
+        engine = "gpu" if _gpl._backend() is not False else "cpu"
+    if engine == "gpu":
+        from gisec import gpu_pipeline as gpipeline
+
+        if "gp" not in st:
+            st["gp"] = gpipeline.GpuPipeline(model_eval)
+    else:
+        st["gp"] = None
+    gp = st["gp"]
     metas = st["metas_all"][:eval_imgs]
     thrs = (0.90, 0.95)
     results = {t: [] for t in thrs}
@@ -70,23 +88,49 @@ def deploy_eval(model_eval, runs_dir, eval_imgs, viz_imgs, tag):
         for meta in metas:
             img = inf.load_rgb_cached(meta)
             depth = st["load_depth"](st["Path"](meta["dpath"]))
+            if gp is not None:
+                # one GPU stage per threshold (forward shared cost is
+                # small at 1024; sem/rank/markers are threshold-bound)
+                payload = None
+                for t in thrs:
+                    payload = gp.gpu_stage(img, depth, t)
+                    _, coco = gpipeline.cpu_stage(payload, meta["image_id"])
+                    results[t].extend(coco)
+                if len(viz_store) < viz_imgs:
+                    viz_store[meta["image_id"]] = (
+                        "gpu",
+                        img,
+                        depth,
+                        payload,
+                        None,
+                        meta,
+                    )
+                continue
             sem_logit, hm, off = inf._forward(model_eval, img, depth)
             coords, cells = dec._cn_markers_with_cells(hm, off)
             peaks = dec._marker_peaks(hm, coords, cells)
             for t in thrs:
-                sem = (1.0 / (1.0 + np.exp(-sem_logit)) > t).astype(np.uint8)
+                sem = dec.sem_binary(sem_logit, t)
                 _, coco = ppf.process(
                     meta["image_id"], coords, sem, depth, sem_logit, peaks
                 )
                 results[t].extend(coco)
             if len(viz_store) < viz_imgs:
-                viz_store[meta["image_id"]] = (img, depth, sem_logit, coords, meta)
+                viz_store[meta["image_id"]] = (
+                    "cpu",
+                    img,
+                    depth,
+                    sem_logit,
+                    coords,
+                    meta,
+                )
     ids = [mm["image_id"] for mm in metas]
     out = {
         "event": "deploy_eval",
         "tag": tag,
         "n": len(ids),
         "sec": round(time.time() - t0, 1),
+        "engine": engine,
     }
     for t in thrs:
         r = st["ej"](st["ann"], results[t], img_ids=ids)
@@ -97,13 +141,21 @@ def deploy_eval(model_eval, runs_dir, eval_imgs, viz_imgs, tag):
     if st.get("_coco_val") is None:
         st["_coco_val"] = st["COCO"](str(st["ann"]))
     coco = st["_coco_val"]
-    for iid, (img, depth, sem_logit, coords, _meta) in viz_store.items():
-        sem = (1.0 / (1.0 + np.exp(-sem_logit)) > 0.95).astype(np.uint8)
-        # insts (uncapped instance masks) is peak-independent; the discarded
-        # COCO dicts from this call are not used for scoring.
-        insts, _ = ppf.process(
-            iid, coords, sem, depth, sem_logit, np.zeros(max(len(coords), 1))
-        )
+    for iid, (mode, img, depth, sem_logit, coords, _meta) in viz_store.items():
+        if mode == "gpu":
+            insts, _ = gpipeline.cpu_stage(sem_logit, iid)  # the 0.95 payload
+        else:
+            sem = dec.sem_binary(sem_logit, 0.95)
+            # insts (uncapped instance masks) is peak-independent; the discarded
+            # COCO dicts from this call are not used for scoring.
+            insts, _ = ppf.process(
+                iid,
+                coords,
+                sem,
+                depth,
+                sem_logit,
+                np.zeros(max(len(coords), 1)),
+            )
         canvas = img.astype(np.float32)
         for k, (mask, _a) in enumerate(insts):
             c = np.array(_VIZ_PALETTE[k % len(_VIZ_PALETTE)], dtype=np.float32)
