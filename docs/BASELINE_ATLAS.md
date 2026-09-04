@@ -14,8 +14,9 @@ paired scene bootstrap vs the GISEC reference.
 
 | Model | Params | Input | Budget | segm AP | Implementation | Where run | Status |
 |---|---:|---|---|---:|---|---|---|
-| **GISEC E25** (reference, canonical) | 16.851M | RGB-D | 128K / bs16 | **0.87350** | ours (src/gisec) | k100 | done 09-02 |
-| GISEC E24 (same-budget reference for fair comparison) | 16.851M | RGB-D | 64K / bs8 | 0.86113 | ours | k100 | done 08-29 |
+| **GISEC E26b offw0** (reference, canonical since 09-04) | 16.851M | RGB-D | 64K / bs8 | **0.87617** (CI-mean 0.87586; ep15@0.95, legacy decode) | ours (src/gisec) | k100 | done 09-03 |
+| GISEC E25 (lineage, 128K caliber) | 16.851M | RGB-D | 128K / bs16 | 0.87350 | ours | k100 | done 09-02 |
+| GISEC E24 (lineage) | 16.851M | RGB-D | 64K / bs8 | 0.86113 | ours | k100 | done 08-29 |
 | GISEC E20 (lineage) | 16.851M | RGB-D | 64K / bs8 | 0.84880 | ours | k100 | done 08-27 |
 | Mask R-CNN R18 (mrcnn16fix) | 16.99M | RGB | 64K / bs8 | **0.6638** | torchvision | 6401 GPU0 | done 08-31 |
 | Mask2Former R18 (m2f16v2) | 16.54M | RGB | 64K / bs8 | **0.4305** | HF transformers | 6401 GPU1 | done 09-02 |
@@ -37,8 +38,14 @@ matching/NMS conventions, 1566-era tables used the same convention). APs
 gisec_cocoeval.json, mirrored to `baselines16m/official_32254/`).
 
 **Erratum**: earlier tables said GISEC leads MagFormer-16M by "+14.0pt" —
-that was the E20-era delta. On the E25 canonical it is **+16.47pt**; on the
-same-budget E24 caliber it is **+15.2pt**.
+that was the E20-era delta. On the E26b canonical it is **+16.74pt** (E25:
++16.47pt; same-budget E24 caliber: +15.2pt).
+
+**Canonical provenance (E26b offw0)**: ckpt
+`/home/k100/gisec_runs/e26/e26_offw0/runs/ema_ep15.pth` + legacy decode @
+SEM_THR 0.95; scene CI 0.87586, paired vs E20 +2.73pt [+2.45,+2.99]; full
+record in `exp24_proj_anchor/eval/eval_full_e26_offw0.json`. Switch
+user-approved 2026-09-04.
 
 Officially closed negative cells (user decisions 2026-08-30): mrcnn16d
 (RGB-D MRCNN) and m2f16catfix (RGB-D M2F) — dropped, never trained.
