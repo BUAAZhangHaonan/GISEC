@@ -31,13 +31,34 @@ Same <=17M params (strict), same 20-epoch / 64K-iteration budget, same data. Pro
 | m2f16fix-v2 (official config, optional appendix) | 16,536,770 | pending | off by default |
 | magformer-16M (external family) | ~16M | pending | 6401 queued |
 
+## GPU Fast Path (gpu_fast) — the default inference/monitoring engine
+
+`gisec.gpu_pipeline` is the deployment-throughput twin of the canonical eval chain: preproc, forward, NMS/decode, binarize, sobel elevation and the sort ranks all run on the GPU (pinned async transfers; intermediate ranks stay device-resident); only the frozen numba watershed + RLE stays on CPU, overlapped with the next image's GPU stage on a worker thread. It is constructed to be **bitwise-equal to the canonical chain** — the slicing-arithmetic sobel reproduces the numba f64-promotion rounding, the magnitude uses f64 hypot with one final rounding (bitwise == `np.hypot` on f32 inputs), and the cub-radix rank reproduces tie-shared dense ranks exactly — verified end to end (unit tests + the full-val paired scene-bootstrap gate below). `rank_d` is recomputed on the GPU rather than read from the disk cache (the md5 check costs more than the recompute).
+
+**Defaults (2026-09-04, user-approved)**: `gisec-eval`/`fullval --profile fast` runs the gpu_fast pipeline by default (`--engine auto|gpu|cpu`; auto -> gpu when CUDA is up; the full profile always uses the canonical chain because its oracle/GT diagnostics are CPU-side), and the training monitor `--deploy-engine` defaults to the same auto resolution. The canonical CPU chain remains the reference and the CPU-only fallback.
+
+Measured on k100 (RTX PRO 6000, E26b ckpt @0.95): GPU stage ~21 ms/img, CPU split ~60 ms/img, threaded end-to-end **~72 ms/img (~14 img/s)** incl. image IO (IO-cold run); pure compute latency (single image, no disk) ~81 ms — vs ~251 ms/img for the CPU chain after the 2026-09-04 rank-colosseum merge and ~642 ms before it (**8.9x** end to end).
+
+```bash
+# fast-profile eval defaults to the gpu_fast pipeline (--engine cpu reverts):
+gisec-eval --arch e10 --profile fast --ckpt <ema ckpt> --sem-thr 0.95 --out r.json
+# standalone gpu CLI (adds --drift N, --pipeline serial|threaded):
+gisec-eval-gpu --ckpt <ema ckpt> --sem-thr 0.95 [--max-images N] --out r.json
+# single-image deployment API (no disk IO):
+#   from gisec.gpu_pipeline import load_model, infer_one
+#   insts, results = infer_one(model, img_u8, depth_f32)
+# training monitor: gisec-train ... --deploy-engine auto (default; gpu when CUDA)
+```
+
+Full-val gate (3276 imgs, canonical vs gpu_fast, paired multiplicity-aware scene bootstrap, 2000 draws): per-image prediction CRC identical 3276/3276, segm AP 0.87617 = canonical, delta CI95 [+0.000000, +0.000000] — record in `experiments/ugnn/exp24_proj_anchor/eval/gpu_full_gate.json` (gate criterion was delta CI95 lower bound > -0.10pt).
+
 ## Repository Layout
 
 - `src/gisec/`: the full E25 pipeline as an installed package (`pip install -e .`):
   - `model.py` SeedNet (E10 arch, 16.851M) + the E9 legacy variant; `targets.py` CenterNet GT stamping (numba); `anchors.py` the in-mask projected anchor p* (E24/E25 seed source); `losses.py` the frozen loss arithmetic
   - `train.py` the trainer (`--anchor centroid` = bitwise E20 recipe, `--anchor projected` = E24/E25) with in-training deployment monitoring (`deploy_eval.py`: frozen-500-image AP@0.90/0.95 + overlay PNGs every N steps)
   - `datasets/` CNDataset over the precomputed records (`records.py`), split metadata (`split.py`), COCO utilities (`coco_utils.py`), and all record builders (`build_gt_records` / `build_band_records` / `build_proj_anchor_records` / `build_rgb_cache`, each a `python -m` CLI)
-  - `decode.py` marker decode (legacy/fixed/grid), `inference.py` GPU forward + RGB cache, `postproc_fast.py` the numba watershed (module name frozen for the numba cache)
+  - `decode.py` marker decode (legacy/fixed/grid), `inference.py` GPU forward + RGB cache, `postproc_fast.py` the numba watershed (module name frozen for the numba cache) — since 2026-09-04 the value->rank segment is the colosseum radix/counting rank (~5x, bitwise); `gpu_pipeline.py` the GPU fast path (everything except the watershed on GPU, bitwise-equal, `gisec-eval-gpu` CLI)
   - `eval/` COCO scoring/export, seed diagnostics (`diagnostics.py`), multiplicity-aware scene bootstrap (`scene_boot.py`), full-val evaluator CLI (`fullval.py`)
   - `paths.py` dataset/record/cache locations, overridable via `GISEC_*` environment variables
 - `experiments/ugnn/`: the experiment record — `LEDGER.md` (one line per experiment), per-experiment RESULT/STATUS files and eval protocols (E24/E25 collection chain in `exp24_proj_anchor/eval/`, seam fork in `exp23_seam_rank/`, A.5/A.6 diagnostics in `diagnostics_20260828/`), equal-budget baselines (`baselines16m/`), and `archive/` (63 frozen verdict files from the E1-E19 chain). Superseded trainer/evaluator scripts were folded into the package on 2026-09-02 (git history preserves them at their original paths).
