@@ -8,11 +8,14 @@ Pipeline (E13 integrated default: peak scoring + mix elevation):
             (caller-supplied per-marker peaks array, E11 winner);
             top-100 cutoff by this score, area ascending tiebreak.
   elev/rank: mix elevation (E12 winner, lambda=2): depth rank
-            (numba separable sobel3 + hypot + order-preserving
-            integer rank, cached under the postproc rank cache
-            keyed (image_id)+md5(depth), miss falls back to inline
-            compute) + 2 * inline rank(sobel3(sem logit gradient)),
-            then a full-image re-rank of the sum.
+            (numba separable sobel3 + hypot + order-preserving integer
+            rank, cached under the postproc rank cache keyed
+            (image_id)+md5(depth), miss falls back to inline compute)
+            + 2 * inline rank(sobel3(sem logit gradient)), then a
+            full-image re-rank of the sum. Since 2026-09-04 the
+            value->rank segment is the colosseum radix/counting rank
+            (bitwise-identical, ~5x faster; see the radix/counting
+            rank section below).
   watershed: numba hierarchical bucket queue (FIFO per rank), same
             algorithm as skimage _watershed_cy; only deviation is
             marker-plateau tie order (4/250 imgs +-1 instance,
@@ -61,7 +64,9 @@ CACHE_DIR = POSTPROC_CACHE
 # ---------------------------------------------------------------- elevation
 @njit(cache=True)
 def _sobel_xy(depth):
-    """Separable sobel float32, scipy 'reflect' (edge-duplicated)."""
+    """Separable sobel float32; borders by index clamp (= scipy
+    'nearest' / edge replication; the historical docstring's
+    'reflect' was a misnomer)."""
     h, w = depth.shape
     tmp = np.empty((h, w), dtype=np.float32)
     gx = np.empty((h, w), dtype=np.float32)
@@ -99,19 +104,25 @@ def _hypot_f32(gx, gy, out):
 
 
 def compute_elevation_rank(depth):
-    """Elevation + order-preserving integer rank (ties share a rank)."""
+    """Elevation + order-preserving integer rank (ties share a rank).
+
+    Sobel/hypot arithmetic unchanged; the rank segment is the colosseum
+    radix rank (bitwise-identical to the previous np.unique +
+    searchsorted, ~4x faster)."""
     gx, gy = _sobel_xy(depth.astype(np.float32))
     elev = _hypot_f32(gx, gy, np.empty_like(gx))
-    uniq = np.unique(elev)
-    rank = np.searchsorted(uniq, elev).astype(np.int32)
-    return rank, np.int64(uniq.size)
+    rank, nrank = _rank_f32(elev)
+    return rank, np.int64(nrank)
 
 
 def _rank(elev):
     """Order-preserving integer rank of any array (ties share a rank).
 
     Single stable argsort + boundary grouping; yields the identical
-    rank array as unique+searchsorted at roughly half the cost."""
+    rank array as unique+searchsorted at roughly half the cost.
+
+    Retained as the reference semantics and the fallback path for the
+    radix/counting rank below (degenerate mix domains)."""
     flat = np.ascontiguousarray(elev).ravel()
     order = np.argsort(flat, kind="stable")
     sv = flat[order]
@@ -124,17 +135,152 @@ def _rank(elev):
     return rank.reshape(elev.shape).astype(np.int32), np.int64(grp[-1] + 1)
 
 
+# ------------------------------------------------------- radix/counting rank
+# 2026-09-04 rank colosseum champion (team_b, serial kernels): the
+# value->rank segment re-implemented as an order-preserving u32 radix
+# rank (floats) and an O(n+K) counting rank (bounded int mix). The
+# elevation values themselves still come from _sobel_xy/_hypot_f32
+# verbatim, and the outputs are bitwise-identical to the argsort /
+# unique+searchsorted reference on every real payload plus the fuzz set
+# (ties share a group number and the rank scatter is order-invariant,
+# so sort stability is irrelevant). Serial kernels ONLY: the parallel
+# variants abort under the eval chain's fork pool (libgomp fork guard,
+# arena/fork_test.py evidence) and buy nothing end-to-end where the
+# main-process serial stage binds; they stay archived (with the GPU
+# and numpy losing finalists) in experiments/ugnn/rank_colosseum/.
+
+_MIX_LIMIT = 1 << 26  # counting-rank value-domain guard (~268 MB worst case)
+
+
+@njit(cache=True)
+def _f32_keys(a, keys):
+    """Order-preserving f32 -> u32 key transform (-0.0 -> +0.0 first;
+    negatives bitwise-NOT, non-negatives get bit 31 set). Two floats
+    compare equal (numpy tie semantics) iff their keys are equal."""
+    n = a.size
+    src = a.view(np.uint32)
+    for i in range(n):
+        b = src[i]
+        if b == np.uint32(0x80000000):
+            b = np.uint32(0)
+        if b >= np.uint32(0x80000000):
+            b = b ^ np.uint32(0xFFFFFFFF)
+        else:
+            b = b | np.uint32(0x80000000)
+        keys[i] = b
+
+
+@njit(cache=True)
+def _radix_rank_u32(keys):
+    """3-pass 11-bit LSD radix rank on u32 keys -> (rank i32, nrank).
+
+    A pass whose digit is constant is skipped; after the last pass the
+    permutation is key-sorted, so tie grouping is a sequential scan."""
+    n = keys.size
+    cur = np.arange(n, dtype=np.int32)
+    alt = np.empty(n, dtype=np.int32)
+    dig = np.empty(n, dtype=np.uint16)
+    hist = np.zeros(2048, dtype=np.int64)
+    for shift in (0, 11, 22):
+        hist.fill(0)  # hist doubles as scatter cursors after each pass
+        for i in range(n):
+            dig[i] = np.uint16(
+                (np.uint32(keys[cur[i]]) >> np.uint32(shift)) & np.uint32(0x7FF)
+            )
+        for i in range(n):
+            hist[dig[i]] += 1
+        c = 0
+        nz = 0
+        for d in range(2048):
+            h = hist[d]
+            hist[d] = c
+            if h > 0:
+                nz += 1
+            c += h
+        if nz > 1:
+            for i in range(n):
+                d = dig[i]
+                h = hist[d]
+                alt[h] = cur[i]
+                hist[d] = h + 1
+            cur, alt = alt, cur
+    rank = np.empty(n, dtype=np.int32)
+    prev = keys[cur[0]]
+    g = 0
+    rank[cur[0]] = 0
+    for i in range(1, n):
+        k = keys[cur[i]]
+        if k != prev:
+            g += 1
+            prev = k
+        rank[cur[i]] = g
+    return rank, g + 1
+
+
+@njit(cache=True)
+def _rank_mix_ser(rd, rs, lam):
+    """Counting rank of rd + lam*rs -> (rank i32, nrank, ok).
+
+    No comparison sort and no permutation: mark presence, exclusive
+    prefix over present values only (rank of v = number of distinct
+    present values < v, exactly the unique+searchsorted semantics),
+    direct lookup. ok=False on negative / oversized value domains."""
+    n = rd.size
+    vmin = np.int64(rd[0]) + lam * np.int64(rs[0])
+    vmax = vmin
+    for i in range(n):
+        v = np.int64(rd[i]) + lam * np.int64(rs[i])
+        if v < vmin:
+            vmin = v
+        if v > vmax:
+            vmax = v
+    if vmin < 0 or vmax >= np.int64(_MIX_LIMIT):
+        return np.empty(0, dtype=np.int32), -1, False
+    v32 = np.empty(n, dtype=np.int32)
+    for i in range(n):
+        v32[i] = np.int32(np.int64(rd[i]) + lam * np.int64(rs[i]))
+    off = np.full(vmax + 1, -1, dtype=np.int32)
+    for i in range(n):
+        off[v32[i]] = 1  # presence mark (idempotent)
+    c = 0
+    for k in range(vmax + 1):
+        if off[k] == 1:
+            off[k] = c
+            c += 1
+    rank = np.empty(n, dtype=np.int32)
+    for i in range(n):
+        rank[i] = off[v32[i]]
+    return rank, c, True
+
+
+def _rank_f32(a):
+    """Radix rank of a contiguous float32 array -> (rank int32, nrank)."""
+    flat = np.ascontiguousarray(a).ravel()
+    keys = np.empty(flat.size, dtype=np.uint32)
+    _f32_keys(flat, keys)
+    rank, nrank = _radix_rank_u32(keys)
+    return rank.reshape(a.shape), int(nrank)
+
+
 def sem_logit_rank(sem_logit):
-    """Inline rank of the semantic-logit sobel3 gradient magnitude."""
+    """Inline rank of the semantic-logit sobel3 gradient magnitude
+    (colosseum radix rank; bitwise-identical to the argsort rank)."""
     sgx, sgy = _sobel_xy(np.ascontiguousarray(sem_logit, dtype=np.float32))
     smag = _hypot_f32(sgx, sgy, np.empty_like(sgx))
-    return _rank(smag)
+    return _rank_f32(smag)
 
 
 def mix_elevation_rank(rank_d, rank_s):
     """E12 mix elevation: re-rank(rank_d + MIX_LAMBDA * rank_s).
 
-    Integer arithmetic (exact, same ordering as the float64 sum)."""
+    Integer arithmetic (exact, same ordering as the float64 sum);
+    counting rank fast path, argsort fallback for degenerate domains."""
+
+    rd = np.ascontiguousarray(rank_d).ravel()
+    rs = np.ascontiguousarray(rank_s).ravel()
+    rank, nrank, ok = _rank_mix_ser(rd, rs, np.int64(MIX_LAMBDA))
+    if ok:
+        return rank.reshape(rank_d.shape), np.int64(nrank)
     mixed = rank_d.astype(np.int64) + np.int64(MIX_LAMBDA) * rank_s.astype(np.int64)
     return _rank(mixed)
 
@@ -375,27 +521,18 @@ def dedup_markers(coords, peaks):
     return [coords[i] for i in keep], peaks[keep]
 
 
-def process(image_id, coords, sem, depth, sem_logit, peaks, split="val"):
-    """Full pipeline from caller-supplied markers.
+def split_from_rank(image_id, coords, peaks, sem, rank, nrank):
+    """Deterministic CPU split from a precomputed mix rank (watershed,
+    merge, boxes, insts, top-100 COCO RLE).
 
-    sem is the binary mask (uint8); sem_logit is the raw semantic
-    logit map (f32) used for the mix elevation; peaks is the
-    per-marker heatmap peak array (len(coords), marker k -> index
-    k-1), used as the instance score (E11) and top-100 sort key
-    (peak desc, area asc tiebreak, stable). ``split`` keys the rank
-    cache (default val = the historical caliber).
-
-    Returns (insts, results): insts = uncapped [(mask, area)] for
-    SplitStats; results = top-100-by-peak COCO dicts with the same
-    bbox convention as the reference to_results path.
-    """
+    The tail of ``process`` verbatim (same arithmetic, same output),
+    factored out so the gpu_fast pipeline can supply its own mix rank
+    and reuse the frozen CPU kernels. coords/peaks must already be
+    deduped (see dedup_markers); rank must be an int32 elevation with
+    values in [0, nrank) and nrank buckets."""
     if not coords:
         return [], []
     peaks = np.asarray(peaks, dtype=np.float64)
-    coords, peaks = dedup_markers(coords, peaks)
-    rank_d, _ = load_or_compute_rank(image_id, depth, split)
-    rank_s, _ = sem_logit_rank(sem_logit)
-    rank, nrank = mix_elevation_rank(rank_d, rank_s)
     markers = np.zeros(sem.shape, dtype=np.int32)
     for k, (y, x) in enumerate(coords, start=1):
         markers[y, x] = k
@@ -442,6 +579,30 @@ def process(image_id, coords, sem, depth, sem_logit, peaks, split="val"):
             }
         )
     return insts, results
+
+
+def process(image_id, coords, sem, depth, sem_logit, peaks, split="val"):
+    """Full pipeline from caller-supplied markers.
+
+    sem is the binary mask (uint8); sem_logit is the raw semantic
+    logit map (f32) used for the mix elevation; peaks is the
+    per-marker heatmap peak array (len(coords), marker k -> index
+    k-1), used as the instance score (E11) and top-100 sort key
+    (peak desc, area asc tiebreak, stable). ``split`` keys the rank
+    cache (default val = the historical caliber).
+
+    Returns (insts, results): insts = uncapped [(mask, area)] for
+    SplitStats; results = top-100-by-peak COCO dicts with the same
+    bbox convention as the reference to_results path.
+    """
+    if not coords:
+        return [], []
+    peaks = np.asarray(peaks, dtype=np.float64)
+    coords, peaks = dedup_markers(coords, peaks)
+    rank_d, _ = load_or_compute_rank(image_id, depth, split)
+    rank_s, _ = sem_logit_rank(sem_logit)
+    rank, nrank = mix_elevation_rank(rank_d, rank_s)
+    return split_from_rank(image_id, coords, peaks, sem, rank, nrank)
 
 
 # ---------------------------------------------------------------- precompute

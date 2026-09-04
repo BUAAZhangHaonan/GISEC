@@ -18,6 +18,8 @@ better on this caliber, not just historical.
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 from scipy import ndimage as ndi
 
@@ -28,6 +30,25 @@ SEM_THR = 0.9  # semantic logit -> binary mask threshold (E20 sweep
 # winner; the E25 canonical point uses 0.95, set by the caller)
 MAX_MARKERS = 512
 DECODE = "legacy"
+
+
+def sem_binary(sem_logit, thr=None):
+    """Binary semantic mask at sigmoid > thr, as a logit-domain compare.
+
+    The literal ``1/(1+exp(-x)) > thr`` cost ~8 ms per 1024^2 image
+    (np.exp over 1M pixels); the compare is ~0.5 ms. Equal to the
+    literal form wherever the sigmoid does not round exactly onto thr;
+    verified bitwise on the 40-image canonical payload across the
+    0.5..0.99 threshold grid (colosseum 2026-09-04). Outside (0, 1),
+    where the logit is infinite, it falls back to the literal sigmoid.
+
+    ``thr`` defaults to the current module-level SEM_THR (fullval's
+    --sem-thr override mutates it before workers run)."""
+    if thr is None:
+        thr = SEM_THR
+    if 0.0 < thr < 1.0:
+        return (sem_logit > math.log(thr / (1.0 - thr))).astype(np.uint8)
+    return (1.0 / (1.0 + np.exp(-sem_logit)) > thr).astype(np.uint8)
 
 
 def _peak_cells(hm, thr=HM_THR):
