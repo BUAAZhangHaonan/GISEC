@@ -52,3 +52,10 @@ experiments/ugnn/exp24_proj_anchor/runs_128k_b16/*
 # GISEC_POSTPROC_CACHE)
 /cache_rgb/
 /cache_postproc/
+
+# gpu_extreme arena regenerable payloads (832MB, from make_payloads.py)
+experiments/ugnn/gpu_extreme/arena/payloads/
+# gpu_extreme host-specific build artifacts (engines, load_inline builds)
+experiments/ugnn/gpu_extreme/team_ws/build/
+experiments/ugnn/gpu_extreme/team_trt/*.engine
+experiments/ugnn/gpu_extreme/team_trt/cache.trt

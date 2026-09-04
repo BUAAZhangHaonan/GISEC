@@ -30,8 +30,10 @@ import tensorrt as trt
 import torch
 
 HERE = Path(__file__).resolve().parent
-PAYLOADS = Path("/home/k100/zhn/electronic-components-grasp-and-segment/gisex_extreme_arena/arena/payloads")
-CKPT = "/home/k100/gisec_runs/e26/e26_offw0/runs/ema_ep15.pth"
+PAYLOADS = HERE.parent / "arena" / "payloads"  # regen via make_payloads.py
+CKPT = os.environ.get(
+    "GISEC_CKPT", "/home/k100/gisec_runs/e26/e26_offw0/runs/ema_ep15.pth"
+)
 WS_BYTES = 6 << 30
 
 
@@ -199,7 +201,9 @@ def run_engine(engine_path: Path, iids: list[int]):
 
 
 def main() -> None:
-    torch.cuda.set_per_process_memory_fraction(24.0 / 97.9)
+    torch.cuda.set_per_process_memory_fraction(
+        min(1.0, 24.0 / (torch.cuda.get_device_properties(0).total_memory / 2**30))
+    )
     reuse = os.environ.get("TEAM_TRT_REBUILD", "0") == "0"
     for mode in sys.argv[1:] or ["fp16"]:
         p = HERE / f"seednet_{mode}.engine"
@@ -207,6 +211,12 @@ def main() -> None:
             print(f"[build:{mode}] reusing {p.name}")
         else:
             p = build(mode)
+        if not PAYLOADS.is_dir():
+            print(
+                f"[verify] skipped: {PAYLOADS} missing "
+                "(regen with arena/make_payloads.py)"
+            )
+            continue
         run_engine(p, [10, 11])
 
 

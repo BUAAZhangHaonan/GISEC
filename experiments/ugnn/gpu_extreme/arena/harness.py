@@ -31,17 +31,27 @@ import numpy as np
 import pycocotools.mask as M
 import torch
 
-torch.cuda.set_per_process_memory_fraction(24.0 / 97.9)  # 3090 stand-in budget
+_BUDGET = 24.0  # GiB (RTX 3090 target)
+torch.cuda.set_per_process_memory_fraction(
+    min(1.0, _BUDGET / (torch.cuda.get_device_properties(0).total_memory / 2**30))
+)
 
 from gisec import postproc_fast as pf
 from gisec.eval.coco_eval import evaluate_json
 
 HERE = Path(__file__).resolve().parent
 SEM_THR = 0.95
-DATA = Path(
-    "/home/k100/zhn/electronic-components-grasp-and-segment/gisec/datasets"
-    "/20260318_1K_32254"
-)
+DATA = None  # resolved lazily (see _ap): gisec.paths.DATA_ROOT, so the
+# arena follows GISEC_DATA_ROOT on any host (k100 default = repo dataset)
+
+
+def _data():
+    global DATA
+    if DATA is None:
+        from gisec.paths import DATA_ROOT
+
+        DATA = Path(DATA_ROOT)
+    return DATA
 
 
 def _manifest():
@@ -55,7 +65,7 @@ def _canonical():
 def _ap(results):
     with redirect_stdout(StringIO()):
         ev = evaluate_json(
-            DATA / "annotations" / "instances_val.json",
+            _data() / "annotations" / "instances_val.json",
             results,
             img_ids=[m["image_id"] for m in _manifest()],
         )

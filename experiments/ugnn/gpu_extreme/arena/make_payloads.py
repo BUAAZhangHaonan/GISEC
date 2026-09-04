@@ -10,13 +10,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 from pathlib import Path
 
 import numpy as np
 import torch
 
-torch.cuda.set_per_process_memory_fraction(24.0 / 97.9)  # 3090 stand-in budget
+_BUDGET = 24.0  # GiB (RTX 3090 target)
+torch.cuda.set_per_process_memory_fraction(
+    min(1.0, _BUDGET / (torch.cuda.get_device_properties(0).total_memory / 2**30))
+)
 
 from gisec import decode, inference, postproc_fast as pf
 from gisec.datasets.coco_utils import load_depth_array
@@ -25,7 +29,9 @@ from gisec.model import SeedNet
 
 HERE = Path(__file__).resolve().parent
 N = 40
-CKPT = "/home/k100/gisec_runs/e26/e26_offw0/runs/ema_ep15.pth"
+CKPT = os.environ.get(
+    "GISEC_CKPT", "/home/k100/gisec_runs/e26/e26_offw0/runs/ema_ep15.pth"
+)
 SEM_THR = 0.95
 
 model = SeedNet()

@@ -52,14 +52,40 @@ Ampere sm_86）预算内把 GISEC 单图推理压到极限。武库：TensorRT f
 - `validate_on_3090.sh`：GPU 5 一键复验（重建 sm_86 引擎 + 扩展编译 +
   40 图双轨道门 + 编译捕获冒烟）。
 
-## 3090 / GPU 5 部署注记
+## GPU 5（4029 / RTX 3090）实测记录
+
+k100 无 4029 凭据（公钥与多组密码均拒），实机复验由用户执行：
+
+```bash
+export GISEC_CKPT=<e26_offw0 ema_ep15.pth 路径>
+export GISEC_DATA_ROOT=<20260318_1K_32254 路径>
+# gisec 环境激活（pip install -e . + pip install tensorrt onnx）
+CUDA_VISIBLE_DEVICES=5 bash experiments/ugnn/gpu_extreme/arena/validate_on_3090.sh
+```
+
+脚本五步：payload 重建 → sm_86 引擎重建（含数值对拍）→ ws 扩展 native
+编译 → TRT-in-graph 捕获冒烟 → 40 图双轨道门 + R4 集成 bench。
+**该序列已在 k100 GPU 0 全程干跑通过**（2026-09-05，fwd 4.34ms/+0.00009、
+ws 6.69ms/-0.00132、串行 22.0ms/吞吐 19.1ms——与竞技场记录一致）。
+
+| 指标 | k100（Blackwell）记录 | GPU 5（3090）实测 | 日期 |
+|---|---:|---:|---|
+| fwd（TRT fp16 含传输） | 4.34 ms | 待回填 | |
+| ws CUDA 分水岭 | 6.69 ms | 待回填 | |
+| 串行单图延迟 | 22.0 ms | 待回填 | |
+| 线程吞吐 | 19.1 ms（52.3 img/s） | 待回填 | |
+| AP delta（fwd / ws 门） | +0.00009 / -0.00132 | 待回填 | |
+
+预估（README 上文）：卷积/TRT 段 ~2× 慢、kernel 段 ~1×，单图 ~30-40ms。
+
+## 3090 部署注记
 
 - k100（Blackwell）计时对 3090 偏乐观：卷积/TRT 段约 2×，kernel 密集段
   （分水岭/编译图回放）接近 1×。3090 预估：单图 ~30-40 ms、吞吐 ~25-35
   img/s（IO 不变则被 IO 主导）。以 validate_on_3090.sh 实测为准。
 - 依赖：tensorrt + onnx（pip，**实验性依赖，不进 pyproject**）、ninja +
-  CUDA toolkit（ws 扩展编译，`TORCH_CUDA_ARCH_LIST=8.6`）、TRT 引擎须在
-  3090 上重建。
+  CUDA toolkit（ws 扩展 native 编译——脚本不钉 arch，各主机按本机 GPU
+  编译，3090 上即 sm_86）、TRT 引擎须在 3090 上重建。
 - 显存红线已在所有 runner 强制（k100 上 set_per_process_memory_fraction
   24/97.9 模拟；3090 上天然 24 GB）。
 

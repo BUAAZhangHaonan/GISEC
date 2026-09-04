@@ -18,7 +18,10 @@ from pathlib import Path
 import numpy as np
 import torch
 
-torch.cuda.set_per_process_memory_fraction(24.0 / 97.9)  # 3090 stand-in
+_BUDGET = 24.0  # GiB (RTX 3090 target)
+torch.cuda.set_per_process_memory_fraction(
+    min(1.0, _BUDGET / (torch.cuda.get_device_properties(0).total_memory / 2**30))
+)
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
