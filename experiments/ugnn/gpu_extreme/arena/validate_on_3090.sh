@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# C-tier extreme pipeline — one-command validation on the RTX 3090 (GPU 5).
+# C-tier extreme pipeline — one-command validation on the RTX 3090 (GPU 7).
 #
 # On the 3090 host (4029), from anywhere:
 #   export GISEC_CKPT=/path/to/e26_offw0/runs/ema_ep15.pth
 #   export GISEC_DATA_ROOT=/path/to/20260318_1K_32254
 #   # with the gisec env active (pip install -e . + pip install tensorrt onnx):
-#   CUDA_VISIBLE_DEVICES=5 bash experiments/ugnn/gpu_extreme/arena/validate_on_3090.sh
+#   CUDA_VISIBLE_DEVICES=7 bash experiments/ugnn/gpu_extreme/arena/validate_on_3090.sh
 #
 # Steps: payloads -> sm_86 TRT fp16 engine (+numeric verify) -> CUDA ws
 # extension build -> fuse compile/graph-capture smoke -> 40-image fwd/ws
-# quality gates -> integrated bench. Fill the "GPU 5 实测记录" table in
+# quality gates -> integrated bench. Fill the "GPU 7 实测记录" table in
 # the gpu_extreme README with the printed numbers.
 set -euo pipefail
 
-export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-5}
+export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-7}
 export HF_HUB_OFFLINE=1
 # TORCH_CUDA_ARCH_LIST deliberately NOT pinned: load_inline compiles for
 # the visible GPU natively (8.6 on the 3090, 12.0 on k100's Blackwell).
@@ -82,4 +82,4 @@ echo "== bonus: integrated R4 bench (serial latency + threaded throughput)"
 (cd "$EXT/arena" && FUSE_FILE=solution_trt.py "$PY" extreme_pipeline.py bench)
 
 echo "3090 validation complete — record the numbers above into the"
-echo "'GPU 5 实测记录' table in $EXT/README.md."
+echo "'GPU 7 实测记录' table in $EXT/README.md."
