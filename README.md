@@ -52,7 +52,7 @@ gisec-eval-gpu --ckpt <ema ckpt> --sem-thr 0.95 [--max-images N] --out r.json
 
 Full-val gate (3276 imgs, canonical vs gpu_fast, paired multiplicity-aware scene bootstrap, 2000 draws): per-image prediction CRC identical 3276/3276, segm AP 0.87617 = canonical, delta CI95 [+0.000000, +0.000000] — record in `experiments/ugnn/exp24_proj_anchor/eval/gpu_full_gate.json` (gate criterion was delta CI95 lower bound > -0.10pt).
 
-Beyond this default path, `experiments/ugnn/gpu_extreme/` archives the C-tier **exploratory** extreme colosseum (TensorRT fp16 in a single CUDA graph, custom CUDA quantized watershed, fused compile stage; 24 GiB / RTX-3090 budget): 22 ms single-image / 51.5 img/s compute floor with a full-val AP delta of -0.0033 (CI95 [-0.0050, -0.0019]) — NOT bitwise, NOT wired into any default; see its README and the 3090/GPU-5 validation script.
+Beyond this default path, `experiments/ugnn/gpu_extreme/` archives the C-tier **exploratory** extreme colosseum (TensorRT fp16 in a single CUDA graph, custom CUDA quantized watershed, fused compile stage; 24 GiB / RTX-3090 budget): 22 ms single-image / 51.5 img/s compute floor with a full-val AP delta of -0.0033 (CI95 [-0.0050, -0.0019]) — NOT bitwise, NOT wired into any default. Physically revalidated on a real RTX 3090 (4029, GPU 7, 2026-09-05): 20.9 ms serial / 38.2 img/s, fwd/ws gate deltas -0.00108/-0.00117 — see its README (GPU 7 实测记录) and the validation script.
 
 ## Repository Layout
 
